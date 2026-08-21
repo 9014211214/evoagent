@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-evolving-agent"
+version = "2.0.0"
+description = "Failure-attributed agent self-evolution framework."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7,<3",
+  "packaging>=24,<26"
+]
+keywords = ["agents", "llm", "self-evolution", "skills", "evaluation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.3,<10",
+  "pytest-xdist>=3.8,<3.9",
+]
+
+[project.scripts]
+evoagent = "evoagent.cli:main"
+
+[project.urls]
+Repository = "https://github.com/9014211214/evoagent"
+Issues = "https://github.com/9014211214/evoagent/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

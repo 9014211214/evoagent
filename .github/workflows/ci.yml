@@ -1,0 +1,167 @@
+name: ci
+
+on:
+  # Feature branches are covered by pull_request. Restrict push runs to the
+  # default branch so a single commit does not start the same matrix twice.
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install editable development package
+        run: python -m pip install -e ".[dev]"
+      - name: Verify exact read-only checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --short)"
+      - name: Compile Python sources
+        run: python -m compileall -q src tests examples scripts
+      - name: Verify editable package version
+        run: test "$(evoagent --version)" = "evoagent 2.0.0"
+      - name: Verify pinned third-party compliance metadata
+        run: evoagent compliance verify --lock THIRD_PARTY_LOCK.json --notices THIRD_PARTY_NOTICES.md
+      - name: Verify stable v2 source invariants
+        run: python scripts/validate_v1_source.py
+      - name: Verify stacked source invariants
+        run: |
+          python scripts/validate_v2_program_hardening.py
+          python scripts/validate_program_local_rl_scope.py
+          python scripts/validate_program_local_rl_runtime_contract.py
+          python scripts/validate_program_local_rl_binding_scope_runtime.py
+          python scripts/validate_program_local_rl_source.py
+          python scripts/validate_program_local_rl_final_evidence.py
+          python scripts/validate_local_policy_promotion_source.py
+          python scripts/validate_local_policy_promotion_final_source.py
+          python scripts/validate_v2_2_gate_contract_proof.py
+          python scripts/validate_v2_3_composite_source.py
+          python scripts/validate_v2_3_integrated_source.py
+      - name: Test
+        # Private-repository standard Linux runners have two CPUs. Keep the
+        # complete suite on both Python versions while using both cores, and
+        # fail visibly instead of silently restarting a crashed worker.
+        run: pytest -q -n 2 --dist load --max-worker-restart=0 --durations=30
+      - name: Run minimal evolution loop
+        run: python examples/minimal_loop.py
+      - name: Run end-to-end Evolution Cycle demo
+        run: python examples/evolution_cycle.py
+      - name: Run persistent governed Cycle demo
+        run: python examples/persistent_evolution_cycle.py
+      - name: Run Campaign governance demo
+        run: python examples/campaign_governance.py
+      - name: Run persistent Skill registry demo
+        run: python examples/persistent_skill_registry.py
+      - name: Run operator CLI demo
+        run: python examples/operator_cli.py
+      - name: Run Skill Recorder import demo
+        run: python examples/skill_recorder_import.py
+      - name: Run execution authorization demo
+        run: python examples/execution_authorization.py
+      - name: Run reference evolution lab demo
+        run: python examples/reference_evolution_lab.py
+      - name: Run local Tool evolution lab demo
+        run: python examples/local_tool_evolution_lab.py
+      - name: Run automatic local Tool evolution demo
+        run: python examples/automatic_local_tool_evolution.py
+      - name: Run executable cross-layer matrix demo
+        run: python examples/executable_cross_layer_matrix.py
+      - name: Run governed model-evolution package demo
+        run: python examples/governed_model_evolution_package.py
+      - name: Run model candidate admission lifecycle demo
+        run: python examples/model_candidate_admission.py
+      - name: Run persistent closed-loop Supervisor demo
+        run: python examples/closed_loop_supervisor.py
+      - name: Run authoritative benchmark evidence demo
+        run: python examples/authoritative_benchmark_evidence.py
+      - name: Run benchmark-gated Champion demo
+        run: python examples/benchmark_gated_champion.py
+      - name: Run shadow and Canary release control demo
+        run: python examples/shadow_canary_release.py
+      - name: Run multi-generation Evolution Program demo
+        run: python examples/multi_generation_evolution_program.py
+      - name: Run reproducible run-bundle demo
+        run: python examples/reproducible_run_bundle.py
+      - name: Run compliance demo
+        run: python examples/compliance_check.py
+      - name: Verify installed editable CLI entry point
+        run: evoagent --help
+      - name: Run demonstration acquisition demo
+        run: python examples/demonstration_to_skill.py
+      - name: Run trace store demo
+        run: python examples/trace_store.py
+      - name: Run Resource2Skill plan demo
+        run: python examples/resource2skill_plan.py
+      - name: Run counterfactual diagnosis demo
+        run: python examples/counterfactual_diagnosis.py
+      - name: Run Skill lifecycle demo
+        run: python examples/skill_lifecycle.py
+      - name: Run model evolution planning demo
+        run: python examples/model_evolution_plan.py
+      - name: Run Agentic RL planning demo
+        run: python examples/agentic_rl_plan.py
+      - name: Run evolution curve demo
+        run: python examples/evolution_curve.py
+      - name: Run Harbor Terminal-Bench plan demo
+        run: python examples/harbor_terminal_bench_plan.py
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Install wheel into a fresh virtual environment
+        run: |
+          python -m venv .wheel-venv
+          .wheel-venv/bin/python -m pip install dist/*.whl
+          .wheel-venv/bin/python -c "import evoagent, evoagent.runs, evoagent.compliance, evoagent.lab, evoagent.execution, evoagent.integrations, evoagent.runtime, evoagent.benchmarks, evoagent.training, evoagent.model_registry, evoagent.supervisor, evoagent.benchmark_evidence, evoagent.champion, evoagent.release, evoagent.program; assert evoagent.__version__ == '2.0.0'"
+          test "$(.wheel-venv/bin/evoagent --version)" = "evoagent 2.0.0"
+          .wheel-venv/bin/evoagent --help
+          rm -rf /tmp/evoagent-wheel-reference-lab
+          .wheel-venv/bin/python -m evoagent.lab \
+            --root /tmp/evoagent-wheel-reference-lab \
+            --source-commit 2222222222222222222222222222222222222222 \
+            > /tmp/evoagent-wheel-reference-result.json
+          .wheel-venv/bin/python -c "import json; data=json.load(open('/tmp/evoagent-wheel-reference-result.json')); assert data['restart_verified'] is True; assert data['external_execution_performed'] is False"
+          rm -rf /tmp/evoagent-wheel-local-tool-lab
+          .wheel-venv/bin/python -c "from evoagent.benchmarks import LocalToolEvolutionLab; result=LocalToolEvolutionLab('/tmp/evoagent-wheel-local-tool-lab').run(); assert result.summary.initial_score == 0.5; assert result.summary.final_score == 1.0; assert result.repeatable is True; assert result.external_execution_performed is False"
+          rm -rf /tmp/evoagent-wheel-automatic-local-tool-lab
+          .wheel-venv/bin/python -c "from evoagent.lab import AutomaticLocalToolEvolutionLab; lab=AutomaticLocalToolEvolutionLab('/tmp/evoagent-wheel-automatic-local-tool-lab'); first=lab.run(); second=lab.run(); assert first.attribution.root_cause_layer.value == 'skill'; assert first.summary.initial_score == 0.5; assert first.summary.final_score == 1.0; assert first.added_rules == ('inspect_before_write',); assert second.resumed is True; assert second.campaign_id == first.campaign_id; assert second.persisted_trace_count == 1; assert first.external_execution_performed is False"
+          rm -rf /tmp/evoagent-wheel-cross-layer-matrix
+          .wheel-venv/bin/python -c "from evoagent.lab import ExecutableCrossLayerAttributionLab; from evoagent.domain.models import FailureLayer, EvolutionAction; result=ExecutableCrossLayerAttributionLab('/tmp/evoagent-wheel-cross-layer-matrix').run(); by_layer={item.injected_layers[0]: item for item in result.results}; assert len(by_layer) == 7; assert by_layer[FailureLayer.SKILL].decision.action == EvolutionAction.UPDATE_SKILL; assert by_layer[FailureLayer.ROUTER].decision.action == EvolutionAction.UPDATE_ROUTER; assert by_layer[FailureLayer.TOOL].decision.action == EvolutionAction.REPAIR_TOOL; assert by_layer[FailureLayer.CONTEXT].decision.action == EvolutionAction.UPDATE_CONTEXT; assert by_layer[FailureLayer.VERIFIER].decision.action == EvolutionAction.REPAIR_VERIFIER; assert by_layer[FailureLayer.ENVIRONMENT].decision.action == EvolutionAction.ESCALATE; assert by_layer[FailureLayer.ENVIRONMENT].evolution_ticket is None; assert by_layer[FailureLayer.MODEL].decision.action == EvolutionAction.TRAIN_MODEL; assert result.conflict.decision.action == EvolutionAction.ESCALATE; assert result.repeatable is True; assert result.external_execution_performed is False"
+          rm -rf /tmp/evoagent-wheel-model-package
+          .wheel-venv/bin/python -c "from evoagent.lab import GovernedModelEvolutionLab; from evoagent.cycles import CycleStatus; from evoagent.training import TrainingMethod; lab=GovernedModelEvolutionLab('/tmp/evoagent-wheel-model-package', source_commit='4'*40); first=lab.run(); second=lab.run(); assert first.cycle_statuses == (CycleStatus.MODEL_EVIDENCE_ACCUMULATED, CycleStatus.MODEL_EVIDENCE_ACCUMULATED, CycleStatus.MODEL_EVIDENCE_ACCUMULATED, CycleStatus.MODEL_CANDIDATE); assert first.persisted_trace_count == 5; assert first.supervised_example_count == 4; assert first.preference_pair_count == 4; assert first.replay_seed_count == 4; assert first.model_candidate.method == TrainingMethod.AGENTIC_RL; assert first.model_candidate.task_spec.execution_enabled is False; assert first.training_executed is False; assert first.external_execution_performed is False; assert second.resumed is True; assert second.campaign_id == first.campaign_id; assert second.model_candidate == first.model_candidate; assert second.package_hash == first.package_hash"
+          rm -rf /tmp/evoagent-wheel-model-admission
+          .wheel-venv/bin/python -c "from evoagent.lab import ModelCandidateAdmissionLab; lab=ModelCandidateAdmissionLab('/tmp/evoagent-wheel-model-admission', source_commit='5'*40); first=lab.run(); second=lab.run(); assert first.lifecycle_statuses == ('candidate', 'evaluated', 'authorized', 'active', 'rolled_back'); assert first.held_out_base_score == 0.0; assert first.held_out_candidate_score == 1.0; assert first.replay_candidate_score == 1.0; assert first.retention_candidate_score == 1.0; assert first.safety_candidate_score == 1.0; assert first.regression_count == 0; assert first.safety_violation_count == 0; assert first.required_approvals == 2; assert first.approval_count == 2; assert first.activation_campaign_state == 'completed'; assert first.active_model_after_activation == first.candidate_id; assert first.active_revision_after_activation == 1; assert first.active_model_after_rollback == first.initial_model_id; assert first.active_revision_after_rollback == 2; assert first.synthetic_fixture is True; assert first.checkpoint_downloaded is False; assert first.candidate_weights_loaded is False; assert first.training_executed_by_evoagent is False; assert first.external_execution_performed is False; assert second.resumed is True; assert second.package_hash == first.package_hash; assert second.model_event_count == 6; assert second.campaign_event_count == 7"
+          rm -rf /tmp/evoagent-wheel-closed-loop
+          .wheel-venv/bin/python -c "from evoagent.lab import ClosedLoopEvolutionSupervisorLab; lab=ClosedLoopEvolutionSupervisorLab('/tmp/evoagent-wheel-closed-loop', source_commit='6'*40); first=lab.run(); second=lab.run(); assert first.resumed is False; assert second.resumed is True; assert first.package_hash == second.package_hash; assert second.run_status == 'completed_with_escalations'; assert second.supervisor_case_count == 3; assert second.supervisor_event_count == 15; assert set(second.tracks) == {'skill', 'model', 'escalation'}; assert sorted(second.case_statuses) == ['completed', 'completed', 'escalated']; assert second.skill_initial_score == 0.5; assert second.skill_final_score == 1.0; assert second.model_initial_score == 0.0; assert second.model_final_score == 1.0; assert second.composite_initial_score == 0.25; assert second.composite_final_score == 1.0; assert second.composite_gain == 0.75; assert second.escalation_count == 1; assert second.training_executed_by_evoagent is False; assert second.external_execution_performed is False; assert second.production_deployment_performed is False"
+          rm -rf /tmp/evoagent-wheel-benchmark-evidence
+          .wheel-venv/bin/python -c "from evoagent.lab import AuthoritativeBenchmarkEvidenceLab; lab=AuthoritativeBenchmarkEvidenceLab('/tmp/evoagent-wheel-benchmark-evidence', source_commit='7'*40); first=lab.run(); second=lab.run(); assert first.resumed is False; assert second.resumed is True; assert first.package_hash == second.package_hash; assert (second.a0_score, second.a1_score, second.a2_score) == (0.25, 0.5, 0.75); assert second.final_gain == 0.5; assert second.best_round == 2; assert second.monotonic_score is True; assert (second.improved_tasks, second.regressed_tasks, second.tied_tasks) == (3, 1, 0); assert second.comparator_score == 0.75; assert second.anchor_rank == 1; assert (second.anchor_wins, second.anchor_losses, second.anchor_ties) == (1, 1, 2); assert second.mismatched_model_rejected is True; assert second.submission_prerequisites_met_count == 0; assert len(second.evidence_ids) == 5; assert len(second.comparison_ids) == 2; assert second.registry_event_count == 7; assert second.harbor_execution_performed_by_evoagent is False; assert second.external_model_call_performed_by_evoagent is False; assert second.checkpoint_downloaded_or_loaded is False; assert second.upload_performed is False; assert second.official_submission_performed is False; assert second.official_submission_accepted is False; assert second.production_deployment_performed is False"
+          rm -rf /tmp/evoagent-wheel-champion
+          .wheel-venv/bin/python -c "from evoagent.lab import BenchmarkGatedChampionLab; lab=BenchmarkGatedChampionLab('/tmp/evoagent-wheel-champion', source_commit='8'*40); first=lab.run(); second=lab.run(); assert first.resumed is False; assert second.resumed is True; assert first.package_hash == second.package_hash; assert (second.baseline_score, second.a1_score, second.a2_score) == (0.25, 0.5, 0.75); assert second.selected_run_id == 'benchmark-run:a1'; assert second.selected_snapshot_id == 'evoagent-a1'; assert second.selected_round == 1; assert second.a1_status == 'eligible'; assert second.a2_status == 'rejected'; assert 'maximum_regressed_tasks_exceeded' in second.a2_reasons; assert second.stop_recommendation == 'stop'; assert second.continue_evolution is False; assert second.approval_count == 2; assert second.campaign_state == 'completed'; assert second.active_snapshot_id == 'evoagent-a1'; assert second.active_revision == 1; assert second.champion_record_count == 2; assert second.champion_event_count == 6; assert second.campaign_event_count == 7; assert second.harbor_execution_performed_by_evoagent is False; assert second.external_model_call_performed_by_evoagent is False; assert second.training_executed_by_evoagent is False; assert second.upload_performed is False; assert second.official_submission_performed is False; assert second.official_submission_accepted is False; assert second.production_deployment_performed is False"
+          rm -rf /tmp/evoagent-wheel-release-control
+          .wheel-venv/bin/python -c "from evoagent.lab import ShadowCanaryReleaseLab; lab=ShadowCanaryReleaseLab('/tmp/evoagent-wheel-release-control', source_commit='9'*40); first=lab.run(); second=lab.run(); assert first.resumed is False; assert second.resumed is True; assert first.drift.package_hash == second.drift.package_hash; assert first.passing.package_hash == second.passing.package_hash; assert second.drift.actions == ('advance','advance','rollback'); assert second.drift.assessment_statuses == ('pass','pass','rollback'); assert second.drift.final_state == 'rolled_back'; assert second.drift.final_primary_snapshot_id == 'evoagent-a0'; assert second.drift.final_candidate_allocation_percent == 0.0; assert second.drift.release_approval_count == 2; assert second.drift.rollback_approval_count == 2; assert 'maximum_safety_violations_exceeded' in second.drift.rollback_reasons; assert 'protected_segment_regression:protected' in second.drift.rollback_reasons; assert second.passing.actions == ('advance','advance','ready'); assert second.passing.final_state == 'ready'; assert second.passing.final_primary_snapshot_id == 'evoagent-a0'; assert second.passing.final_active_stage_id == 'canary-25'; assert second.passing.final_candidate_allocation_percent == 25.0; assert second.external_model_call_performed_by_evoagent is False; assert second.training_executed_by_evoagent is False; assert second.external_rollout_performed_by_evoagent is False; assert second.production_traffic_observed_by_evoagent is False; assert second.production_deployment_performed is False; assert second.external_rollback_performed is False; assert second.upload_performed is False; assert second.official_benchmark_claimed is False"
+          rm -rf /tmp/evoagent-wheel-program
+          .wheel-venv/bin/python -c "from evoagent.lab import MultiGenerationEvolutionProgramLab; lab=MultiGenerationEvolutionProgramLab('/tmp/evoagent-wheel-program', source_commit='a'*40); first=lab.run(); second=lab.run(); assert first.resumed is False; assert second.resumed is True; assert first.package_hash == second.package_hash; assert second.program_state == 'completed'; assert second.decision_actions == ('continue','stop_success'); assert second.generation_statuses == ('rolled_back','completed'); assert second.generation_count == 2; assert second.rollback_count == 1; assert second.generation_campaign_count == 1; assert second.generation_campaign_state == 'completed'; assert second.approval_count == 2; assert second.active_generation_id == 'program-generation:g1'; assert second.final_revision == 6; assert second.authorization_started_generation is False; assert second.same_champion_snapshot is True; assert second.g0_agent_identity_hash != second.g1_agent_identity_hash; assert second.g0_runtime_config_sha256 != second.g1_runtime_config_sha256; assert second.budget_control_action == 'stop_budget'; assert second.budget_control_state == 'budget_exhausted'; assert second.ambiguous_control_action == 'escalate'; assert second.ambiguous_control_state == 'escalated'; assert second.program_event_count == 12; assert second.campaign_event_count == 7; assert second.external_model_call_performed_by_evoagent is False; assert second.training_executed_by_evoagent is False; assert second.external_rollout_performed_by_evoagent is False; assert second.production_traffic_observed_by_evoagent is False; assert second.production_deployment_performed is False; assert second.upload_performed is False; assert second.official_benchmark_claimed is False"
+          .wheel-venv/bin/python -m pip check

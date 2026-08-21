@@ -1,0 +1,28 @@
+# Optional zero-price smoke preset for the pinned SkillEvolBench checkout.
+#
+# The exact model slug, zero prompt/completion prices, and tools support were
+# verified against OpenRouter's live /api/v1/models catalogue again on 2026-08-20.
+# Free endpoint availability and daily rate limits are provider-controlled, so
+# this preset is not the pinned model identity for the release comparison.
+name: openrouter-glm-5.2-free
+short_id: or-glm-5.2-free
+provider: openrouter
+harbor_agent_name: claude-code
+agent_model_name: z-ai/glm-5.2:free
+
+agent_env:
+  ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+  ANTHROPIC_AUTH_TOKEN: "${OPENROUTER_API_KEY}"
+  ANTHROPIC_API_KEY: ""
+  # Keep smoke behavior comparable to the paid release preset and prevent an
+  # available free slot from entering an unbounded agent loop.
+  CLAUDE_CODE_MAX_TURNS: "64"
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: "8192"
+  CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: "8192"
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: "100000"
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "50"
+
+host_litellm:
+  model: openai/z-ai/glm-5.2:free
+  api_base_env: OPENROUTER_BASE_URL
+  api_key_env: OPENROUTER_API_KEY

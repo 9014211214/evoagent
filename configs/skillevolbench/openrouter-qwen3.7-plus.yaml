@@ -1,0 +1,26 @@
+# Optional lower-cost smoke preset for the pinned SkillEvolBench checkout.
+#
+# The exact model slug, pricing tiers, one-million-token context window, and
+# tools support were verified against OpenRouter's live /api/v1/models
+# catalogue on 2026-08-20. This preset is smoke-only until its exact tool and
+# two-condition bridge behavior have been hosted-validated.
+name: openrouter-qwen3.7-plus
+short_id: or-qwen3.7-plus
+provider: openrouter
+harbor_agent_name: claude-code
+agent_model_name: qwen/qwen3.7-plus
+
+agent_env:
+  ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+  ANTHROPIC_AUTH_TOKEN: "${OPENROUTER_API_KEY}"
+  ANTHROPIC_API_KEY: ""
+  CLAUDE_CODE_MAX_TURNS: "64"
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: "8192"
+  CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS: "8192"
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: "100000"
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "50"
+
+host_litellm:
+  model: openai/qwen/qwen3.7-plus
+  api_base_env: OPENROUTER_BASE_URL
+  api_key_env: OPENROUTER_API_KEY

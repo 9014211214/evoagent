@@ -1,0 +1,986 @@
+name: SkillEvolBench benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Execution depth"
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - smoke
+          - compare
+      order_seed:
+        description: "SkillEvolBench environment order"
+        required: true
+        default: A
+        type: choice
+        options:
+          - A
+          - B
+          - C
+      model_preset:
+        description: "Exact same-model preset for both conditions"
+        required: true
+        default: qwen3-coder-plus
+        type: choice
+        options:
+          - qwen3-coder-plus
+          - qwen3.7-plus
+          - glm-5.2-free
+      confirm_compare:
+        description: "Acknowledge that full compare is expensive and currently exceeds the hosted-job plan"
+        required: true
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - ".github/workflows/skillevolbench-benchmark.yml"
+      - "configs/skillevolbench/**"
+      - "scripts/import_skillevolbench_comparison.py"
+      - "scripts/prepare_harbor_openrouter.py"
+      - "scripts/prepare_skillevolbench_runtime.py"
+      - "scripts/run_skillevolbench_evoagent.py"
+      - "scripts/summarize_harbor_trajectory.py"
+      - "scripts/verify_openrouter_model.py"
+      - "src/evoagent/benchmarks/**"
+      - "tests/test_skillevolbench_*.py"
+      - "OPEN_SOURCE_READINESS.md"
+      - "docs/31-skillevolbench-release-protocol.md"
+      - "docs/33-release-blockers.md"
+      - "docs/34-benchmark-result-template.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skillevolbench-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SKILLEVOLBENCH_REPOSITORY: AIoT-MLSys-Lab/SkillEvolBench
+  SKILLEVOLBENCH_COMMIT: 9e3daa339987c3cfa624121e1be442593a53d43c
+  # Benchmark-only compatibility pin: Harbor v0.7.0 is the last release
+  # exposing Trial._execute_agent, which the pinned SkillEvolBench patch uses.
+  HARBOR_COMMIT: 5a22a1dd4cc42fff8418bcb1e796ceb3624df931
+  OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+  OPENROUTER_MODEL_ID: qwen/qwen3-coder-plus
+  MODEL_YAML: configs/skillevolbench/openrouter-qwen3-coder-plus.yaml
+  # Two ordered tasks are the minimum meaningful evolution smoke: the skill
+  # induced after T1 can only affect T2 or a later task.
+  SMOKE_MAX_TASKS: "2"
+  CLAUDE_CODE_VERSION: "2.1.235"
+  OPENCLAW_VERSION: "2026.7.1-2"
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  preflight:
+    name: pinned preflight and dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      order_seed: ${{ steps.plan.outputs.order_seed }}
+      model_preset: ${{ steps.plan.outputs.model_preset }}
+      model_id: ${{ steps.plan.outputs.model_id }}
+      model_yaml: ${{ steps.plan.outputs.model_yaml }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Select execution plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          DISPATCH_SEED: ${{ inputs.order_seed }}
+          DISPATCH_MODEL_PRESET: ${{ inputs.model_preset }}
+          DISPATCH_CONFIRM_COMPARE: ${{ inputs.confirm_compare }}
+        run: |
+          mode=preflight
+          order_seed=A
+          model_preset=qwen3-coder-plus
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            mode="$DISPATCH_MODE"
+            order_seed="$DISPATCH_SEED"
+            model_preset="$DISPATCH_MODEL_PRESET"
+          fi
+          case "$mode" in preflight|smoke|compare) ;; *) exit 2 ;; esac
+          case "$order_seed" in A|B|C) ;; *) exit 2 ;; esac
+          case "$model_preset" in
+            qwen3-coder-plus)
+              model_id="qwen/qwen3-coder-plus"
+              model_yaml="configs/skillevolbench/openrouter-qwen3-coder-plus.yaml"
+              ;;
+            qwen3.7-plus)
+              model_id="qwen/qwen3.7-plus"
+              model_yaml="configs/skillevolbench/openrouter-qwen3.7-plus.yaml"
+              ;;
+            glm-5.2-free)
+              model_id="z-ai/glm-5.2:free"
+              model_yaml="configs/skillevolbench/openrouter-glm-5.2-free.yaml"
+              ;;
+            *) exit 2 ;;
+          esac
+          if [ "$mode" = "compare" ]; then
+            if [ "$EVENT_NAME" != "workflow_dispatch" ] \
+              || [ "$DISPATCH_CONFIRM_COMPARE" != "true" ]; then
+              echo "Full compare requires the explicit confirm_compare acknowledgement."
+              exit 2
+            fi
+            if [ "$model_preset" != "qwen3-coder-plus" ]; then
+              echo "Optional model presets are smoke-only and cannot define the release comparison."
+              exit 2
+            fi
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "order_seed=$order_seed" >> "$GITHUB_OUTPUT"
+          echo "model_preset=$model_preset" >> "$GITHUB_OUTPUT"
+          echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
+          echo "model_yaml=$model_yaml" >> "$GITHUB_OUTPUT"
+          echo "OPENROUTER_MODEL_ID=$model_id" >> "$GITHUB_ENV"
+          echo "MODEL_YAML=$model_yaml" >> "$GITHUB_ENV"
+          echo "MODEL_PRESET=$model_preset" >> "$GITHUB_ENV"
+          echo "Selected mode=$mode seed=$order_seed model_preset=$model_preset model_id=$model_id"
+
+      - name: Reclaim hosted-runner disk
+        run: |
+          echo "Before cleanup"
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo rm -rf /usr/local/share/boost "$RUNNER_TOOL_CACHE/CodeQL"
+          docker system prune --all --force --volumes || true
+          echo "After cleanup"
+          df -h
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Obtain pinned SkillEvolBench checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.SKILLEVOLBENCH_REPOSITORY }}
+          ref: ${{ env.SKILLEVOLBENCH_COMMIT }}
+          path: external/SkillEvolBench
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify pinned clean checkout
+        run: |
+          test "$(git -C external/SkillEvolBench rev-parse HEAD)" = "$SKILLEVOLBENCH_COMMIT"
+          test -z "$(git -C external/SkillEvolBench status --porcelain)"
+
+      - name: Install EvoAgent, SkillEvolBench, and pinned Harbor
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "external/SkillEvolBench[dev]"
+          python -m pip install litellm boto3 jinja2 pandas matplotlib
+          python -m pip install "git+https://github.com/harbor-framework/harbor.git@$HARBOR_COMMIT"
+          python scripts/prepare_harbor_openrouter.py \
+            --evidence benchmark-evidence/preflight/harbor-openrouter-compat.json \
+            --patch-evidence benchmark-evidence/preflight/harbor-openrouter-compat.patch
+          python -c "from scripts.run_skillevolbench_evoagent import _verify_harbor_runtime_contract; _verify_harbor_runtime_contract()"
+
+      - name: Load non-secret agent execution policy
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import yaml
+
+          allowed = (
+              "CLAUDE_CODE_MAX_TURNS",
+              "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+              "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS",
+              "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+              "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+          )
+          preset = yaml.safe_load(
+              Path(os.environ["MODEL_YAML"]).read_text(encoding="utf-8")
+          ) or {}
+          agent_env = preset.get("agent_env") or {}
+          policy = {}
+          for name in allowed:
+              value = str(agent_env.get(name, ""))
+              if not value.isdigit() or int(value) < 1:
+                  raise SystemExit(f"invalid or missing bounded policy value: {name}")
+              if name == "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" and int(value) > 100:
+                  raise SystemExit(f"invalid bounded policy percentage: {name}")
+              policy[name] = value
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
+              for name, value in policy.items():
+                  handle.write(f"{name}={value}\n")
+          target = Path("benchmark-evidence/preflight/agent-execution-policy.json")
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(json.dumps(policy, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Verify live OpenRouter model catalogue
+        run: |
+          mkdir -p benchmark-evidence/preflight
+          python scripts/verify_openrouter_model.py \
+            --model-id "$OPENROUTER_MODEL_ID" \
+            --output benchmark-evidence/preflight/openrouter-model.json
+
+      - name: Validate upstream assets and configs
+        working-directory: external/SkillEvolBench
+        run: |
+          python -m scripts.validate_configs
+          python -m scripts.validate_assets
+          python -m scripts.preflight --json | tee ../../benchmark-evidence/preflight/upstream-preflight.json
+
+      - name: Verify pinned task and verifier with the isolated oracle
+        working-directory: external/SkillEvolBench
+        run: |
+          set -euo pipefail
+          task_root="benchmark/tasks/flask-race-condition-500"
+          oracle_root="$RUNNER_TEMP/skillevolbench-oracle"
+          test ! -e "$oracle_root"
+          mkdir -p "$oracle_root/project" "$oracle_root/logs"
+          cp -a "$task_root/environment/." "$oracle_root/project/"
+          # Harbor installs each task's environment requirements inside its
+          # runtime image. Reproduce that contract for this host-side oracle.
+          python -m pip install -r "$task_root/environment/requirements.txt"
+          PROJECT_ROOT="$oracle_root/project" bash "$task_root/solution/solve.sh"
+          PROJECT_ROOT="$oracle_root/project" \
+            HARBOR_LOG_DIR="$oracle_root/logs" \
+            bash "$task_root/tests/test.sh"
+          test "$(tr -d '[:space:]' < "$oracle_root/logs/reward.txt")" = "1.000000"
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          task_root = Path("benchmark/tasks/flask-race-condition-500")
+          record = {
+              "task_id": "E1-LS1-T1",
+              "oracle_reward": 1.0,
+              "oracle_executed_in_isolated_copy": True,
+              "scored_agent_condition": False,
+              "requirements_sha256": hashlib.sha256(
+                  (task_root / "environment" / "requirements.txt").read_bytes()
+              ).hexdigest(),
+              "solution_sha256": hashlib.sha256(
+                  (task_root / "solution" / "solve.sh").read_bytes()
+              ).hexdigest(),
+              "task_spec_sha256": hashlib.sha256(
+                  (task_root / "task-spec.yaml").read_bytes()
+              ).hexdigest(),
+          }
+          target = Path("../../benchmark-evidence/preflight/oracle-sanity.json")
+          target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Dry-run both same-model conditions
+        env:
+          SEED: ${{ steps.plan.outputs.order_seed }}
+        run: |
+          checkout="$GITHUB_WORKSPACE/external/SkillEvolBench"
+          model="$GITHUB_WORKSPACE/$MODEL_YAML"
+          runs="$GITHUB_WORKSPACE/benchmark-evidence/preflight/dry-runs"
+          python scripts/run_skillevolbench_evoagent.py \
+            --checkout "$checkout" \
+            --condition no_skill \
+            --model-yaml "$model" \
+            --order-seed "$SEED" \
+            --run-id "preflight_no_skill_seed${SEED}" \
+            --workspace-root "$runs" \
+            --dry-run
+          python scripts/run_skillevolbench_evoagent.py \
+            --checkout "$checkout" \
+            --condition evoagent \
+            --model-yaml "$model" \
+            --order-seed "$SEED" \
+            --run-id "preflight_evoagent_seed${SEED}" \
+            --workspace-root "$runs" \
+            --dry-run
+
+      - name: Regression-test bridge and evidence code
+        run: |
+          pytest -q \
+            tests/test_skillevolbench_importer.py \
+            tests/test_skillevolbench_strategy.py \
+            tests/test_skillevolbench_launch_tools.py \
+            tests/test_skillevolbench_runtime_build.py
+          python -m py_compile \
+            scripts/run_skillevolbench_evoagent.py \
+            scripts/verify_openrouter_model.py \
+            scripts/import_skillevolbench_comparison.py \
+            scripts/prepare_skillevolbench_runtime.py \
+            scripts/prepare_harbor_openrouter.py \
+            scripts/summarize_harbor_trajectory.py
+
+      - name: Record preflight identity
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
+          SEED: ${{ steps.plan.outputs.order_seed }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+
+          from scripts.prepare_harbor_openrouter import AGENT_INSTRUCTION_PREFIX
+
+          record = {
+              "mode": os.environ["MODE"],
+              "order_seed": os.environ["SEED"],
+              "model_preset": os.environ["MODEL_PRESET"],
+              "model_id": os.environ["OPENROUTER_MODEL_ID"],
+              "model_yaml_sha256": hashlib.sha256(
+                  Path(os.environ["MODEL_YAML"]).read_bytes()
+              ).hexdigest(),
+              "agent_execution_policy": json.loads(
+                  Path(
+                      "benchmark-evidence/preflight/agent-execution-policy.json"
+                  ).read_text(encoding="utf-8")
+              ),
+              "openclaw_version": os.environ["OPENCLAW_VERSION"],
+              "claude_code_version": os.environ["CLAUDE_CODE_VERSION"],
+              "harbor_adapter_policy": "openrouter-autonomous-classic-tools",
+              "agent_instruction_prefix_sha256": hashlib.sha256(
+                  AGENT_INSTRUCTION_PREFIX.encode("utf-8")
+              ).hexdigest(),
+              "skillevolbench_commit": os.environ["SKILLEVOLBENCH_COMMIT"],
+              "harbor_commit": os.environ["HARBOR_COMMIT"],
+              "evoagent_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "runner_name": os.environ.get("RUNNER_NAME"),
+              "runner_os": os.environ.get("RUNNER_OS"),
+          }
+          target = Path("benchmark-evidence/preflight/identity.json")
+          target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skillevolbench-preflight-${{ github.sha }}
+          path: benchmark-evidence/preflight
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Verify smoke credential and probe OpenRouter
+        if: steps.plan.outputs.mode == 'smoke'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "$OPENROUTER_API_KEY" || {
+            echo "BLOCKER: OPENROUTER_API_KEY is unavailable to this workflow"
+            exit 1
+          }
+          mkdir -p benchmark-evidence/smoke
+          probe_log="$RUNNER_TEMP/openrouter-authenticated-probe.log"
+          set +e
+          python scripts/verify_openrouter_model.py \
+            --model-id "$OPENROUTER_MODEL_ID" \
+            --output benchmark-evidence/smoke/openrouter-probe.json \
+            --probe 2>&1 | tee "$probe_log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            blocker_code="openrouter_probe_failed"
+            blocker_detail="The authenticated OpenRouter probe failed. Inspect the retained Actions log."
+            if grep -Fq "upstream_provider_shared_pool" "$probe_log"; then
+              blocker_code="openrouter_free_shared_pool_rate_limited"
+              blocker_detail="OpenRouter's upstream free shared provider pool remained rate-limited after bounded retries."
+            elif grep -Fq "Insufficient credits" "$probe_log"; then
+              blocker_code="openrouter_insufficient_credits"
+              blocker_detail="OpenRouter returned HTTP 402 Insufficient credits during the authenticated probe."
+            fi
+            {
+              echo "No score was produced."
+              echo "mode=smoke model_preset=$MODEL_PRESET model_id=$OPENROUTER_MODEL_ID exit_code=$rc"
+              echo "blocker_code=$blocker_code"
+              echo "blocker_detail=$blocker_detail"
+            } > benchmark-evidence/smoke/OPENROUTER_BLOCKER.txt
+            rm -f "$probe_log"
+            exit "$rc"
+          fi
+          rm -f "$probe_log"
+
+      - name: Build Harbor task runtime for smoke
+        if: steps.plan.outputs.mode == 'smoke'
+        working-directory: external/SkillEvolBench
+        run: |
+          runtime_build="$RUNNER_TEMP/skillevolbench-agent-build"
+          evidence="$GITHUB_WORKSPACE/benchmark-evidence/smoke/runtime-build"
+          cp -a docker/agent-build "$runtime_build"
+          python "$GITHUB_WORKSPACE/scripts/prepare_skillevolbench_runtime.py" \
+            --script "$runtime_build/install-agent-runtime.sh" \
+            --evidence "$evidence/runtime-build.json" \
+            --patch-evidence "$evidence/runtime-build.patch" \
+            --claude-code-version "$CLAUDE_CODE_VERSION" \
+            --openclaw-version "$OPENCLAW_VERSION"
+          bash "$runtime_build/build.sh"
+          docker image inspect agent-runtime:latest
+          test "$(docker run --rm agent-runtime:latest bash -lc 'claude --version' | awk '{print $1}')" = "$CLAUDE_CODE_VERSION"
+          python -m scripts.preflight --strict
+          df -h
+          docker system df
+
+      - name: Verify Claude Code tool calls through OpenRouter
+        if: steps.plan.outputs.mode == 'smoke'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          probe_root="$RUNNER_TEMP/claude-openrouter-tool-probe"
+          test ! -e "$probe_root"
+          mkdir -p "$probe_root"
+          printf '%s\n' \
+            'def add(left, right):' \
+            '    return left - right' \
+            > "$probe_root/calc.py"
+          printf '%s\n' \
+            'import unittest' \
+            'from calc import add' \
+            '' \
+            'class AddTest(unittest.TestCase):' \
+            '    def test_adds_two_numbers(self):' \
+            '        self.assertEqual(add(2, 3), 5)' \
+            '' \
+            'if __name__ == "__main__":' \
+            '    unittest.main()' \
+            > "$probe_root/test_calc.py"
+          probe_before_sha256="$(sha256sum "$probe_root/calc.py" | cut -d ' ' -f1)"
+          probe_log="$probe_root/claude-output.jsonl"
+          agent_prefix="$(python -c 'from scripts.prepare_harbor_openrouter import AGENT_INSTRUCTION_PREFIX; print(AGENT_INSTRUCTION_PREFIX)')"
+          export CLAUDE_AGENT_PROMPT="$agent_prefix
+
+          The Python project in /root/task has a bug: add(2, 3) returns -1. Fix the existing code in place so python3 -m unittest -q passes. Preserve the function signature. No standalone answer file is required."
+          export ANTHROPIC_BASE_URL="https://openrouter.ai/api"
+          export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
+          export ANTHROPIC_API_KEY=""
+          export ANTHROPIC_MODEL="$OPENROUTER_MODEL_ID"
+          export ANTHROPIC_DEFAULT_SONNET_MODEL="$OPENROUTER_MODEL_ID"
+          export ANTHROPIC_DEFAULT_OPUS_MODEL="$OPENROUTER_MODEL_ID"
+          export ANTHROPIC_DEFAULT_HAIKU_MODEL="$OPENROUTER_MODEL_ID"
+          export CLAUDE_CODE_SUBAGENT_MODEL="$OPENROUTER_MODEL_ID"
+          if ! docker run --rm \
+            --env CLAUDE_AGENT_PROMPT \
+            --env ANTHROPIC_BASE_URL \
+            --env ANTHROPIC_AUTH_TOKEN \
+            --env ANTHROPIC_API_KEY \
+            --env ANTHROPIC_MODEL \
+            --env ANTHROPIC_DEFAULT_SONNET_MODEL \
+            --env ANTHROPIC_DEFAULT_OPUS_MODEL \
+            --env ANTHROPIC_DEFAULT_HAIKU_MODEL \
+            --env CLAUDE_CODE_SUBAGENT_MODEL \
+            --env CLAUDE_CODE_MAX_TURNS \
+            --env CLAUDE_CODE_MAX_OUTPUT_TOKENS \
+            --env CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS \
+            --env CLAUDE_CODE_MAX_CONTEXT_TOKENS \
+            --env CLAUDE_AUTOCOMPACT_PCT_OVERRIDE \
+            --volume "$probe_root:/root/task" \
+            --workdir /root/task \
+            agent-runtime:latest bash -lc '
+              set -euo pipefail
+              export CLAUDE_CONFIG_DIR=/tmp/claude-openrouter-probe-home
+              export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+              export IS_SANDBOX=1
+              mkdir -p "$CLAUDE_CONFIG_DIR"
+              printf "%s" "$CLAUDE_AGENT_PROMPT" | claude \
+                --dangerously-skip-permissions \
+                --verbose \
+                --output-format=stream-json \
+                --print \
+                > /root/task/claude-output.jsonl 2>&1
+            '; then
+            blocker_code="claude_openrouter_tool_probe_failed"
+            blocker_detail="Claude Code could not complete the isolated exact-model OpenRouter tool probe."
+            if grep -Fq '"api_error_status":429' "$probe_log" || grep -Fq '"error":"rate_limit"' "$probe_log"; then
+              blocker_code="openrouter_tool_probe_rate_limited"
+              blocker_detail="Claude Code received HTTP 429 provider rate limiting throughout its bounded retries during the exact-model tool probe."
+            elif grep -Fq '"api_error_status":402' "$probe_log" || grep -Fq "Insufficient credits" "$probe_log"; then
+              blocker_code="openrouter_insufficient_credits"
+              blocker_detail="OpenRouter returned HTTP 402 Insufficient credits during the exact-model tool probe."
+            fi
+            {
+              echo "No score was produced."
+              echo "mode=smoke model_preset=$MODEL_PRESET model_id=$OPENROUTER_MODEL_ID"
+              echo "blocker_code=$blocker_code"
+              echo "blocker_detail=$blocker_detail"
+            } > benchmark-evidence/smoke/TOOL_PROBE_BLOCKER.txt
+            echo "BLOCKER: Claude Code could not complete the isolated OpenRouter tool probe"
+            tail -n 80 "$probe_log" | sed -E 's/sk-or-v1-[A-Za-z0-9_-]+/***REDACTED***/g'
+            rm -f "$probe_log"
+            exit 1
+          fi
+          if ! docker run --rm \
+            --volume "$probe_root:/root/task" \
+            --workdir /root/task \
+            agent-runtime:latest python3 -m unittest -q; then
+            {
+              echo "No score was produced."
+              echo "mode=smoke model_preset=$MODEL_PRESET model_id=$OPENROUTER_MODEL_ID"
+              echo "blocker_code=claude_openrouter_tool_effect_missing"
+              echo "blocker_detail=The exact model returned without producing a code edit that passed the isolated unit test."
+            } > benchmark-evidence/smoke/TOOL_PROBE_BLOCKER.txt
+            echo "BLOCKER: OpenRouter returned a model response without a working code edit"
+            tail -n 80 "$probe_log" | sed -E 's/sk-or-v1-[A-Za-z0-9_-]+/***REDACTED***/g'
+            rm -f "$probe_log"
+            exit 1
+          fi
+          probe_sha256="$(sha256sum "$probe_root/calc.py" | cut -d ' ' -f1)"
+          test "$probe_sha256" != "$probe_before_sha256"
+          agent_version="$(docker run --rm agent-runtime:latest bash -lc 'claude --version')"
+          PROBE_BEFORE_SHA256="$probe_before_sha256" \
+          PROBE_SHA256="$probe_sha256" \
+          AGENT_VERSION="$agent_version" \
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          record = {
+              "schema_version": "1",
+              "model_preset": os.environ["MODEL_PRESET"],
+              "model_id": os.environ["OPENROUTER_MODEL_ID"],
+              "provider": "openrouter",
+              "wire_api": "anthropic_messages",
+              "anthropic_base_url": "https://openrouter.ai/api",
+              "tool_effect_verified": True,
+              "synthetic_code_test_passed": True,
+              "probe_file_before_sha256": os.environ["PROBE_BEFORE_SHA256"],
+              "probe_file_sha256": os.environ["PROBE_SHA256"],
+              "harbor_agent_name": "claude-code",
+              "agent_version": os.environ["AGENT_VERSION"],
+              "expected_agent_version": os.environ["CLAUDE_CODE_VERSION"],
+              "agent_execution_policy": {
+                  name: os.environ[name]
+                  for name in (
+                      "CLAUDE_CODE_MAX_TURNS",
+                      "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+                      "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS",
+                      "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+                      "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+                  )
+              },
+          }
+          target = Path("benchmark-evidence/smoke/claude-openrouter-tool-probe.json")
+          target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+          PY
+          rm -f "$probe_log"
+
+      - name: Run both bounded smoke conditions on the allocated runner
+        if: steps.plan.outputs.mode == 'smoke'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SEED: ${{ steps.plan.outputs.order_seed }}
+        run: |
+          set +e
+          failed=0
+          checkout="$GITHUB_WORKSPACE/external/SkillEvolBench"
+          model="$GITHUB_WORKSPACE/$MODEL_YAML"
+          for condition in no_skill evoagent; do
+            run_id="${condition}_smoke_seed${SEED}"
+            root="$GITHUB_WORKSPACE/benchmark-output/$condition"
+            target="$GITHUB_WORKSPACE/benchmark-evidence/smoke/$condition"
+            run_log="$RUNNER_TEMP/skillevolbench-${condition}-smoke.log"
+            mkdir -p "$target"
+            python scripts/run_skillevolbench_evoagent.py \
+              --checkout "$checkout" \
+              --condition "$condition" \
+              --model-yaml "$model" \
+              --order-seed "$SEED" \
+              --run-id "$run_id" \
+              --workspace-root "$root" \
+              --max-tasks "$SMOKE_MAX_TASKS" 2>&1 | tee "$run_log"
+            rc=${PIPESTATUS[0]}
+            if [ "$rc" -ne 0 ]; then
+              blocker_code="condition_execution_failed"
+              blocker_detail="The condition process exited before a report was produced. Inspect the retained Actions log."
+              if grep -Fq "Insufficient credits" "$run_log" \
+                && grep -Fq "openrouter_credits" "$run_log"; then
+                blocker_code="openrouter_insufficient_credits"
+                blocker_detail="OpenRouter returned HTTP 402 Insufficient credits during condition execution."
+              elif grep -Fq "Key limit exceeded" "$run_log"; then
+                blocker_code="openrouter_key_limit_exceeded"
+                blocker_detail="OpenRouter rejected the request because the API key total limit was exceeded."
+              elif grep -Eiq "HTTP (429|503)|rate.?limit|free-models-per-day" "$run_log"; then
+                blocker_code="openrouter_free_capacity_or_rate_limit"
+                blocker_detail="OpenRouter reported provider capacity or rate limiting during condition execution."
+              fi
+              {
+                echo "No score was produced."
+                echo "mode=smoke condition=$condition seed=$SEED exit_code=$rc"
+                echo "blocker_code=$blocker_code"
+                echo "blocker_detail=$blocker_detail"
+              } > "$target/BLOCKER.txt"
+              rm -f "$run_log"
+              failed=1
+              continue
+            fi
+            rm -f "$run_log"
+            source="$root/$run_id"
+            cp "$source/reports/full_report.json" "$target/full_report.json"
+            cp "$source/config.json" "$target/config.json"
+            # Preserve verifier outputs for private smoke diagnosis without
+            # publishing raw agent trajectories, prompts, or secret material.
+            while IFS= read -r -d '' verifier_file; do
+              relative="${verifier_file#"$source/harbor-job/"}"
+              destination="$target/verifier/$relative"
+              mkdir -p "$(dirname "$destination")"
+              cp "$verifier_file" "$destination"
+            done < <(
+              find "$source/harbor-job" -type f \
+                \( -name 'reward.json' \
+                   -o -name 'reward-details.json' \
+                   -o -name 'test-stdout.txt' \
+                   -o -name 'test-stderr.txt' \) \
+                -print0
+            )
+            declare -A seen_trajectory_sha=()
+            while IFS= read -r -d '' trajectory_file; do
+              trajectory_sha="$(sha256sum "$trajectory_file" | cut -d ' ' -f1)"
+              if [ -n "${seen_trajectory_sha[$trajectory_sha]:-}" ]; then
+                continue
+              fi
+              seen_trajectory_sha[$trajectory_sha]=1
+              relative="${trajectory_file#"$source/harbor-job/"}"
+              destination="$target/trajectory-structure/${relative%.json}-summary.json"
+              python scripts/summarize_harbor_trajectory.py \
+                --input "$trajectory_file" \
+                --output "$destination"
+            done < <(find "$source/harbor-job" -type f -name 'trajectory.json' -print0)
+            sha256sum "$target/full_report.json" "$target/config.json" > "$target/SHA256SUMS"
+            CONDITION="$condition" python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+
+          from scripts.prepare_harbor_openrouter import AGENT_INSTRUCTION_PREFIX
+
+          condition = os.environ["CONDITION"]
+          record = {
+              "condition": condition,
+              "mode": "smoke",
+              "partial_smoke": True,
+              "smoke_max_tasks": int(os.environ["SMOKE_MAX_TASKS"]),
+              "publishable_full_benchmark": False,
+              "order_seed": os.environ["SEED"],
+              "model_preset": os.environ["MODEL_PRESET"],
+              "model_id": os.environ["OPENROUTER_MODEL_ID"],
+              "model_yaml_sha256": hashlib.sha256(
+                  Path(os.environ["MODEL_YAML"]).read_bytes()
+              ).hexdigest(),
+              "openclaw_version": os.environ["OPENCLAW_VERSION"],
+              "claude_code_version": os.environ["CLAUDE_CODE_VERSION"],
+              "agent_version": subprocess.check_output(
+                  [
+                      "docker", "run", "--rm", "agent-runtime:latest",
+                      "bash", "-lc", "claude --version",
+                  ],
+                  text=True,
+              ).strip(),
+              "harbor_adapter_policy": "openrouter-autonomous-classic-tools",
+              "agent_instruction_prefix_sha256": hashlib.sha256(
+                  AGENT_INSTRUCTION_PREFIX.encode("utf-8")
+              ).hexdigest(),
+              "skillevolbench_commit": os.environ["SKILLEVOLBENCH_COMMIT"],
+              "harbor_commit": os.environ["HARBOR_COMMIT"],
+              "evoagent_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+          }
+          target = Path("benchmark-evidence/smoke") / condition / "identity.json"
+          target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+          PY
+          done
+          if [ "$failed" -eq 0 ]; then
+            mkdir -p benchmark-evidence/smoke/comparison
+            python scripts/import_skillevolbench_comparison.py \
+              --baseline-report benchmark-evidence/smoke/no_skill/full_report.json \
+              --baseline-config benchmark-evidence/smoke/no_skill/config.json \
+              --evolved-report benchmark-evidence/smoke/evoagent/full_report.json \
+              --evolved-config benchmark-evidence/smoke/evoagent/config.json \
+              --output benchmark-evidence/smoke/comparison/comparison.json \
+              --partial-smoke
+            find benchmark-evidence/smoke -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > benchmark-evidence/smoke/SHA256SUMS
+          fi
+          exit "$failed"
+
+      - name: Record inline smoke blocker diagnostics
+        if: failure() && steps.plan.outputs.mode == 'smoke'
+        run: |
+          mkdir -p benchmark-evidence/smoke
+          {
+            echo "No publishable score was produced. Inspect the failed step and condition BLOCKER files."
+            df -h
+            docker system df || true
+            docker images || true
+          } > benchmark-evidence/smoke/BLOCKER.txt
+
+      - name: Upload inline smoke evidence
+        if: always() && steps.plan.outputs.mode == 'smoke'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skillevolbench-smoke-${{ github.sha }}
+          path: benchmark-evidence/smoke
+          if-no-files-found: warn
+          retention-days: 30
+  condition:
+    name: ${{ matrix.condition }} (${{ needs.preflight.outputs.mode }})
+    needs: preflight
+    if: needs.preflight.outputs.mode == 'compare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        condition:
+          - no_skill
+          - evoagent
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      MODE: ${{ needs.preflight.outputs.mode }}
+      SEED: ${{ needs.preflight.outputs.order_seed }}
+      CONDITION: ${{ matrix.condition }}
+      MODEL_PRESET: ${{ needs.preflight.outputs.model_preset }}
+      OPENROUTER_MODEL_ID: ${{ needs.preflight.outputs.model_id }}
+      MODEL_YAML: ${{ needs.preflight.outputs.model_yaml }}
+    steps:
+      - name: Reclaim hosted-runner disk
+        run: |
+          echo "Before cleanup"
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo rm -rf /usr/local/share/boost "$RUNNER_TOOL_CACHE/CodeQL"
+          docker system prune --all --force --volumes || true
+          echo "After cleanup"
+          df -h
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Obtain pinned SkillEvolBench checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.SKILLEVOLBENCH_REPOSITORY }}
+          ref: ${{ env.SKILLEVOLBENCH_COMMIT }}
+          path: external/SkillEvolBench
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify secret and pinned checkout without disclosure
+        run: |
+          test -n "$OPENROUTER_API_KEY" || {
+            echo "BLOCKER: OPENROUTER_API_KEY is unavailable to this workflow"
+            exit 1
+          }
+          test "$(git -C external/SkillEvolBench rev-parse HEAD)" = "$SKILLEVOLBENCH_COMMIT"
+          test -z "$(git -C external/SkillEvolBench status --porcelain)"
+
+      - name: Install EvoAgent, SkillEvolBench, and pinned Harbor
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install -e "external/SkillEvolBench[dev]"
+          python -m pip install litellm boto3 jinja2 pandas matplotlib
+          python -m pip install "git+https://github.com/harbor-framework/harbor.git@$HARBOR_COMMIT"
+          python scripts/prepare_harbor_openrouter.py \
+            --evidence "benchmark-evidence/condition/$CONDITION/harbor-openrouter-compat.json" \
+            --patch-evidence "benchmark-evidence/condition/$CONDITION/harbor-openrouter-compat.patch"
+          python -c "from scripts.run_skillevolbench_evoagent import _verify_harbor_runtime_contract; _verify_harbor_runtime_contract()"
+
+      - name: Authenticated low-token OpenRouter probe
+        if: matrix.condition == 'no_skill'
+        run: |
+          mkdir -p benchmark-evidence/runtime
+          python scripts/verify_openrouter_model.py \
+            --model-id "$OPENROUTER_MODEL_ID" \
+            --output benchmark-evidence/runtime/openrouter-probe.json \
+            --probe
+
+      - name: Build Harbor task runtime
+        working-directory: external/SkillEvolBench
+        run: |
+          runtime_build="$RUNNER_TEMP/skillevolbench-agent-build"
+          evidence="$GITHUB_WORKSPACE/benchmark-evidence/condition/$CONDITION/runtime-build"
+          cp -a docker/agent-build "$runtime_build"
+          python "$GITHUB_WORKSPACE/scripts/prepare_skillevolbench_runtime.py" \
+            --script "$runtime_build/install-agent-runtime.sh" \
+            --evidence "$evidence/runtime-build.json" \
+            --patch-evidence "$evidence/runtime-build.patch" \
+            --claude-code-version "$CLAUDE_CODE_VERSION" \
+            --openclaw-version "$OPENCLAW_VERSION"
+          bash "$runtime_build/build.sh"
+          docker image inspect agent-runtime:latest
+          test "$(docker run --rm agent-runtime:latest bash -lc 'claude --version' | awk '{print $1}')" = "$CLAUDE_CODE_VERSION"
+          python -m scripts.preflight --strict
+          df -h
+          docker system df
+
+      - name: Run pinned condition
+        run: |
+          run_id="${CONDITION}_${MODE}_seed${SEED}"
+          args=(
+            --checkout "$GITHUB_WORKSPACE/external/SkillEvolBench"
+            --condition "$CONDITION"
+            --model-yaml "$GITHUB_WORKSPACE/$MODEL_YAML"
+            --order-seed "$SEED"
+            --run-id "$run_id"
+            --workspace-root "$GITHUB_WORKSPACE/benchmark-output/$CONDITION"
+          )
+          python scripts/run_skillevolbench_evoagent.py "${args[@]}"
+
+      - name: Bundle exact report evidence
+        if: success()
+        run: |
+          run_id="${CONDITION}_${MODE}_seed${SEED}"
+          source="$GITHUB_WORKSPACE/benchmark-output/$CONDITION/$run_id"
+          target="benchmark-evidence/condition/$CONDITION"
+          mkdir -p "$target"
+          cp "$source/reports/full_report.json" "$target/full_report.json"
+          cp "$source/config.json" "$target/config.json"
+          declare -A seen_trajectory_sha=()
+          while IFS= read -r -d '' trajectory_file; do
+            trajectory_sha="$(sha256sum "$trajectory_file" | cut -d ' ' -f1)"
+            if [ -n "${seen_trajectory_sha[$trajectory_sha]:-}" ]; then
+              continue
+            fi
+            seen_trajectory_sha[$trajectory_sha]=1
+            relative="${trajectory_file#"$source/harbor-job/"}"
+            destination="$target/trajectory-structure/${relative%.json}-summary.json"
+            python scripts/summarize_harbor_trajectory.py \
+              --input "$trajectory_file" \
+              --output "$destination"
+          done < <(find "$source/harbor-job" -type f -name 'trajectory.json' -print0)
+          sha256sum "$target/full_report.json" "$target/config.json" > "$target/SHA256SUMS"
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+
+          from scripts.prepare_harbor_openrouter import AGENT_INSTRUCTION_PREFIX
+
+          record = {
+              "condition": os.environ["CONDITION"],
+              "mode": os.environ["MODE"],
+              "partial_smoke": os.environ["MODE"] == "smoke",
+              "publishable_full_benchmark": os.environ["MODE"] == "compare",
+              "order_seed": os.environ["SEED"],
+              "model_preset": os.environ["MODEL_PRESET"],
+              "model_id": os.environ["OPENROUTER_MODEL_ID"],
+              "model_yaml_sha256": hashlib.sha256(
+                  Path(os.environ["MODEL_YAML"]).read_bytes()
+              ).hexdigest(),
+              "openclaw_version": os.environ["OPENCLAW_VERSION"],
+              "claude_code_version": os.environ["CLAUDE_CODE_VERSION"],
+              "agent_version": subprocess.check_output(
+                  [
+                      "docker", "run", "--rm", "agent-runtime:latest",
+                      "bash", "-lc", "claude --version",
+                  ],
+                  text=True,
+              ).strip(),
+              "harbor_adapter_policy": "openrouter-autonomous-classic-tools",
+              "agent_instruction_prefix_sha256": hashlib.sha256(
+                  AGENT_INSTRUCTION_PREFIX.encode("utf-8")
+              ).hexdigest(),
+              "skillevolbench_commit": os.environ["SKILLEVOLBENCH_COMMIT"],
+              "harbor_commit": os.environ["HARBOR_COMMIT"],
+              "evoagent_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+          }
+          target = Path("benchmark-evidence/condition") / os.environ["CONDITION"] / "identity.json"
+          target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Record runtime blocker diagnostics
+        if: failure()
+        run: |
+          target="benchmark-evidence/condition/$CONDITION"
+          mkdir -p "$target"
+          {
+            echo "No score was produced. See the exact failed step and logs."
+            echo "mode=$MODE condition=$CONDITION seed=$SEED"
+            df -h
+            docker system df || true
+            docker images || true
+          } > "$target/BLOCKER.txt"
+
+      - name: Upload condition evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skillevolbench-${{ needs.preflight.outputs.mode }}-${{ matrix.condition }}-${{ github.sha }}
+          path: benchmark-evidence/condition
+          if-no-files-found: warn
+          retention-days: 14
+
+  compare:
+    name: import reports and compute delta
+    needs:
+      - preflight
+      - condition
+    if: needs.condition.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install importer
+        run: python -m pip install -e .
+
+      - name: Download exact condition artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: skillevolbench-${{ needs.preflight.outputs.mode }}-*-${{ github.sha }}
+          path: downloaded
+
+      - name: Import reports, verify controls, and calculate delta
+        env:
+          MODE: ${{ needs.preflight.outputs.mode }}
+        run: |
+          baseline_report="$(find downloaded -path '*/no_skill/full_report.json' -print -quit)"
+          baseline_config="$(find downloaded -path '*/no_skill/config.json' -print -quit)"
+          evolved_report="$(find downloaded -path '*/evoagent/full_report.json' -print -quit)"
+          evolved_config="$(find downloaded -path '*/evoagent/config.json' -print -quit)"
+          test -n "$baseline_report" && test -n "$baseline_config"
+          test -n "$evolved_report" && test -n "$evolved_config"
+          args=(
+            --baseline-report "$baseline_report"
+            --baseline-config "$baseline_config"
+            --evolved-report "$evolved_report"
+            --evolved-config "$evolved_config"
+            --output benchmark-evidence/comparison.json
+          )
+          if [ "$MODE" = "smoke" ]; then
+            args+=(--partial-smoke)
+          fi
+          python scripts/import_skillevolbench_comparison.py "${args[@]}"
+          cp "$baseline_report" benchmark-evidence/no_skill.full_report.json
+          cp "$evolved_report" benchmark-evidence/evoagent.full_report.json
+          sha256sum benchmark-evidence/*.json > benchmark-evidence/SHA256SUMS
+
+      - name: Upload comparison evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skillevolbench-${{ needs.preflight.outputs.mode }}-comparison-${{ github.sha }}
+          path: benchmark-evidence
+          retention-days: 30

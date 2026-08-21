@@ -1,0 +1,22 @@
+# OpenRouter preset for the pinned SkillEvolBench checkout.
+#
+# The model slug was verified against OpenRouter's live /api/v1/models
+# catalogue on 2026-08-18.  Keep the repository secret under the
+# OPENROUTER_API_KEY name; the launcher resolves it only at runtime.
+name: openrouter-qwen3-coder-flash
+short_id: or-qwen3-coder-flash
+provider: openrouter
+harbor_agent_name: codex
+agent_model_name: qwen/qwen3-coder-flash
+
+agent_env:
+  OPENAI_BASE_URL: "${OPENROUTER_BASE_URL}"
+  OPENAI_API_KEY: "${OPENROUTER_API_KEY}"
+  CODEX_MODEL_PROVIDER: openrouter
+  CODEX_PROVIDER_ENV_KEY: OPENAI_API_KEY
+  CODEX_WIRE_API: responses
+
+host_litellm:
+  model: openai/qwen/qwen3-coder-flash
+  api_base_env: OPENROUTER_BASE_URL
+  api_key_env: OPENROUTER_API_KEY

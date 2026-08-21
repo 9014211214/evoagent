@@ -1,0 +1,75 @@
+name: release readiness
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+      - "OPEN_SOURCE_READINESS.md"
+      - "LICENSE"
+      - "LICENSE_DECISION.md"
+      - "THIRD_PARTY_LOCK.json"
+      - "THIRD_PARTY_NOTICES.md"
+      - "pyproject.toml"
+      - "scripts/verify_release_readiness.py"
+      - "scripts/run_skillevolbench_evoagent.py"
+      - "scripts/import_skillevolbench_comparison.py"
+      - "scripts/prepare_skillevolbench_runtime.py"
+      - "scripts/verify_openrouter_model.py"
+      - "configs/skillevolbench/**"
+      - ".github/workflows/skillevolbench-benchmark.yml"
+      - "src/evoagent/benchmarks/**"
+      - "tests/test_skillevolbench_*.py"
+      - "tests/test_release_readiness_scanner.py"
+      - "docs/31-skillevolbench-release-protocol.md"
+      - "docs/32-open-source-release-checklist.md"
+      - "docs/33-release-blockers.md"
+      - "docs/34-benchmark-result-template.md"
+      - "docs/35-release-scan-evidence.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: packaging and release policy (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Third-party compliance
+        run: evoagent compliance verify --lock THIRD_PARTY_LOCK.json --notices THIRD_PARTY_NOTICES.md
+      - name: Targeted release regression
+        run: pytest -q tests/test_release_readiness_scanner.py tests/test_skillevolbench_*.py
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Clean wheel import
+        run: |
+          python -m venv .release-wheel-venv
+          .release-wheel-venv/bin/python -m pip install dist/*.whl
+          .release-wheel-venv/bin/python - <<'PY'
+          from evoagent.benchmarks import (
+              decide_skillevolbench_skill_action,
+              import_skillevolbench_report,
+              install_skillevolbench_strategy_patch,
+          )
+          assert callable(import_skillevolbench_report)
+          assert callable(decide_skillevolbench_skill_action)
+          assert callable(install_skillevolbench_strategy_patch)
+          print("release wheel import passed")
+          PY
+      - name: Verify release source scan
+        run: python scripts/verify_release_readiness.py

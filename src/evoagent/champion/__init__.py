@@ -1,0 +1,61 @@
+from .lifecycle import ChampionLifecycleService, ChampionLifecycleSubmission
+from .models import (
+    ChampionAuditEvent,
+    ChampionBootstrapEvidence,
+    ChampionComparatorEvidence,
+    ChampionDecisionAction,
+    ChampionError,
+    ChampionEventType,
+    ChampionPromotionPolicy,
+    ChampionRegistryCheckpoint,
+    ChampionRoundAssessment,
+    ChampionRoundStatus,
+    ChampionSelectionDecision,
+    ChampionSnapshotRecord,
+    ChampionStopRecommendation,
+    ChampionTaskDelta,
+    ChampionUsageComparison,
+    ChampionVersionStatus,
+)
+from .package import (
+    ChampionDecisionPackageError,
+    ChampionDecisionPackageManager,
+    ChampionDecisionPackageManifest,
+)
+from .policy import ChampionPromotionGate, build_champion_policy
+from .repository import (
+    ChampionAuditIntegrityError,
+    ChampionRegistryConflictError,
+    SQLiteChampionRegistry,
+    StaleChampionRevision,
+)
+
+__all__ = [
+    "ChampionAuditEvent",
+    "ChampionAuditIntegrityError",
+    "ChampionBootstrapEvidence",
+    "ChampionComparatorEvidence",
+    "ChampionDecisionAction",
+    "ChampionDecisionPackageError",
+    "ChampionDecisionPackageManager",
+    "ChampionDecisionPackageManifest",
+    "ChampionError",
+    "ChampionEventType",
+    "ChampionLifecycleService",
+    "ChampionLifecycleSubmission",
+    "ChampionPromotionGate",
+    "ChampionPromotionPolicy",
+    "ChampionRegistryCheckpoint",
+    "ChampionRegistryConflictError",
+    "ChampionRoundAssessment",
+    "ChampionRoundStatus",
+    "ChampionSelectionDecision",
+    "ChampionSnapshotRecord",
+    "ChampionStopRecommendation",
+    "ChampionTaskDelta",
+    "ChampionUsageComparison",
+    "ChampionVersionStatus",
+    "SQLiteChampionRegistry",
+    "StaleChampionRevision",
+    "build_champion_policy",
+]

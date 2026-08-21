@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from evoagent.campaigns.models import CampaignRecord, CampaignState, CampaignType
@@ -28,7 +29,7 @@ class CampaignOperatorView:
             clauses.append("campaign_type = ?")
             values.append(campaign_type.value)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        with sqlite3.connect(Path(self.repository.path)) as connection:
+        with closing(sqlite3.connect(Path(self.repository.path))) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 "SELECT campaign_id FROM campaigns"

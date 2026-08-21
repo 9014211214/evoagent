@@ -3,6 +3,8 @@ import sqlite3
 
 import pytest
 
+import evoagent.campaigns.operator as campaign_operator
+
 from evoagent.campaigns import (
     ApprovalDecision,
     CampaignApprovalError,
@@ -10,6 +12,7 @@ from evoagent.campaigns import (
     CampaignConflictError,
     CampaignCooldownError,
     CampaignGovernanceService,
+    CampaignOperatorView,
     CampaignRisk,
     CampaignState,
     CampaignType,
@@ -48,6 +51,33 @@ def test_campaign_persists_and_duplicate_fingerprint_reuses_open_campaign(tmp_pa
     assert reused.campaign.campaign_id == attached.campaign_id
     assert reused.campaign.artifact_payload["candidate"]["version"] == "1.1.0"
     assert reopened.verify_audit() is True
+
+
+def test_operator_view_closes_every_read_connection(tmp_path, monkeypatch):
+    repository = SQLiteCampaignRepository(tmp_path / "campaigns.db")
+    reserve_skill(CampaignGovernanceService(repository))
+    original_connect = sqlite3.connect
+    connections = []
+
+    class TrackingConnection(sqlite3.Connection):
+        closed = False
+
+        def close(self):
+            self.closed = True
+            super().close()
+
+    def tracking_connect(*args, **kwargs):
+        connection = original_connect(*args, factory=TrackingConnection, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(campaign_operator.sqlite3, "connect", tracking_connect)
+
+    campaigns = CampaignOperatorView(repository).list_campaigns()
+
+    assert len(campaigns) == 1
+    assert connections
+    assert all(connection.closed for connection in connections)
 
 
 def test_open_target_rejects_conflicting_fingerprint(tmp_path):

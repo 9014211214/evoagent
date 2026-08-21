@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a reproducible problem using public or synthetic data.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve EvoAgent. Do not include credentials, private data,
+        hidden chain-of-thought, benchmark answers, or employer-confidential material.
+        Report security vulnerabilities through the private route linked below instead.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Runtime and tools
+        - Skill evolution
+        - Local-policy evolution
+        - Campaign governance
+        - Evaluation and benchmark evidence
+        - Champion, release, or program control
+        - CLI, packaging, or documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the EvoAgent version or full commit SHA.
+      placeholder: "2.0.0 or e01e8e28069212c9cf95c5083e4f0d4bb3c60337"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use only public or synthetic inputs and list the smallest reproducible steps.
+      placeholder: |
+        1. Install ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include sanitized output only. Remove secrets, private paths, and private payloads.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, installation method, and relevant public dependency versions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed credentials, private data, hidden reasoning, and confidential material.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true

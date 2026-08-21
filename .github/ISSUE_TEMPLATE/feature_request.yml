@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a bounded improvement that preserves EvoAgent governance and safety boundaries.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the desired capability and its safety boundary. Proposals must use public,
+        synthetic, independently authored, or properly licensed material.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete limitation or user need should be addressed?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change and the component it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: authority
+    attributes:
+      label: Authority and safety boundaries
+      description: Explain what the feature may change, what it must never change automatically, and which approvals or gates apply.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evaluation plan
+      description: Describe positive, negative, regression, restart, and tamper tests as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and non-goals
+      description: List simpler alternatives considered and what is explicitly out of scope.
+  - type: checkboxes
+    id: provenance
+    attributes:
+      label: Provenance confirmation
+      options:
+        - label: This proposal does not include secrets, private data, hidden reasoning, or confidential material.
+          required: true
+        - label: Any referenced third-party material is public and its license can be reviewed.
+          required: true

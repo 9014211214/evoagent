@@ -1,6 +1,35 @@
 # Changelog
 
-All versions below are private research-framework milestones. They do not imply production deployment, public distribution, trained-model availability, real traffic, or official benchmark results.
+Historical entries below describe research-framework milestones. They do not imply production deployment, trained-model availability, real traffic, or official benchmark results.
+
+## Unreleased
+
+- Added one immutable `UnifiedAgentSnapshot` binding the frozen model, Skills,
+  Router, bounded observable Memory, numeric Agent Policy and Runtime contracts.
+- Added a shared Tool-Agent runtime in which Skill, Router, Memory and Policy
+  jointly affect the same Task execution and emit bounded observable metadata.
+- Added executable one-component counterfactual attribution with insufficient-
+  evidence and causal-conflict escalation.
+- Added frozen retention, transfer, adversarial and composition evaluation,
+  forgetting/regression/safety/resource metrics and an independent promotion
+  gate.
+- Added bounded group-relative numeric Agent-policy optimization from actual
+  unified-runtime rollouts; no external model or foundation weights are used.
+- Added a persistent complete-Agent candidate Registry with explicit activation
+  and actor separation.
+- Added a zero-cost A0→A4 reference lab evolving Skill, Memory, Router and
+  Policy one at a time to a final controlled score of 1.0 with zero regression,
+  forgetting and safety violations. This remains synthetic mechanism evidence.
+- Added a benchmark-neutral Full-Agent evidence contract binding every
+  component hash, and marked the pinned SkillEvolBench bridge and artifacts as
+  Skill-component-only evidence.
+- Centralized short same-directory atomic temporary paths for document,
+  evidence, package and Registry writes to avoid Windows long-path failures.
+- Added shell-free Windows execution for explicitly selected Python-shebang
+  CLIs while retaining exact authorization, environment, budget and one-use
+  controls.
+- Added restart-safe unified Lab results: a verified second invocation is
+  read-only and performs no duplicate optimization or Registry events.
 
 ## 2.0.0 release candidate
 

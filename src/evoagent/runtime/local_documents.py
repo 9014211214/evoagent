@@ -5,10 +5,10 @@ import json
 import os
 import re
 import shutil
-import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from evoagent._io import atomic_temporary_path
 from evoagent.domain.models import Task
 from evoagent.runtime.interfaces import ResettableToolEnvironment
 from evoagent.runtime.models import (
@@ -289,7 +289,10 @@ class LocalDocumentEnvironment(ResettableToolEnvironment):
 
     @staticmethod
     def _atomic_write(path: Path, data: bytes) -> None:
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        # Keep the temporary basename independent from the caller-controlled
+        # document name. Repeating a long target name plus a 32-byte UUID made
+        # otherwise valid episodes exceed the legacy Windows MAX_PATH limit.
+        temporary = atomic_temporary_path(path)
         try:
             with temporary.open("wb") as handle:
                 handle.write(data)

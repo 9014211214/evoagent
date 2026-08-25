@@ -17,14 +17,23 @@ on:
       - "scripts/verify_openrouter_model.py"
       - "configs/skillevolbench/**"
       - ".github/workflows/skillevolbench-benchmark.yml"
+      - "src/evoagent/**"
       - "src/evoagent/benchmarks/**"
+      - "src/evoagent/continual/**"
+      - "src/evoagent/lab/unified_continual.py"
+      - "src/evoagent/runtime/**"
+      - "examples/unified_continual_agent.py"
       - "tests/test_skillevolbench_*.py"
+      - "tests/test_full_agent_benchmark_contract.py"
+      - "tests/test_local_document_atomic_path.py"
+      - "tests/test_unified_continual_lab.py"
       - "tests/test_release_readiness_scanner.py"
       - "docs/31-skillevolbench-release-protocol.md"
       - "docs/32-open-source-release-checklist.md"
       - "docs/33-release-blockers.md"
       - "docs/34-benchmark-result-template.md"
       - "docs/35-release-scan-evidence.md"
+      - "docs/36-unified-continual-agent-architecture.md"
   workflow_dispatch:
 
 permissions:
@@ -53,7 +62,13 @@ jobs:
       - name: Third-party compliance
         run: evoagent compliance verify --lock THIRD_PARTY_LOCK.json --notices THIRD_PARTY_NOTICES.md
       - name: Targeted release regression
-        run: pytest -q tests/test_release_readiness_scanner.py tests/test_skillevolbench_*.py
+        run: |
+          pytest -q \
+            tests/test_release_readiness_scanner.py \
+            tests/test_skillevolbench_*.py \
+            tests/test_full_agent_benchmark_contract.py \
+            tests/test_local_document_atomic_path.py \
+            tests/test_unified_continual_lab.py
       - name: Build wheel
         run: python -m pip wheel . --no-deps --wheel-dir dist
       - name: Clean wheel import
@@ -66,9 +81,15 @@ jobs:
               import_skillevolbench_report,
               install_skillevolbench_strategy_patch,
           )
+          from evoagent.benchmarks.full_agent import FullAgentBenchmarkProtocol
+          from evoagent.continual import UnifiedAgentSnapshot
+          from evoagent.lab import UnifiedContinualEvolutionLab
           assert callable(import_skillevolbench_report)
           assert callable(decide_skillevolbench_skill_action)
           assert callable(install_skillevolbench_strategy_patch)
+          assert FullAgentBenchmarkProtocol
+          assert UnifiedAgentSnapshot
+          assert UnifiedContinualEvolutionLab
           print("release wheel import passed")
           PY
       - name: Verify release source scan

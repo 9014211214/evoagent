@@ -10,31 +10,35 @@ The framework separates observation, causal attribution, capability evolution, f
 
 **v2.0 Research Preview source snapshot.** The release label matches package version `2.0.0`. This public repository starts from a privacy-reviewed, history-free snapshot; no tag, GitHub Release, or package publication is implied.
 
-Core implemented path:
+Canonical implemented path:
 
 ```text
 failed task / trace
     -> bounded counterfactual attribution
     -> governed intervention routing
-       -> Skill evolution
-       -> local Agent-policy evolution
+       -> Skill / Router / bounded Memory / Agent-policy candidate
        -> escalation / quarantine
     -> immutable component evidence
-    -> explicit composite Agent commit
-    -> frozen independent evaluation
+    -> frozen retention / transfer / adversarial / composition evaluation
+    -> explicit complete-Agent activation
     -> CONTINUE / STOP / ESCALATE
     -> persistent audit + restart-safe state
 ```
 
-The integrated controlled lab evolves:
+The zero-cost unified reference lab evolves one complete Agent:
 
 ```text
-A0 = Skill S0 + local policy P0
-A1 = Skill S1 + local policy P0
-A2 = Skill S1 + local policy P1
+A0 baseline
+A1 Skill candidate
+A2 verified bounded Memory candidate
+A3 Router candidate
+A4 numeric Agent-policy candidate
 ```
 
-with one governed component changing per composite transition. Controlled lab scores are **synthetic lifecycle fixtures, not external benchmark results**.
+All four components act inside the same Tool-Agent runtime. The controlled
+`0.0 -> 0.4 -> 0.6 -> 0.8 -> 1.0` sequence ends with zero regression, zero
+forgetting and zero safety violations. These scores are **synthetic mechanism
+evidence, not external benchmark results**.
 
 ## What is implemented
 
@@ -68,21 +72,25 @@ verified bad case
 
 ### Local Agent-policy evolution
 
-The repository includes bounded local-policy optimization plus separate promotion, authorization, activation, and rollback lifecycles. This demonstrates governed Agentic-RL mechanics without claiming foundation-model training.
+The repository includes bounded numeric policy optimization from actual
+rollouts of the unified Tool-Agent runtime, plus separate evaluation,
+registration and explicit activation. This demonstrates governed Agentic-RL
+mechanics without claiming foundation-model training or general performance.
 
 **Current boundary:** the integrated v2.3 path does not modify Transformer/LLM weights.
 
-### Composite Agent evolution
+### Unified Agent evolution
 
-Component Registries are independent from the active Agent pointer:
+One immutable snapshot binds the frozen model, every Skill, Router, bounded
+Memory, numeric Agent policy and Runtime contracts. Component candidates are
+independent from the active complete-Agent pointer:
 
 ```text
-Skill Registry:        S0 -> S1
-Local-policy Registry: P0 -> P1
-Composite Registry:    A0 -> A1 -> A2
+candidate creation -> frozen evaluation -> decision -> explicit activation
 ```
 
-A component promotion does not silently activate a new composite Agent.
+A component candidate does not silently activate a new Agent, and each child
+must change exactly one declared component.
 
 ### Independent evaluation and stopping
 
@@ -114,6 +122,13 @@ This repository contains two independently authored integration layers:
 2. an EvoAgent Skill-evolution strategy bridge for the external `LifelongRunner` runtime.
 
 The bridge deliberately changes only the evolution strategy. It keeps the external benchmark tasks, Harbor execution, model harness, verifier, and report generator outside this repository.
+
+**Scope warning:** this bridge is `skill_component` evidence, not Full-Agent
+evidence. It does not execute EvoAgent's Router, bounded Memory, numeric Agent
+Policy or unified Registry. Workflow identities and comparison artifacts set
+`full_agent_evidence=false`, including for a complete SkillEvolBench schedule.
+The benchmark-neutral `FullAgentBenchmarkProtocol` separately requires every
+external Task result to bind all four component hashes.
 
 The repository includes a one-click GitHub Actions workflow at .github/workflows/skillevolbench-benchmark.yml. It pins SkillEvolBench, the benchmark-compatible Harbor v0.7.0 commit, and Claude Code 2.1.235 as Harbor's code-editing tool shell; the OpenRouter Qwen or GLM endpoint remains the inference model. Pull requests are hardwired to credential-free preflight. Authenticated smoke or compare execution requires an owner-supplied `OPENROUTER_API_KEY` repository Secret and an explicit manual dispatch; the public repository does not contain or inherit that Secret. The workflow reclaims hosted-runner disk, installs Python and the external runtime, validates the live OpenRouter catalogue, dry-runs both conditions, and supports three modes: preflight, bounded smoke, and explicitly acknowledged full compare. Real modes build from a temporary copy of the upstream runtime directory, retain Ubuntu base-image mirrors, apply bounded apt retries, verify the installed tool-shell version, and preserve before/after SHA-256 plus the exact preparation patch without modifying the pinned checkout. The release preset is configs/skillevolbench/openrouter-qwen3-coder-plus.yaml and uses the verified OpenRouter model ID qwen/qwen3-coder-plus; qwen/qwen3.7-plus and z-ai/glm-5.2:free remain optional smoke-only presets.
 
@@ -189,48 +204,38 @@ python examples/authoritative_benchmark_evidence.py
 python examples/benchmark_gated_champion.py
 python examples/shadow_canary_release.py
 python examples/multi_generation_evolution_program.py
+python examples/unified_continual_agent.py
 ```
+
+The canonical architecture, implemented gaps and benchmark boundary are in
+[`docs/36-unified-continual-agent-architecture.md`](docs/36-unified-continual-agent-architecture.md).
 
 ## Architecture
 
 ```text
-                    +----------------------+
-                    | Observable Runtime   |
-                    +----------+-----------+
-                               |
-                               v
-                    +----------------------+
-                    | Failure Evidence     |
-                    +----------+-----------+
-                               |
-                               v
-                    +----------------------+
-                    | Causal Attribution   |
-                    +----------+-----------+
-                               |
-                 +-------------+-------------+
-                 |                           |
-                 v                           v
-        +------------------+       +----------------------+
-        | Skill Evolution  |       | Local Policy Evol.   |
-        +--------+---------+       +----------+-----------+
-                 |                            |
-                 +-------------+--------------+
-                               v
-                    +----------------------+
-                    | Composite Registry   |
-                    +----------+-----------+
-                               |
-                               v
-                    +----------------------+
-                    | Frozen Evaluation    |
-                    +----------+-----------+
-                               |
-                               v
-                    +----------------------+
-                    | Stop / Promotion     |
-                    | Rollback / Escalate  |
-                    +----------------------+
+ Frozen model + Skill + Router + Memory + Agent Policy
+                         |
+                         v
+              +------------------------+
+              | Unified Tool Runtime   |
+              +-----------+------------+
+                          |
+                          v
+              Observable Trace + Verifier
+                          |
+                          v
+            one-component counterfactuals
+                          |
+          +---------------+----------------+
+          | Skill | Router | Memory | Policy|
+          +---------------+----------------+
+                          |
+                          v
+       frozen retention / transfer / adversarial /
+                 composition evaluation
+                          |
+                          v
+       reject / explicit activation / escalation
 ```
 
 ## Research principles
@@ -265,7 +270,11 @@ External execution requires separate credentials, runtime, budget, and authoriza
 
 The public source snapshot was authorized by the owner after Python 3.11/3.12 validation, license and third-party review, and secret/privacy scanning. Its Git history starts with one privacy-safe commit and does not inherit the private development history, pull requests, Actions logs, or artifacts.
 
-Publishing source code does not create a benchmark claim. A real EvoAgent-connected full SkillEvolBench result may be reported only after both complete same-model, same-seed reports execute, are imported, and pass the documented SHA-256 and control checks. No such publishable full result currently exists.
+Publishing source code does not create a benchmark claim. A complete
+same-model, same-seed SkillEvolBench result may be reported only as a
+Skill-component result after strict import. A whole-EvoAgent claim additionally
+requires Full-Agent evidence binding Skill, Router, Memory and Agent Policy on
+every external Task. Neither result currently exists.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

@@ -12,6 +12,7 @@ from evoagent.execution import (
     ExecutionInvocation,
     SQLiteExecutionUseStore,
 )
+from evoagent.execution.process import platform_executable_argv
 from evoagent.execution.environment import build_authorized_environment
 from evoagent.execution.redaction import redact_completed_process, redact_timeout
 from evoagent.training.models import MLInternTaskSpec, ModelImprovementTicket, TrainingPlan
@@ -145,7 +146,10 @@ class MLInternCLIAdapter:
             )
             env["ML_INTERN_CLI_CONFIG"] = str(config_path)
             completed = subprocess.run(
-                [preflight.executable_path, *spec.command[1:]],
+                platform_executable_argv(
+                    preflight.executable_path,
+                    spec.command[1:],
+                ),
                 cwd=workspace,
                 env=env,
                 text=True,

@@ -63,6 +63,26 @@ def test_release_scan_ignores_generated_untracked_environments(tmp_path, monkeyp
     assert verify_release_readiness.main() == 0
 
 
+def test_release_scan_checks_untracked_unignored_source_files(
+    tmp_path, monkeypatch, capsys
+):
+    root = _release_root(tmp_path)
+    subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    (root / "new_source.py").write_text(
+        'token = "hf_abcdefghijklmnopqrstuv"\n',  # synthetic-secret-fixture
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(verify_release_readiness, "ROOT", root)
+
+    assert verify_release_readiness.main() == 1
+    assert "possible huggingface_token: new_source.py" in capsys.readouterr().out
+
+
 def test_pull_request_benchmark_mode_is_hardwired_to_preflight():
     workflow = (
         Path(__file__).resolve().parents[1]

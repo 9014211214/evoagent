@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import sys
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from evoagent import __version__
+from evoagent._io import atomic_temporary_path
 from evoagent.campaigns.governance import CampaignGovernanceService
 from evoagent.campaigns.models import (
     ApprovalDecision,
@@ -79,7 +79,7 @@ def _require_existing_file(path: str, *, label: str) -> Path:
 def _atomic_write_text(path: str | Path, content: str) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    temporary = atomic_temporary_path(destination)
     try:
         with temporary.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(content)

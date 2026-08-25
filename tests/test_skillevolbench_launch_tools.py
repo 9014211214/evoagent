@@ -463,6 +463,8 @@ def test_release_smoke_has_a_post_learning_task_and_uses_verified_plus_preset():
     assert "declare -A seen_trajectory_sha" in workflow
     assert "--verbose 2>&1 | tee" not in workflow
     assert '"model_yaml_sha256"' in workflow
+    assert workflow.count('"agent_scope": "skill_component"') == 2
+    assert workflow.count('"full_agent_evidence": False') == 2
 
 
 def test_comparison_control_identity_excludes_studied_baseline_policy():

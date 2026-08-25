@@ -136,11 +136,17 @@ def main(argv: list[str] | None = None) -> int:
 
     output = {
         "format_version": "evoagent-skillevolbench-comparison-v1",
+        "agent_scope": "skill_component",
+        "evaluated_components": ["skill"],
+        "full_agent_evidence": False,
         "publishable_full_benchmark": not args.partial_smoke,
         "claim_boundary": (
-            "partial smoke only; not a benchmark score"
+            "partial Skill-component smoke only; not a benchmark score"
             if args.partial_smoke
-            else "full same-model same-seed comparison"
+            else (
+                "full same-model same-seed SkillEvolBench comparison; "
+                "valid for the Skill component, not the complete EvoAgent architecture"
+            )
         ),
         "controls": baseline_control,
         "baseline": baseline.model_dump(mode="json"),

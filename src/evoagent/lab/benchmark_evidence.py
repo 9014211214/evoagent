@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -11,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from evoagent import __version__
+from evoagent._io import atomic_temporary_path
 from evoagent.benchmark_evidence.builders import (
     build_agent_identity,
     build_benchmark_suite,
@@ -490,9 +490,7 @@ class AuthoritativeBenchmarkEvidenceLab:
                     )
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = path.with_name(
-                    f".{path.name}.{uuid.uuid4().hex}.tmp"
-                )
+                temporary = atomic_temporary_path(path)
                 try:
                     with temporary.open("wb") as handle:
                         handle.write(encoded)

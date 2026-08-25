@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from evoagent._io import atomic_temporary_path
 from evoagent.benchmark_evidence.comparison import (
     BenchmarkComparator,
     assess_submission_eligibility,
@@ -299,7 +299,7 @@ class BenchmarkComparisonPackageManager:
             raise BenchmarkComparisonPackageError(
                 "Benchmark package output must not be a symlink."
             )
-        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(manifest.model_dump_json(indent=2) + "\n")

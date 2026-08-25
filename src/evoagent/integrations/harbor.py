@@ -13,6 +13,7 @@ from evoagent.execution import (
     ExecutionInvocation,
     SQLiteExecutionUseStore,
 )
+from evoagent.execution.process import platform_executable_argv
 from evoagent.execution.environment import build_authorized_environment
 from evoagent.execution.redaction import redact_completed_process, redact_timeout
 
@@ -188,7 +189,10 @@ class HarborCLIAdapter:
         workspace = Path(spec.workspace)
         try:
             completed = subprocess.run(
-                [preflight.executable_path, *spec.command[1:]],
+                platform_executable_argv(
+                    preflight.executable_path,
+                    spec.command[1:],
+                ),
                 cwd=workspace,
                 env=env,
                 text=True,

@@ -4,12 +4,12 @@ import hashlib
 import json
 import os
 import re
-import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evoagent._io import atomic_temporary_path
 from evoagent.skills.models import SkillEventType, SkillVersionStatus
 from evoagent.skills.persistent_models import SkillRegistryBundle
 from evoagent.skills.sqlite_registry import (
@@ -85,7 +85,7 @@ class SkillStateBundleManager:
         bundle = self.build(registry)
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(bundle.model_dump_json(indent=2) + "\n")

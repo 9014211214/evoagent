@@ -105,6 +105,8 @@ jobs:
         run: python examples/shadow_canary_release.py
       - name: Run multi-generation Evolution Program demo
         run: python examples/multi_generation_evolution_program.py
+      - name: Run unified continual Agent demo
+        run: python examples/unified_continual_agent.py
       - name: Run reproducible run-bundle demo
         run: python examples/reproducible_run_bundle.py
       - name: Run compliance demo
@@ -135,7 +137,7 @@ jobs:
         run: |
           python -m venv .wheel-venv
           .wheel-venv/bin/python -m pip install dist/*.whl
-          .wheel-venv/bin/python -c "import evoagent, evoagent.runs, evoagent.compliance, evoagent.lab, evoagent.execution, evoagent.integrations, evoagent.runtime, evoagent.benchmarks, evoagent.training, evoagent.model_registry, evoagent.supervisor, evoagent.benchmark_evidence, evoagent.champion, evoagent.release, evoagent.program; assert evoagent.__version__ == '2.0.0'"
+          .wheel-venv/bin/python -c "import evoagent, evoagent.runs, evoagent.compliance, evoagent.lab, evoagent.execution, evoagent.integrations, evoagent.runtime, evoagent.benchmarks, evoagent.training, evoagent.model_registry, evoagent.supervisor, evoagent.benchmark_evidence, evoagent.champion, evoagent.release, evoagent.program, evoagent.continual; from evoagent.benchmarks.full_agent import FullAgentBenchmarkProtocol; assert evoagent.__version__ == '2.0.0'"
           test "$(.wheel-venv/bin/evoagent --version)" = "evoagent 2.0.0"
           .wheel-venv/bin/evoagent --help
           rm -rf /tmp/evoagent-wheel-reference-lab
@@ -146,6 +148,8 @@ jobs:
           .wheel-venv/bin/python -c "import json; data=json.load(open('/tmp/evoagent-wheel-reference-result.json')); assert data['restart_verified'] is True; assert data['external_execution_performed'] is False"
           rm -rf /tmp/evoagent-wheel-local-tool-lab
           .wheel-venv/bin/python -c "from evoagent.benchmarks import LocalToolEvolutionLab; result=LocalToolEvolutionLab('/tmp/evoagent-wheel-local-tool-lab').run(); assert result.summary.initial_score == 0.5; assert result.summary.final_score == 1.0; assert result.repeatable is True; assert result.external_execution_performed is False"
+          rm -rf /tmp/evoagent-wheel-unified-continual
+          .wheel-venv/bin/python -c "from evoagent.lab import UnifiedContinualEvolutionLab; lab=UnifiedContinualEvolutionLab('/tmp/evoagent-wheel-unified-continual'); first=lab.run(); second=lab.run(); assert first.overall_scores == (0.0, 0.4, 0.6, 0.8, 1.0); assert tuple(item.value for item in first.loop_actions) == ('continue','continue','continue','continue','stop_success'); assert first.final_safety_violation_count == 0; assert first.final_forgetting_rate == 0.0; assert first.registry_revision == 4; assert first.external_benchmark_claimed is False; assert second.resumed is True; assert second.optimizer_invoked is False; assert second.result_hash == first.result_hash; assert second.registry_event_count == first.registry_event_count"
           rm -rf /tmp/evoagent-wheel-automatic-local-tool-lab
           .wheel-venv/bin/python -c "from evoagent.lab import AutomaticLocalToolEvolutionLab; lab=AutomaticLocalToolEvolutionLab('/tmp/evoagent-wheel-automatic-local-tool-lab'); first=lab.run(); second=lab.run(); assert first.attribution.root_cause_layer.value == 'skill'; assert first.summary.initial_score == 0.5; assert first.summary.final_score == 1.0; assert first.added_rules == ('inspect_before_write',); assert second.resumed is True; assert second.campaign_id == first.campaign_id; assert second.persisted_trace_count == 1; assert first.external_execution_performed is False"
           rm -rf /tmp/evoagent-wheel-cross-layer-matrix

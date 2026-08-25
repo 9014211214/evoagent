@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 
+from evoagent._io import atomic_temporary_path
 from evoagent.domain.models import EvolutionAction, FailureLayer
 from evoagent.local_rl.package import LocalRLPackageManifest
 from evoagent.local_rl.program_binding import (
@@ -81,9 +81,7 @@ class ProgramLocalRLBindingManager(_CoreBindingManager):
             raise ProgramLocalRLBindingError(
                 "Program-bound Local RL output must not be a symlink."
             )
-        temporary = destination.with_name(
-            f".{destination.name}.{uuid.uuid4().hex}.tmp"
-        )
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(package.model_dump_json(indent=2) + "\n")

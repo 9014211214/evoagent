@@ -62,6 +62,10 @@ from .service import (
     ReferenceEvolutionLab,
     ReferenceLabError,
 )
+from .unified_continual import (
+    UnifiedContinualEvolutionLab,
+    UnifiedContinualLabResult,
+)
 
 
 _INTEGRATED_EXPORTS = {
@@ -131,4 +135,6 @@ __all__ = [
     "ReleaseScenarioResult",
     "ShadowCanaryReleaseLab",
     "ShadowCanaryReleaseLabResult",
+    "UnifiedContinualEvolutionLab",
+    "UnifiedContinualLabResult",
 ]

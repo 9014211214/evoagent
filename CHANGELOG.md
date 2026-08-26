@@ -37,6 +37,10 @@ Historical entries below describe research-framework milestones. They do not imp
   OpenRouter request and cost ledger, credential-free hosted dry-run evidence,
   and a one-use USD 1.20 execution boundary. The result remains a controlled
   mechanism test rather than an authoritative benchmark.
+- Added a separately frozen Alibaba Qwen3.8 Flash preset and seed lock with
+  reasoning disabled, required-parameter routing, exact live endpoint pricing,
+  and a USD 0.1287936 mathematical model-cost ceiling. The prior MiMo external
+  attempt stopped on Tool-call noncompliance and produced no score.
 
 ## 2.0.0 release candidate
 

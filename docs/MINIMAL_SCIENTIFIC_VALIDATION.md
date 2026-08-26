@@ -6,8 +6,11 @@ leaderboard result.
 
 ## Frozen design
 
-- One model endpoint and provider: `xiaomi/mimo-v2.5`, Xiaomi only, with
-  provider fallbacks disabled.
+- One model endpoint and provider per frozen lock. The current execution
+  candidate is `qwen/qwen3.8-flash`, Alibaba only, with provider fallbacks
+  disabled, required-parameter routing enabled, and reasoning explicitly
+  disabled. The earlier MiMo lock remains reproducible but is not silently
+  substituted for this run.
 - One seed: label `A`, numeric seed `43`.
 - Five immutable Agent snapshots: A0, then one-component changes to Skill,
   Memory, Router and numeric Policy (A1 through A4).
@@ -17,11 +20,13 @@ leaderboard result.
 - The model, Task hashes, Environment, verifier, seed and per-episode limits are
   identical across snapshots. Evaluation never changes a snapshot.
 
-The compact lock at
-`configs/full_agent/minimal-scientific-seed-A.lock.json` binds the generated
-plan hash, manifest hash, all 12 Task hashes, all five snapshot hashes, the
-model-preset hash and every budget limit. A different source tree cannot run
-under that lock.
+The Qwen execution lock at
+`configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json` binds
+the generated plan hash, manifest hash, all 12 Task hashes, all five snapshot
+hashes, the exact reasoning-disabled model-preset hash and every budget limit.
+The earlier MiMo protocol remains frozen at
+`configs/full_agent/minimal-scientific-seed-A.lock.json`. A different source
+tree, model, provider or reasoning setting cannot run under either lock.
 
 ## What the four groups test
 
@@ -37,6 +42,12 @@ The zero-cost fixture has the frozen A0→A4 score sequence
 each binary Task result from the external Tool call, local Environment and
 verifier. Any model mismatch, provider fallback, malformed Tool call, missing
 usage accounting, budget violation or source/lock mismatch fails closed.
+
+The first full MiMo attempt stopped on the first external episode with
+`model_tool_call_noncompliance`; it produced no scientific score and is not
+treated as negative performance evidence. Qwen3.8 Flash is a separately frozen
+retry because its endpoint currently supports `tools`, `tool_choice` and an
+explicit no-reasoning setting.
 
 ## Success gate and claim boundary
 
@@ -55,7 +66,7 @@ significance across seeds, or an official benchmark ranking.
 - At most 180 OpenRouter requests (three per episode).
 - At most 4,096 prompt bytes and 128 output tokens per request.
 - Model hard cap: USD 0.60. The pricing-derived mathematical ceiling at the
-  pinned preset is below this cap.
+  Qwen preset is USD 0.1287936 and remains below this cap.
 - Private-runner timeout: 90 minutes, budgeted at USD 0.54.
 - Reserve: USD 0.06. Total authorization cannot exceed USD 1.20.
 

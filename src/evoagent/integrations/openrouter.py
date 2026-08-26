@@ -8,7 +8,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evoagent.runtime import AgentAction, AgentActionKind, AgentContext, ToolAgentPolicy
 
@@ -33,6 +33,7 @@ class OpenRouterModelPreset(BaseModel):
     context_length: int = Field(gt=0)
     max_completion_tokens: int = Field(gt=0)
     supports_tools: bool
+    reasoning_enabled: bool | None = None
     catalogue_verified_at: str
 
     @model_validator(mode="after")
@@ -40,6 +41,11 @@ class OpenRouterModelPreset(BaseModel):
         if not self.supports_tools:
             raise ValueError("OpenRouter calibration preset must support Tool calls.")
         return self
+
+    def fingerprint_payload(self) -> dict[str, Any]:
+        """Return only explicitly frozen settings for a stable preset hash."""
+
+        return self.model_dump(mode="json", exclude_none=True)
 
 
 class OpenRouterPolicyUsage(BaseModel):
@@ -254,8 +260,11 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
             "provider": {
                 "only": [self.preset.provider_slug],
                 "allow_fallbacks": False,
+                "require_parameters": True,
             },
         }
+        if self.preset.reasoning_enabled is not None:
+            payload["reasoning"] = {"enabled": self.preset.reasoning_enabled}
         encoded_size = len(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         )
@@ -417,7 +426,7 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
                 parsed = json.load(response)
         except urllib.error.HTTPError as exc:
             raise OpenRouterIntegrationError(f"OpenRouter HTTP {exc.code}.") from None
-        except urllib.error.URLError as exc:
+        except urllib.error.URLError:
             raise OpenRouterIntegrationError("OpenRouter transport failed.") from None
         if not isinstance(parsed, dict):
             raise OpenRouterIntegrationError("OpenRouter response root must be an object.")

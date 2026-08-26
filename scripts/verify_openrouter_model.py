@@ -100,6 +100,7 @@ def verify_model(model_id: str) -> dict[str, Any]:
         "context_length": model.get("context_length"),
         "max_completion_tokens": top_provider.get("max_completion_tokens"),
         "pricing": model.get("pricing"),
+        "reasoning": model.get("reasoning"),
         "supported_parameters": supported,
         "expiration_date": model.get("expiration_date"),
         "catalogue_url": MODELS_URL,
@@ -155,6 +156,11 @@ def verify_preset(path: Path) -> dict[str, Any]:
             "Pinned OpenRouter endpoint lacks required parameters: "
             f"{sorted(missing_parameters)}"
         )
+    reasoning = catalogue.get("reasoning")
+    if preset.get("reasoning_enabled") is False and (
+        not isinstance(reasoning, dict) or reasoning.get("mandatory") is True
+    ):
+        raise RuntimeError("Pinned OpenRouter model cannot disable reasoning")
 
     checks = {
         "canonical_model_id": catalogue.get("canonical_slug"),

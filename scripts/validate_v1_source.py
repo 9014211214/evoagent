@@ -240,6 +240,7 @@ for path in (ROOT / "src").rglob("*.tmp*"):
 workflow_root = ROOT / ".github" / "workflows"
 allowed_workflows = {
     "ci.yml",
+    "full-agent-external-dry-run.yml",
     "release-readiness.yml",
     "skillevolbench-benchmark.yml",
 }

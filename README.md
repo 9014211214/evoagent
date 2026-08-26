@@ -130,6 +130,13 @@ Policy or unified Registry. Workflow identities and comparison artifacts set
 The benchmark-neutral `FullAgentBenchmarkProtocol` separately requires every
 external Task result to bind all four component hashes.
 
+The concrete benchmark-neutral external evidence adapter and credential-free
+hosted dry-run are documented in
+[`docs/37-full-agent-external-calibration.md`](docs/37-full-agent-external-calibration.md).
+Its strict importer also binds each frozen Task payload hash, caller SHA-256 and
+resource usage. The included MiMo preset is only for a bounded Tool-call
+integration calibration; it is not a benchmark result.
+
 The repository includes a one-click GitHub Actions workflow at .github/workflows/skillevolbench-benchmark.yml. It pins SkillEvolBench, the benchmark-compatible Harbor v0.7.0 commit, and Claude Code 2.1.235 as Harbor's code-editing tool shell; the OpenRouter Qwen or GLM endpoint remains the inference model. Pull requests are hardwired to credential-free preflight. Authenticated smoke or compare execution requires an owner-supplied `OPENROUTER_API_KEY` repository Secret and an explicit manual dispatch; the public repository does not contain or inherit that Secret. The workflow reclaims hosted-runner disk, installs Python and the external runtime, validates the live OpenRouter catalogue, dry-runs both conditions, and supports three modes: preflight, bounded smoke, and explicitly acknowledged full compare. Real modes build from a temporary copy of the upstream runtime directory, retain Ubuntu base-image mirrors, apply bounded apt retries, verify the installed tool-shell version, and preserve before/after SHA-256 plus the exact preparation patch without modifying the pinned checkout. The release preset is configs/skillevolbench/openrouter-qwen3-coder-plus.yaml and uses the verified OpenRouter model ID qwen/qwen3-coder-plus; qwen/qwen3.7-plus and z-ai/glm-5.2:free remain optional smoke-only presets.
 
 Hosted Ubuntu allocation, preflight, both dry-runs, the runtime build, and the complete bounded two-condition smoke are verified. Exact-head run 32324346605 used smoke-only model `qwen/qwen3.7-plus`, seed A, and identical 64-turn / 8,192-output / 100,000-context / 50%-compaction controls for both conditions. Both two-task reports passed strict import and produced an all-zero partial delta; the artifact explicitly records `publishable_full_benchmark=false`. Reported agent cost was USD 1.860921 for no_skill and USD 1.333647 for EvoAgent (USD 3.194568 combined), excluding unpriced host/probe overhead. This is integration evidence, not a benchmark score. A full same-seed run is not currently viable on the standard workflow: no_skill schedules 180 trials, EvoAgent schedules 270 including replay, and even the shorter side projects beyond the 355-minute job cap. The importer rejects incomplete schedules rather than labeling them publishable.
@@ -265,6 +272,14 @@ repository visibility change
 ```
 
 External execution requires separate credentials, runtime, budget, and authorization.
+
+The Full-Agent external adapter and its credential-free hosted dry-run now
+pass. One separately authorized MiMo calibration also completed the exact
+Skill/Router/Memory/numeric-Policy Tool loop: 3 requests, 1,553 Tokens, USD
+0.00024206, exact Xiaomi provider, no fallback, verifier passed. This is
+integration calibration only, not benchmark or generalization evidence. See
+`docs/37-full-agent-external-calibration.md` for the public sanitized evidence
+hash and the measured one-seed planning envelope.
 
 ## Publication and performance-claim gates
 

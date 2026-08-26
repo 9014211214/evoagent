@@ -116,6 +116,22 @@ Integration boundary:
 - Leaderboard mode requires explicit opt-in and at least five trials per task.
 - This repository does not claim a benchmark result until a real external run is completed and independently validated.
 
+## External model service used only by optional calibration
+
+The optional Full-Agent integration calibration can call Xiaomi MiMo-V2.5
+through OpenRouter. Neither OpenRouter source nor Xiaomi model weights are
+copied, vendored, downloaded, redistributed or included as a package
+dependency. The independently authored adapter uses OpenRouter's public HTTPS
+API contract and an owner-supplied credential. Model access, pricing, data
+handling and use remain subject to the providers' current terms:
+
+- OpenRouter: https://openrouter.ai/
+- Xiaomi MiMo-V2.5 model page: https://openrouter.ai/xiaomi/mimo-v2.5
+
+The machine-readable source lock covers source-code, dataset and checkout
+integrations with pinned Git commits. It does not misrepresent a hosted API or
+remote model endpoint as a vendored Git component.
+
 ## Policy for future integrations
 
 Every integration must update both `THIRD_PARTY_LOCK.json` and this file with:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from time import monotonic
 from typing import Callable
 
@@ -37,6 +38,7 @@ class ToolAgentRuntime(AgentRuntime):
 
     def run(self, task: Task, snapshot: AgentSnapshot) -> ExecutionTrace:
         started = monotonic()
+        policy_usage_before = self._policy_usage()
         environment: ResettableToolEnvironment | None = None
         events: list[dict] = []
         tool_results: list[ToolResult] = []
@@ -199,6 +201,13 @@ class ToolAgentRuntime(AgentRuntime):
         )
         skill_id, skill_version = self._skill_binding(snapshot)
         elapsed = max(0.0, monotonic() - started)
+        policy_usage_after = self._policy_usage()
+        usage_delta = {
+            key: policy_usage_after.get(key, 0.0) - policy_usage_before.get(key, 0.0)
+            for key in set(policy_usage_before) | set(policy_usage_after)
+        }
+        if any(value < 0.0 for value in usage_delta.values()):
+            raise RuntimeError("Policy observable usage counters moved backwards.")
         return ExecutionTrace(
             trace_id=f"trace:tool:{snapshot.snapshot_id}:{task.task_id}:{self.seed}",
             task=task,
@@ -212,11 +221,30 @@ class ToolAgentRuntime(AgentRuntime):
             cost={
                 "steps": float(steps_used),
                 "tool_calls": float(len(tool_results)),
-                "llm_tokens": 0.0,
+                "llm_tokens": usage_delta.get("llm_tokens", 0.0),
+                "llm_requests": usage_delta.get("llm_requests", 0.0),
+                "llm_prompt_tokens": usage_delta.get("llm_prompt_tokens", 0.0),
+                "llm_completion_tokens": usage_delta.get(
+                    "llm_completion_tokens", 0.0
+                ),
                 "wall_seconds": elapsed,
-                "cost_usd": 0.0,
+                "cost_usd": usage_delta.get("cost_usd", 0.0),
             },
         )
+
+    def _policy_usage(self) -> dict[str, float]:
+        usage = self.policy.observable_usage()
+        if not isinstance(usage, dict):
+            raise RuntimeError("Policy observable usage must be a mapping.")
+        normalized: dict[str, float] = {}
+        for key, value in usage.items():
+            if not isinstance(key, str) or not isinstance(value, (int, float)):
+                raise RuntimeError("Policy observable usage contains an invalid entry.")
+            numeric = float(value)
+            if not math.isfinite(numeric) or numeric < 0.0:
+                raise RuntimeError("Policy observable usage must be non-negative.")
+            normalized[key] = numeric
+        return normalized
 
     @staticmethod
     def _skill_binding(snapshot: AgentSnapshot) -> tuple[str | None, str | None]:

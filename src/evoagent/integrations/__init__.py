@@ -5,6 +5,19 @@ from .harbor import (
     HarborRunSpec,
     TERMINAL_BENCH_2_1,
 )
+from .full_agent_external import (
+    FullAgentExternalEvidenceAdapter,
+    FullAgentExternalEvidenceError,
+    FullAgentExternalResultFile,
+    FullAgentExternalRunPlan,
+    build_full_agent_external_run_plan,
+)
+from .openrouter import (
+    OpenRouterControlledToolPolicy,
+    OpenRouterIntegrationError,
+    OpenRouterModelPreset,
+    OpenRouterPolicyUsage,
+)
 from .resource2skill import (
     RESOURCE2SKILL_REPOSITORY,
     Resource2SkillAdapter,
@@ -21,10 +34,18 @@ from .skill_recorder import (
 )
 
 __all__ = [
+    "FullAgentExternalEvidenceAdapter",
+    "FullAgentExternalEvidenceError",
+    "FullAgentExternalResultFile",
+    "FullAgentExternalRunPlan",
     "HARBOR_REVIEWED_COMMIT",
     "HARBOR_VERSION_PATTERN",
     "HarborCLIAdapter",
     "HarborRunSpec",
+    "OpenRouterControlledToolPolicy",
+    "OpenRouterIntegrationError",
+    "OpenRouterModelPreset",
+    "OpenRouterPolicyUsage",
     "RESOURCE2SKILL_REPOSITORY",
     "RecorderBuiltSkill",
     "Resource2SkillAdapter",
@@ -36,4 +57,5 @@ __all__ = [
     "SkillRecorderImportError",
     "SkillRecorderImportSpec",
     "TERMINAL_BENCH_2_1",
+    "build_full_agent_external_run_plan",
 ]

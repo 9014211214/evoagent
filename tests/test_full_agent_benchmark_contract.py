@@ -24,6 +24,7 @@ class _BoundFullAgentAdapter(FullAgentBenchmarkAdapter):
         for task_id, role in manifest.task_roles.items():
             payload = {
                 "task_id": task_id,
+                "task_hash": manifest.task_hashes[task_id],
                 "role": role,
                 "score": 1.0,
                 "passed": True,
@@ -46,8 +47,13 @@ class _BoundFullAgentAdapter(FullAgentBenchmarkAdapter):
             "adapter_scope": BenchmarkAgentScope.FULL_AGENT,
             "manifest_hash": manifest.manifest_hash,
             "snapshot_hash": snapshot.snapshot_hash,
+            "source_result_sha256": "f" * 64,
             "task_results": tuple(results),
             "usage": ResourceUsage(task_trials=len(results)),
+            "external_execution_performed": True,
+            "synthetic_fixture": False,
+            "official_submission_performed": False,
+            "official_leaderboard_claimed": False,
         }
         return FullAgentBenchmarkBatch(**payload, batch_hash=canonical_sha256(payload))
 
@@ -65,6 +71,7 @@ def test_full_agent_protocol_requires_every_component_binding(tmp_path: Path):
         benchmark_id="example/external-suite",
         benchmark_revision="pinned-commit",
         task_roles=roles,
+        task_hashes={task_id: canonical_sha256(task_id) for task_id in roles},
         model_id=snapshot.model_id,
         seed="A",
         inference_config_hash="1" * 64,

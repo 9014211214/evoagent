@@ -1,6 +1,6 @@
 # Unified continual Agent architecture
 
-Updated: 2026-08-25
+Updated: 2026-08-26
 
 ## 1. Goal and claim boundary
 
@@ -184,16 +184,17 @@ cannot fill an implementation gap.**
 
 The existing pinned SkillEvolBench strategy bridge declares
 `skill_component`, evaluates only Skill evolution and sets
-`full_agent_evidence=false` in workflow identities/comparison output. A future
-SEAGym/Terminal-Bench adapter must drive the complete snapshot contract before
-its result can support a whole-EvoAgent claim.
+`full_agent_evidence=false` in workflow identities/comparison output.
+`FullAgentExternalEvidenceAdapter` now provides the benchmark-neutral strict
+result boundary for a future SEAGym/Terminal-Bench runner. It does not itself
+execute those suites or turn a dry-run into external evidence; the runner must
+drive the complete snapshot and return one fully bound result per frozen Task.
 
 ## 10. Next evidence plan
 
 1. Keep the zero-cost unified lab in Python 3.11/3.12 CI and clean-Wheel tests.
-2. Add a credential-free dry-run adapter test for the chosen external
-   Full-Agent harness.
-3. Run a very small same-model, same-seed external integration smoke; report it
+2. Keep the implemented credential-free Full-Agent adapter dry-run in hosted CI.
+3. Run the bounded same-snapshot MiMo Tool-call calibration; report it
    only as integration evidence.
 4. If the smoke proves every component binding and budget control, run a
    preregistered minimal scientific validation set covering all four roles.

@@ -1,0 +1,65 @@
+name: Full-Agent external adapter dry-run
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/full-agent-external-dry-run.yml"
+      - "configs/full_agent/**"
+      - "scripts/run_full_agent_external_dry_run.py"
+      - "src/evoagent/benchmarks/full_agent.py"
+      - "src/evoagent/integrations/full_agent_*.py"
+      - "src/evoagent/integrations/openrouter.py"
+      - "src/evoagent/runtime/**"
+      - "tests/test_full_agent_*.py"
+      - "tests/test_openrouter_full_agent_calibration.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-agent-dry-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    name: credential-free dry-run (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Full-Agent adapter and MiMo policy tests
+        run: |
+          pytest -q \
+            tests/test_full_agent_benchmark_contract.py \
+            tests/test_full_agent_external_adapter.py \
+            tests/test_openrouter_full_agent_calibration.py
+      - name: Generate deterministic credential-free plans
+        run: |
+          python scripts/run_full_agent_external_dry_run.py \
+            --workspace "$RUNNER_TEMP/full-agent-a" \
+            --output "$RUNNER_TEMP/full-agent-plan-a.json"
+          python scripts/run_full_agent_external_dry_run.py \
+            --workspace "$RUNNER_TEMP/full-agent-b" \
+            --output "$RUNNER_TEMP/full-agent-plan-b.json"
+          cmp "$RUNNER_TEMP/full-agent-plan-a.json" "$RUNNER_TEMP/full-agent-plan-b.json"
+          mkdir -p full-agent-dry-run-artifact
+          cp "$RUNNER_TEMP/full-agent-plan-a.json" \
+            full-agent-dry-run-artifact/full-agent-run-plan.json
+          sha256sum full-agent-dry-run-artifact/full-agent-run-plan.json \
+            > full-agent-dry-run-artifact/SHA256SUMS
+      - name: Upload dry-run evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: full-agent-external-dry-run
+          path: full-agent-dry-run-artifact
+          if-no-files-found: error
+          retention-days: 30

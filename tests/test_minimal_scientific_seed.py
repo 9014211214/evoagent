@@ -106,7 +106,7 @@ def test_external_seed_derives_scores_and_persists_no_raw_trajectory(tmp_path: P
         plan=plan,
         snapshots=snapshots,
         preset=preset,
-        api_key="test-key-never-persisted",
+        api_key="test-only-key",
         source_commit="1" * 40,
         requester_id="requester",
         approver_ids=("owner", "static-budget-policy"),
@@ -123,7 +123,7 @@ def test_external_seed_derives_scores_and_persists_no_raw_trajectory(tmp_path: P
     assert 60 < result.usage.requests <= 180
     assert result.usage.cost_usd == pytest.approx(result.usage.requests * 0.0001)
     serialized = result.model_dump_json()
-    assert "test-key-never-persisted" not in serialized
+    assert "test-only-key" not in serialized
     assert "public synthetic scientific content" not in serialized
     assert result.raw_trajectories_persisted is False
     assert result.external_benchmark is False

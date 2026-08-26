@@ -1,6 +1,6 @@
 # Open-Source Readiness
 
-Updated: 2026-08-21
+Updated: 2026-08-25
 
 This file records the publication boundary for the public v2.0 Research Preview source snapshot. It does not authorize a Git tag, GitHub Release, package publication, paid model execution, benchmark submission, or performance claim.
 
@@ -10,12 +10,14 @@ This file records the publication boundary for the public v2.0 Research Preview 
 |---|---|---|
 | Repository visibility | PUBLIC SOURCE SNAPSHOT | `9014211214/evoagent` is a new public repository. The original development repository remains private. |
 | History isolation | PASSED | The candidate was exported from the reviewed source tree and contains one new root commit. Private commits, branches, PRs, Actions logs, artifacts, and repository Secrets are not copied. |
-| Governed self-evolution core | READY | The Skill, local-policy, composite-Agent, evaluation, promotion, rollback, and persistent Program paths are implemented. |
-| Python regression | PUBLICATION TARGETED PASSED; BASE FULL CI PASSED | The reviewed source tree passed 694 tests on Python 3.11 and 694 on Python 3.12 on Ubuntu. On the history-free candidate, 62 release, provenance, lifecycle, and SkillEvolBench tests passed and 2 platform-dependent tests skipped on Python 3.12. |
+| Governed self-evolution core | UNIFIED LOCAL PATH IMPLEMENTED | One immutable Agent snapshot now binds Skill, Router, bounded Memory and numeric Agent Policy. All four act in the same Tool-Agent runtime; candidates, frozen evaluation, decision and explicit Registry activation remain separate. |
+| Unified continual reference evidence | LOCAL SYNTHETIC PASSED | The zero-cost A0→A4 lab changes Skill, Memory, Router and Policy one at a time and reaches all held-out retention/transfer/adversarial/composition Tasks with zero final regression, forgetting and safety violations. This is mechanism evidence only. |
+| Python regression | LOCAL EXACT-BRANCH MATRIX PASSED; HOSTED MATRIX PENDING | Local Python 3.12 collected the complete 709-test matrix in two isolated file shards: 702 passed, 7 skipped, 0 failed. The 42 directly affected unified-runtime, Full-Agent, atomic-path, release-scanner and SkillEvolBench contract tests also pass together. Exact-head GitHub-hosted Python 3.11/3.12 CI remains a merge gate. |
 | Third-party and license review | READY | The independently authored core is Apache-2.0. The lock, notices, and source-origin boundary avoid vendoring unresolved upstream benchmark source or assets. |
 | Secret and privacy review | PASSED ON PUBLICATION CANDIDATE | The deterministic tracked-source scan, Gitleaks 8.30.1 directory scan, identifying-email/local-path scan, suspicious-file inventory, staged-path check, and GitHub no-reply author-metadata check all passed. |
-| SkillEvolBench integration | PARTIAL SMOKE VERIFIED | A bounded two-task same-model smoke completed both conditions and strict import. It is integration evidence only and explicitly records `publishable_full_benchmark=false`. |
+| SkillEvolBench integration | PARTIAL SKILL-COMPONENT SMOKE VERIFIED | A bounded two-task same-model smoke completed both conditions and strict import. It is integration evidence only, evaluates the Skill bridge only, and records `publishable_full_benchmark=false`. New artifacts also bind `agent_scope=skill_component` and `full_agent_evidence=false`. |
 | Full same-seed comparison | NOT RUN | No complete 180-trial no-skill / 270-trial EvoAgent comparison exists. No score is inferred or fabricated. |
+| Full-Agent external evaluation | NOT RUN | The benchmark-neutral Full-Agent contract is implemented and rejects component-only evidence. No external result yet binds Skill, Router, Memory and Agent Policy together. |
 | External model execution | DISABLED BY DEFAULT | Pull requests run credential-free preflight only. Smoke or compare needs an owner-supplied repository Secret and explicit manual dispatch; no Secret is copied into the public repository. |
 | Employment / invention / confidentiality | OWNER CONFIRMED | On 2026-08-20 the owner confirmed Apache-2.0 publication authority and no applicable employment, invention-assignment, confidentiality, or organizational open-source conflict. |
 
@@ -27,9 +29,21 @@ The initial public commit uses a GitHub-provided no-reply author identity. Repos
 
 ## Benchmark claim boundary
 
-The successful bounded smoke demonstrates that the pinned runtime, no-skill control, EvoAgent bridge, report importer, SHA-256 binding, and delta calculation can execute end to end. It is not a benchmark score.
+The successful bounded smoke demonstrates that the pinned runtime, no-skill
+control, Skill-evolution bridge, report importer, SHA-256 binding, and delta
+calculation can execute end to end. It is not a benchmark score and does not
+validate the complete EvoAgent architecture.
 
 A performance claim requires both complete schedules under the same model, seed, inference settings, benchmark assets, budgets, and resources. Both exact `full_report.json` files must be imported and accepted as complete. Until then, upstream paper numbers, synthetic fixtures, failed runs, dry-runs, and partial smoke metrics are not project results.
+
+A whole-EvoAgent claim additionally requires Full-Agent evidence in which every
+Task result binds the complete Skill, Router, Memory and Agent-policy hashes.
+The current SkillEvolBench strategy bridge cannot produce that evidence by
+design.
+
+The local matrix also verifies read-only restart of the unified lab: the
+second invocation does not rerun optimization or append Registry events, and
+returns the same result, snapshot and decision hashes.
 
 ## Actions not authorized by this snapshot
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "auto-evolving-agent"
 version = "2.0.0"
-description = "Failure-attributed agent self-evolution framework."
+description = "Governed, failure-attributed continual adaptation for tool-using agents."
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ dependencies = [
   "pydantic>=2.7,<3",
   "packaging>=24,<27"
 ]
-keywords = ["agents", "llm", "self-evolution", "skills", "evaluation"]
+keywords = ["agents", "llm-agents", "self-evolution", "continual-learning", "agentic-rl", "skills", "evaluation"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: Apache Software License",

@@ -4,13 +4,13 @@ import hashlib
 import json
 import os
 import re
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from evoagent._io import atomic_temporary_path
 from evoagent.diagnosis import AttributionReport, ExperimentType
 from evoagent.domain.models import EvolutionAction, ExecutionTrace, FailureLayer, Task
 from evoagent.training.models import DatasetSignals
@@ -507,7 +507,7 @@ class ModelEvidenceDatasetManager:
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.is_symlink():
             raise ModelEvidenceDatasetError("Dataset output path must not be a symlink.")
-        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(manifest.model_dump_json(indent=2) + "\n")

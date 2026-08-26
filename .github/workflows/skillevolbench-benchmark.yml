@@ -353,6 +353,9 @@ jobs:
               "evoagent_commit": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
               ).strip(),
+              "agent_scope": "skill_component",
+              "evaluated_components": ["skill"],
+              "full_agent_evidence": False,
               "runner_name": os.environ.get("RUNNER_NAME"),
               "runner_os": os.environ.get("RUNNER_OS"),
           }
@@ -691,6 +694,9 @@ jobs:
               "evoagent_commit": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
               ).strip(),
+              "agent_scope": "skill_component",
+              "evaluated_components": ["skill"],
+              "full_agent_evidence": False,
           }
           target = Path("benchmark-evidence/smoke") / condition / "identity.json"
           target.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")

@@ -31,6 +31,20 @@ This checklist governs the public Research Preview and any later release. Comple
 - [ ] Installed historical governed labs continue to pass.
 - [ ] Installed Benchmark Evidence, Champion, Release, and multi-generation Program labs each execute twice and prove read-only second runs.
 
+## Unified continual Agent
+
+- [ ] One immutable Agent snapshot binds the frozen Model, Skill library, Router, bounded verified Memory, numeric action Policy, Runtime, Tool contract, and Verifier.
+- [ ] Skill, Router, Memory, and Policy execute in the same Tool-Agent Runtime rather than separate scoring fixtures.
+- [ ] Every successor changes exactly one eligible component while Model, Runtime, Tool contract, and Verifier remain frozen.
+- [ ] Failed observations do not directly mutate the active Agent; fresh-Environment counterfactuals support exactly one component or fail closed as insufficient/conflicting evidence.
+- [ ] Memory stores only verified, bounded records and excludes raw prompts, raw Task input/output, hidden reasoning, credentials, and stack traces.
+- [ ] Numeric Policy optimization uses observable Runtime rollouts, bounded exploration/steps, explicit rewards, and no external execution by default.
+- [ ] Frozen evaluation includes retention, transfer, adversarial, and composition roles, with separate regression, forgetting, safety, and resource gates.
+- [ ] Candidate registration, evaluation, decision, and explicit activation remain separate; restart is read-only and does not retrain or duplicate events.
+- [ ] Full-Agent benchmark evidence binds the exact Agent snapshot and all component hashes for every Task result.
+- [ ] SkillEvolBench bridge artifacts declare `agent_scope=skill_component`, `evaluated_components=["skill"]`, and `full_agent_evidence=false`.
+- [ ] Local A0→A4 results are described only as deterministic mechanism evidence, never as an external benchmark or general continual-learning claim.
+
 ## v2.0 persistent multi-generation Evolution Program
 
 ### Feedback admission

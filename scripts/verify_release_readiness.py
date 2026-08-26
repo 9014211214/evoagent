@@ -16,7 +16,17 @@ SECRET_PATTERNS = {
         r"(?i)\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*['\"]?[A-Za-z0-9_\-/.+=]{16,}"
     ),
 }
-IGNORED_PARTS = {".git", ".venv", "venv", "dist", "build", ".pytest_cache", "__pycache__"}
+IGNORED_PARTS = {
+    ".git",
+    ".venv",
+    "venv",
+    ".wheel-venv",
+    ".release-wheel-venv",
+    "dist",
+    "build",
+    ".pytest_cache",
+    "__pycache__",
+}
 SELF = Path(__file__).resolve()
 
 
@@ -24,7 +34,16 @@ def _candidate_paths():
     git_marker = ROOT / ".git"
     if git_marker.exists():
         completed = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "-z"],
+            [
+                "git",
+                "-C",
+                str(ROOT),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ],
             check=True,
             capture_output=True,
             text=True,

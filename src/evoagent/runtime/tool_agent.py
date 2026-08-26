@@ -88,6 +88,23 @@ class ToolAgentRuntime(AgentRuntime):
                         "action": action.model_dump(mode="json"),
                     }
                 )
+                policy_metadata = self.policy.observable_metadata(
+                    AgentContext(
+                        task=task,
+                        snapshot=snapshot,
+                        observation=observation,
+                        tool_results=tuple(tool_results),
+                        step_index=step_index,
+                    )
+                )
+                if policy_metadata:
+                    events.append(
+                        {
+                            "event": "policy_observation",
+                            "step_index": step_index,
+                            "metadata": policy_metadata,
+                        }
+                    )
 
                 # Policy execution is part of the wall budget. Do not execute or
                 # accept another action after the budget has expired.

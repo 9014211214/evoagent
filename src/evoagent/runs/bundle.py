@@ -5,12 +5,12 @@ import json
 import os
 import re
 import shutil
-import uuid
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
+from evoagent._io import atomic_temporary_path
 from evoagent.runs.models import (
     ExternalSignatureReference,
     ReproducibleRunManifest,
@@ -77,7 +77,7 @@ def _manifest_hash(spec: ReproducibleRunSpec, artifacts: tuple[RunArtifactRecord
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary = atomic_temporary_path(path)
     try:
         with temporary.open("wb") as handle:
             handle.write(content)
@@ -125,7 +125,7 @@ class ReproducibleRunBundleManager:
         self._validate_signature_requirement(manifest, external_signature_reference)
 
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        temporary = atomic_temporary_path(destination)
         temporary.mkdir(mode=0o700)
         artifacts_directory = temporary / "artifacts"
         artifacts_directory.mkdir()

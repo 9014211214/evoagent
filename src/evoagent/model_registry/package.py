@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from evoagent._io import atomic_temporary_path
 from evoagent.campaigns.models import (
     ApprovalDecision,
     CampaignApproval,
@@ -811,9 +811,7 @@ class ModelAdmissionPackageManager:
             raise ModelAdmissionPackageError(
                 "Model admission package output must not be a symlink."
             )
-        temporary = destination.with_name(
-            f".{destination.name}.{uuid.uuid4().hex}.tmp"
-        )
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open(
                 "w",

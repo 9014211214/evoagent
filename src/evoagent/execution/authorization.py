@@ -6,7 +6,6 @@ import os
 import re
 import shutil
 import subprocess
-import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from evoagent._io import atomic_temporary_path
 from evoagent.execution.environment import build_authorized_environment
 from evoagent.execution.models import (
     ExecutionApproval,
@@ -22,6 +22,7 @@ from evoagent.execution.models import (
     ExecutionPreflightResult,
     ExecutionRequest,
 )
+from evoagent.execution.process import platform_executable_argv
 
 
 _SECRET_PATTERNS = (
@@ -234,7 +235,7 @@ class ExecutionAuthorizationManager:
         }
         try:
             completed = subprocess.run(
-                [executable, *invocation.version_arguments],
+                platform_executable_argv(executable, invocation.version_arguments),
                 cwd=workspace,
                 env=version_environment,
                 text=True,
@@ -358,7 +359,7 @@ class ExecutionAuthorizationManager:
     def _atomic_write(path: str | Path, content: str) -> Path:
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+        temporary = atomic_temporary_path(destination)
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)

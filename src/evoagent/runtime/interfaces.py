@@ -21,6 +21,16 @@ class ToolAgentPolicy(ABC):
     def next_action(self, context: AgentContext) -> AgentAction:
         raise NotImplementedError
 
+    def observable_metadata(self, context: AgentContext) -> dict[str, object]:
+        """Return bounded decision metadata suitable for the observable Trace.
+
+        Policies must never place prompts, raw task inputs, hidden reasoning,
+        credentials, or trajectories in this mapping. The default is empty so
+        existing policies retain their original Trace contract.
+        """
+
+        return {}
+
 
 class ResettableToolEnvironment(ABC):
     """One resettable, side-effect-contained tool episode."""

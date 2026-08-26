@@ -2,6 +2,23 @@
 
 Updated: 2026-08-20
 
+## Scope boundary
+
+The pinned bridge is **Skill-component only**. It replaces Skill-evolution
+strategy inside the external runtime; it does not execute EvoAgent's Router,
+bounded Memory, numeric Agent Policy, unified snapshot Registry or full
+continual loop. Workflow identity and imported comparison artifacts therefore
+record:
+
+```text
+agent_scope=skill_component
+evaluated_components=[skill]
+full_agent_evidence=false
+```
+
+Even a complete schedule can support a Skill-module claim only. Whole-EvoAgent
+evidence must use the Full-Agent adapter contract described in document 36.
+
 ## Pinned identities
 
 - repository: AIoT-MLSys-Lab/SkillEvolBench

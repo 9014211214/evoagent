@@ -5,11 +5,11 @@ import json
 import os
 import platform
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from evoagent import __version__
+from evoagent._io import atomic_temporary_path
 from evoagent.acquisition import InitialSkillAcquisitionGate, SyntheticAcquisitionSandbox
 from evoagent.benchmarks import (
     BenchmarkManifest,
@@ -695,7 +695,7 @@ class ReferenceEvolutionLab:
 
     @staticmethod
     def _atomic_write_bytes(path: Path, data: bytes) -> None:
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        temporary = atomic_temporary_path(path)
         try:
             with temporary.open("wb") as handle:
                 handle.write(data)

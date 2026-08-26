@@ -1,24 +1,20 @@
 from __future__ import annotations
 
 import json
-import shutil
+import tempfile
 from pathlib import Path
 
 from evoagent.lab import ClosedLoopEvolutionSupervisorLab
 
 
-ROOT = Path(".evoagent/closed-loop-supervisor-example")
-
-
 def main() -> None:
-    if ROOT.exists():
-        shutil.rmtree(ROOT)
-    lab = ClosedLoopEvolutionSupervisorLab(
-        ROOT,
-        source_commit="6" * 40,
-    )
-    first = lab.run()
-    second = lab.run()
+    with tempfile.TemporaryDirectory(prefix="evoagent-closed-loop-") as root:
+        lab = ClosedLoopEvolutionSupervisorLab(
+            Path(root),
+            source_commit="6" * 40,
+        )
+        first = lab.run()
+        second = lab.run()
     print(
         json.dumps(
             {

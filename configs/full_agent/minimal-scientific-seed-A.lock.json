@@ -1,6 +1,6 @@
 {
   "format_version": "evoagent-minimal-scientific-lock-v1",
-  "plan_hash": "09f3edc4096deee8a05b4889b13f0f786fa09e86661adaf4bdcd37b74d0d24bd",
+  "plan_hash": "a2eddac0b4e98f633751334769a8fb58fafe8c89e39d61b782109ab6087ce5d2",
   "manifest_hash": "919cc4f9e50f236236cd3cd5fbd24ec334e147001ae299f2c88b8d77700acc54",
   "task_hashes": {
     "science:retention:new-note": "0c5441054f0a19be10007905b3068d91e9ba3ac2e36ba82587ccc65751f72982",
@@ -21,7 +21,7 @@
     "A1-unified-skill": "c77ff284008455abbf60581a5356263880c28697cc241e9e58e48e25d0b75901",
     "A2-unified-memory": "2a5f1d396e0e3062240a77cf841bf21a4f48244d651095ab4b1aba9170e946df",
     "A3-unified-router": "f730201a3ab0db74bf5792e0490b23c543b0f8a19295cfe56f1d1d888bad5182",
-    "A4-unified-policy": "4ca68f701bf34a36a8b13512376e714bcba54f6a02cfb11f3dc1569be864abf0"
+    "A4-unified-policy": "dc4165184402b328a855d3f8fd5cde8d7375def228609bd9fa1e893e97f8de65"
   },
   "model_preset_hash": "9cbeff4ead8a0dde5e9fdfaec38f5c75e37de6996bc3d7d5220f7a8cfce9580d",
   "budget": {
@@ -36,5 +36,5 @@
     "authorization_cap_usd": 1.2,
     "reserve_usd": 0.06
   },
-  "lock_hash": "523ae52731e085d5c2698e1915667d9727247c9a5a28eed6aedb7e4b79f6c5d1"
+  "lock_hash": "9ed373807ebbfb95b629999fdd9db8e3466c107bcd41bec10afffe349db1770c"
 }

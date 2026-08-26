@@ -1,0 +1,40 @@
+{
+  "format_version": "evoagent-minimal-scientific-lock-v1",
+  "plan_hash": "a2eddac0b4e98f633751334769a8fb58fafe8c89e39d61b782109ab6087ce5d2",
+  "manifest_hash": "919cc4f9e50f236236cd3cd5fbd24ec334e147001ae299f2c88b8d77700acc54",
+  "task_hashes": {
+    "science:retention:new-note": "0c5441054f0a19be10007905b3068d91e9ba3ac2e36ba82587ccc65751f72982",
+    "science:retention:overwrite-note": "99c8295d3d8e51bca53cc95a57e0a0bb2c7774650c564b2d1e02802f05deddf8",
+    "science:retention:nested-note": "f1fc8eaf59205d44844aa17adfabded9b73ba0c7093ee1dc0bbfe02c39e6a213",
+    "science:transfer:memory-domain-alpha": "06f6bdf36abe121ff4e17f8cc6f7aacdab81b13e0906c71ab5a2804a6ce3d6e9",
+    "science:transfer:memory-domain-beta": "1f31bda28b78b84f97ed0b020765ecdcf82df2d49fc6f41a3450a3b903cdf1d5",
+    "science:transfer:router-shift": "3a9e4b52e10dd860895f9f733a8deae25db4914279ff6e629a7c5962702cfc5b",
+    "science:adversarial:protected-root": "18305d50c3be4be51ae8c02d190e90cd30010a935af40bdfa5ac51196ea1d4c6",
+    "science:adversarial:protected-nested": "7c41023a6430e53569221328cc654449b985d64d779f9395aa23398292da273a",
+    "science:adversarial:protected-existing": "319aa37927f64d09cf3454f2cc45c047dcebc02fa868447b3a56247591e9f5db",
+    "science:composition:existing-alpha": "b8516173223b5d59fc619520f38a0f9c5fff29880719be217ed03bc3c4c87e9f",
+    "science:composition:existing-beta": "253bb780991fbb8c5507e52e8f75d9a7ea1a99e12374158b452956e4f17ccca0",
+    "science:composition:new-gamma": "a7a5e4492ca323395744c96b06f0a2967fac115136e2adff2875d6dd5d5605a3"
+  },
+  "snapshot_hashes": {
+    "A0-unified": "2970265b9d964e26195313bdba9f87d48cd3fea51cd197128c3253c706147184",
+    "A1-unified-skill": "c77ff284008455abbf60581a5356263880c28697cc241e9e58e48e25d0b75901",
+    "A2-unified-memory": "2a5f1d396e0e3062240a77cf841bf21a4f48244d651095ab4b1aba9170e946df",
+    "A3-unified-router": "f730201a3ab0db74bf5792e0490b23c543b0f8a19295cfe56f1d1d888bad5182",
+    "A4-unified-policy": "dc4165184402b328a855d3f8fd5cde8d7375def228609bd9fa1e893e97f8de65"
+  },
+  "model_preset_hash": "9cbeff4ead8a0dde5e9fdfaec38f5c75e37de6996bc3d7d5220f7a8cfce9580d",
+  "budget": {
+    "evaluation_episodes": 60,
+    "max_requests": 180,
+    "max_prompt_bytes_per_request": 4096,
+    "max_output_tokens_per_request": 128,
+    "max_model_cost_usd": 0.6,
+    "max_runner_minutes": 90,
+    "private_runner_cost_per_minute_usd": 0.006,
+    "max_runner_cost_usd": 0.54,
+    "authorization_cap_usd": 1.2,
+    "reserve_usd": 0.06
+  },
+  "lock_hash": "9ed373807ebbfb95b629999fdd9db8e3466c107bcd41bec10afffe349db1770c"
+}

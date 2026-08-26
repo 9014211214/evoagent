@@ -241,6 +241,7 @@ workflow_root = ROOT / ".github" / "workflows"
 allowed_workflows = {
     "ci.yml",
     "full-agent-external-dry-run.yml",
+    "minimal-scientific-seed-dry-run.yml",
     "release-readiness.yml",
     "skillevolbench-benchmark.yml",
 }

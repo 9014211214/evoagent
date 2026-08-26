@@ -18,6 +18,13 @@ from .runtime import UnifiedDocumentAgentRuntime
 
 _HASH = r"^[0-9a-f]{64}$"
 _SAFE_ID = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+_PERSISTED_FLOAT_DECIMALS = 12
+
+
+def _persisted_float(value: float) -> float:
+    """Remove platform-libm noise before a float enters a hashed artifact."""
+
+    return round(float(value), _PERSISTED_FLOAT_DECIMALS)
 
 
 class PolicyOptimizationConfig(BaseModel):
@@ -175,16 +182,18 @@ class BoundedObservablePolicyOptimizer:
             version=snapshot.action_policy.version + 1,
             iteration=snapshot.action_policy.iteration + config.iterations,
             state_keys=snapshot.action_policy.state_keys,
-            logits=tuple(tuple(value for value in row) for row in logits),
+            logits=tuple(
+                tuple(_persisted_float(value) for value in row) for row in logits
+            ),
             parent=snapshot.action_policy,
         )
-        delta = math.sqrt(
+        delta = _persisted_float(math.sqrt(
             sum(
                 (after - before) ** 2
                 for before_row, after_row in zip(snapshot.action_policy.logits, candidate.logits)
                 for before, after in zip(before_row, after_row)
             )
-        )
+        ))
         if delta <= 0.0:
             raise RuntimeError("Policy optimizer did not update numeric parameters.")
         task_hash = canonical_sha256(
@@ -197,7 +206,9 @@ class BoundedObservablePolicyOptimizer:
             "config_hash": config.config_hash,
             "training_task_hash": task_hash,
             "candidate_policy": candidate,
-            "iteration_mean_rewards": tuple(mean_rewards),
+            "iteration_mean_rewards": tuple(
+                _persisted_float(value) for value in mean_rewards
+            ),
             "rollout_count": rollout_count,
             "episode_steps": episode_steps,
             "parameter_delta_l2": delta,

@@ -44,6 +44,10 @@ This checklist governs the public Research Preview and any later release. Comple
 - [ ] Full-Agent benchmark evidence binds the exact Agent snapshot and all component hashes for every Task result.
 - [ ] SkillEvolBench bridge artifacts declare `agent_scope=skill_component`, `evaluated_components=["skill"]`, and `full_agent_evidence=false`.
 - [ ] Local A0→A4 results are described only as deterministic mechanism evidence, never as an external benchmark or general continual-learning claim.
+- [ ] Minimal scientific lock binds exactly 12 Tasks (three per role), five A0→A4 snapshots, one model/provider, seed 43, Runtime, Verifier and every budget ceiling.
+- [ ] The public minimal-science workflow is credential-free and regenerates the exact lock twice before uploading SHA-256 evidence.
+- [ ] Any real minimal seed is exact-commit, private, one-use, no-fallback, fail-closed, and bounded by USD 0.60 model plus USD 0.54 runner and USD 0.06 reserve.
+- [ ] Minimal-seed evidence contains no credentials, raw prompts, raw responses or full trajectories, and is never described as an authoritative benchmark.
 
 ## v2.0 persistent multi-generation Evolution Program
 

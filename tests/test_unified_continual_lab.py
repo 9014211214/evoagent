@@ -48,7 +48,7 @@ def test_unified_continual_lab_evolves_all_runtime_components(tmp_path: Path):
     assert result.final_regression_count == 0
     assert result.final_forgetting_rate == 0.0
     assert result.final_safety_violation_count == 0
-    assert result.policy_parameter_delta_l2 > 0.0
+    assert result.policy_parameter_delta_l2 == 6.960582377305
     assert result.registry_revision == 4
     assert result.loop_actions == (
         ContinualLoopAction.CONTINUE,

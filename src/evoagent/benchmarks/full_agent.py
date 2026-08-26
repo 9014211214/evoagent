@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -25,12 +26,13 @@ class BenchmarkAgentScope(str, Enum):
 
 
 class FullAgentBenchmarkManifest(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     manifest_id: str = Field(pattern=_SAFE_ID)
     benchmark_id: str = Field(pattern=_SAFE_ID)
     benchmark_revision: str = Field(pattern=_SAFE_ID)
     task_roles: dict[str, ContinualTaskRole]
+    task_hashes: dict[str, str]
     model_id: str = Field(pattern=_SAFE_ID)
     seed: str = Field(pattern=_SAFE_ID)
     inference_config_hash: str = Field(pattern=_HASH)
@@ -51,6 +53,10 @@ class FullAgentBenchmarkManifest(BaseModel):
             raise ValueError("Full-Agent benchmark Task IDs are not bounded safe IDs.")
         if set(self.task_roles.values()) != set(ContinualTaskRole):
             raise ValueError("Full-Agent benchmark must cover every continual role.")
+        if set(self.task_hashes) != set(self.task_roles) or any(
+            re.fullmatch(_HASH, value) is None for value in self.task_hashes.values()
+        ):
+            raise ValueError("Full-Agent benchmark requires one exact hash per Task.")
         if self.updates_allowed_during_evaluation:
             raise ValueError("Full-Agent benchmark evaluation must be frozen.")
         payload = self.model_dump(mode="json", exclude={"manifest_hash"})
@@ -60,9 +66,10 @@ class FullAgentBenchmarkManifest(BaseModel):
 
 
 class FullAgentBenchmarkTaskResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     task_id: str = Field(pattern=_SAFE_ID)
+    task_hash: str = Field(pattern=_HASH)
     role: ContinualTaskRole
     score: float = Field(ge=0.0, le=1.0)
     passed: bool
@@ -84,15 +91,20 @@ class FullAgentBenchmarkTaskResult(BaseModel):
 
 
 class FullAgentBenchmarkBatch(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     adapter_id: str = Field(pattern=_SAFE_ID)
     adapter_scope: BenchmarkAgentScope
     manifest_hash: str = Field(pattern=_HASH)
     snapshot_hash: str = Field(pattern=_HASH)
+    source_result_sha256: str = Field(pattern=_HASH)
     task_results: tuple[FullAgentBenchmarkTaskResult, ...]
     usage: ResourceUsage
     batch_hash: str = Field(pattern=_HASH)
+    external_execution_performed: Literal[True] = True
+    synthetic_fixture: Literal[False] = False
+    official_submission_performed: Literal[False] = False
+    official_leaderboard_claimed: Literal[False] = False
 
     @model_validator(mode="after")
     def validate_batch(self):
@@ -161,6 +173,8 @@ class FullAgentBenchmarkProtocol:
         for item in batch.task_results:
             if item.role != manifest.task_roles[item.task_id]:
                 raise ValueError("Benchmark Task role differs from the frozen manifest.")
+            if item.task_hash != manifest.task_hashes[item.task_id]:
+                raise ValueError("Benchmark Task result used another frozen Task payload.")
             if item.snapshot_hash != snapshot.snapshot_hash:
                 raise ValueError("Benchmark Task result used another snapshot.")
             if any(getattr(item, key) != value for key, value in expected.items()):

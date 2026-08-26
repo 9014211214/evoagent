@@ -17,6 +17,7 @@ on:
       - "scripts/verify_openrouter_model.py"
       - "configs/skillevolbench/**"
       - ".github/workflows/skillevolbench-benchmark.yml"
+      - ".github/workflows/full-agent-external-dry-run.yml"
       - "src/evoagent/**"
       - "src/evoagent/benchmarks/**"
       - "src/evoagent/continual/**"
@@ -25,6 +26,8 @@ on:
       - "examples/unified_continual_agent.py"
       - "tests/test_skillevolbench_*.py"
       - "tests/test_full_agent_benchmark_contract.py"
+      - "tests/test_full_agent_external_adapter.py"
+      - "tests/test_openrouter_full_agent_calibration.py"
       - "tests/test_local_document_atomic_path.py"
       - "tests/test_unified_continual_lab.py"
       - "tests/test_release_readiness_scanner.py"
@@ -67,6 +70,8 @@ jobs:
             tests/test_release_readiness_scanner.py \
             tests/test_skillevolbench_*.py \
             tests/test_full_agent_benchmark_contract.py \
+            tests/test_full_agent_external_adapter.py \
+            tests/test_openrouter_full_agent_calibration.py \
             tests/test_local_document_atomic_path.py \
             tests/test_unified_continual_lab.py
       - name: Build wheel

@@ -31,6 +31,11 @@ class ToolAgentPolicy(ABC):
 
         return {}
 
+    def observable_usage(self) -> dict[str, float]:
+        """Return cumulative, non-secret provider usage for this policy instance."""
+
+        return {}
+
 
 class ResettableToolEnvironment(ABC):
     """One resettable, side-effect-contained tool episode."""

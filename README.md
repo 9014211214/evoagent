@@ -137,6 +137,21 @@ Its strict importer also binds each frozen Task payload hash, caller SHA-256 and
 resource usage. The included MiMo preset is only for a bounded Tool-call
 integration calibration; it is not a benchmark result.
 
+### Frozen 12-Task minimal scientific seed
+
+The next low-cost Full-Agent gate is a controlled 12-Task set: three retention,
+three transfer, three adversarial and three composition cases. The same pinned
+MiMo endpoint, seed 43, Environment and verifier evaluate all five A0→A4
+snapshots, for exactly 60 episodes. A compact lock binds every Task, snapshot,
+component, model-preset and budget hash. The public workflow is credential-free;
+real execution is private, one-use and capped at USD 1.20 including runner
+reserve. See
+[`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`](docs/MINIMAL_SCIENTIFIC_VALIDATION.md).
+
+This is designed to test the causal mechanism and retention boundary at low
+cost. Even a passing seed is not an authoritative benchmark, a comparison with
+another Agent, or evidence of statistical significance across seeds.
+
 The repository includes a one-click GitHub Actions workflow at .github/workflows/skillevolbench-benchmark.yml. It pins SkillEvolBench, the benchmark-compatible Harbor v0.7.0 commit, and Claude Code 2.1.235 as Harbor's code-editing tool shell; the OpenRouter Qwen or GLM endpoint remains the inference model. Pull requests are hardwired to credential-free preflight. Authenticated smoke or compare execution requires an owner-supplied `OPENROUTER_API_KEY` repository Secret and an explicit manual dispatch; the public repository does not contain or inherit that Secret. The workflow reclaims hosted-runner disk, installs Python and the external runtime, validates the live OpenRouter catalogue, dry-runs both conditions, and supports three modes: preflight, bounded smoke, and explicitly acknowledged full compare. Real modes build from a temporary copy of the upstream runtime directory, retain Ubuntu base-image mirrors, apply bounded apt retries, verify the installed tool-shell version, and preserve before/after SHA-256 plus the exact preparation patch without modifying the pinned checkout. The release preset is configs/skillevolbench/openrouter-qwen3-coder-plus.yaml and uses the verified OpenRouter model ID qwen/qwen3-coder-plus; qwen/qwen3.7-plus and z-ai/glm-5.2:free remain optional smoke-only presets.
 
 Hosted Ubuntu allocation, preflight, both dry-runs, the runtime build, and the complete bounded two-condition smoke are verified. Exact-head run 32324346605 used smoke-only model `qwen/qwen3.7-plus`, seed A, and identical 64-turn / 8,192-output / 100,000-context / 50%-compaction controls for both conditions. Both two-task reports passed strict import and produced an all-zero partial delta; the artifact explicitly records `publishable_full_benchmark=false`. Reported agent cost was USD 1.860921 for no_skill and USD 1.333647 for EvoAgent (USD 3.194568 combined), excluding unpriced host/probe overhead. This is integration evidence, not a benchmark score. A full same-seed run is not currently viable on the standard workflow: no_skill schedules 180 trials, EvoAgent schedules 270 including replay, and even the shorter side projects beyond the 355-minute job cap. The importer rejects incomplete schedules rather than labeling them publishable.
@@ -290,6 +305,10 @@ same-model, same-seed SkillEvolBench result may be reported only as a
 Skill-component result after strict import. A whole-EvoAgent claim additionally
 requires Full-Agent evidence binding Skill, Router, Memory and Agent Policy on
 every external Task. Neither result currently exists.
+
+The 12-Task Full-Agent mechanism set is frozen and its zero-cost local gate
+passes; the separately authorized external seed is tracked independently from
+the authoritative SkillEvolBench claim.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

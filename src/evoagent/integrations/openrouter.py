@@ -52,6 +52,92 @@ class OpenRouterPolicyUsage(BaseModel):
     cost_usd: float = Field(ge=0.0)
 
 
+class OpenRouterUsageLedger:
+    """One fail-closed usage ceiling shared by many short Agent episodes."""
+
+    def __init__(
+        self,
+        *,
+        preset: OpenRouterModelPreset,
+        max_requests: int,
+        max_prompt_bytes_per_request: int,
+        max_output_tokens_per_request: int,
+        max_cost_usd: float,
+    ):
+        if (
+            max_requests <= 0
+            or max_prompt_bytes_per_request <= 0
+            or max_output_tokens_per_request <= 0
+        ):
+            raise ValueError("OpenRouter shared-ledger limits must be positive.")
+        if not math.isfinite(max_cost_usd) or max_cost_usd <= 0:
+            raise ValueError("OpenRouter shared cost limit must be finite and positive.")
+        if max_output_tokens_per_request > preset.max_completion_tokens:
+            raise ValueError("OpenRouter shared output cap exceeds the pinned endpoint.")
+        worst = (
+            Decimal(max_requests * max_prompt_bytes_per_request)
+            * preset.prompt_cost_per_token_usd
+            + Decimal(max_requests * max_output_tokens_per_request)
+            * preset.completion_cost_per_token_usd
+        )
+        if worst > Decimal(str(max_cost_usd)):
+            raise ValueError("OpenRouter shared mathematical ceiling exceeds its cost cap.")
+        self.preset = preset
+        self.max_requests = max_requests
+        self.max_prompt_bytes_per_request = max_prompt_bytes_per_request
+        self.max_output_tokens_per_request = max_output_tokens_per_request
+        self.max_cost_usd = max_cost_usd
+        self.mathematical_cost_ceiling_usd = float(worst)
+        self._attempted_requests = 0
+        self._prompt_tokens = 0
+        self._completion_tokens = 0
+        self._total_tokens = 0
+        self._cost_usd = 0.0
+
+    def reserve(self, *, prompt_bytes: int, max_output_tokens: int) -> None:
+        if prompt_bytes > self.max_prompt_bytes_per_request:
+            raise OpenRouterIntegrationError(
+                "OpenRouter request exceeds the shared prompt-byte cap."
+            )
+        if max_output_tokens > self.max_output_tokens_per_request:
+            raise OpenRouterIntegrationError(
+                "OpenRouter request exceeds the shared output-token cap."
+            )
+        if self._attempted_requests >= self.max_requests:
+            raise OpenRouterIntegrationError("OpenRouter shared request-count cap reached.")
+        # Reserve before network I/O: even a timed-out request may have reached
+        # the provider and therefore must consume the one-run request allowance.
+        self._attempted_requests += 1
+
+    def record(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        cost_usd: float,
+    ) -> None:
+        projected = self._cost_usd + cost_usd
+        if projected > self.max_cost_usd:
+            raise OpenRouterIntegrationError(
+                "OpenRouter shared run exceeded its cost cap."
+            )
+        self._prompt_tokens += prompt_tokens
+        self._completion_tokens += completion_tokens
+        self._total_tokens += total_tokens
+        self._cost_usd = projected
+
+    @property
+    def usage(self) -> OpenRouterPolicyUsage:
+        return OpenRouterPolicyUsage(
+            requests=self._attempted_requests,
+            prompt_tokens=self._prompt_tokens,
+            completion_tokens=self._completion_tokens,
+            total_tokens=self._total_tokens,
+            cost_usd=self._cost_usd,
+        )
+
+
 Transport = Callable[[dict[str, Any], str], dict[str, Any]]
 
 
@@ -75,6 +161,7 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         max_output_tokens: int = 256,
         max_prompt_bytes_per_request: int = 32_768,
         max_cost_usd: float = 2.0,
+        shared_ledger: OpenRouterUsageLedger | None = None,
         transport: Transport | None = None,
     ):
         if not api_key or "\x00" in api_key:
@@ -101,6 +188,9 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         self.max_prompt_bytes_per_request = max_prompt_bytes_per_request
         self.max_cost_usd = max_cost_usd
         self.mathematical_cost_ceiling_usd = float(worst)
+        if shared_ledger is not None and shared_ledger.preset != preset:
+            raise ValueError("OpenRouter shared ledger uses another pinned model preset.")
+        self._shared_ledger = shared_ledger
         self._transport = transport or self._post_json
         self._requests = 0
         self._prompt_tokens = 0
@@ -171,6 +261,11 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         )
         if encoded_size > self.max_prompt_bytes_per_request:
             raise OpenRouterIntegrationError("OpenRouter request exceeds the prompt-byte cap.")
+        if self._shared_ledger is not None:
+            self._shared_ledger.reserve(
+                prompt_bytes=encoded_size,
+                max_output_tokens=self.max_output_tokens,
+            )
         response = self._transport(payload, self._api_key)
         self._requests += 1
         self._record_usage(response)
@@ -229,6 +324,13 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         self._cost_usd += float(cost)
         if self._cost_usd > self.max_cost_usd:
             raise OpenRouterIntegrationError("OpenRouter calibration exceeded its cost cap.")
+        if self._shared_ledger is not None:
+            self._shared_ledger.record(
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                total_tokens=total,
+                cost_usd=float(cost),
+            )
 
     def _verify_routing(self, response: dict[str, Any]) -> None:
         if response.get("model") not in {
@@ -328,4 +430,5 @@ __all__ = [
     "OpenRouterIntegrationError",
     "OpenRouterModelPreset",
     "OpenRouterPolicyUsage",
+    "OpenRouterUsageLedger",
 ]

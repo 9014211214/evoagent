@@ -30,6 +30,13 @@ Historical entries below describe research-framework milestones. They do not imp
   controls.
 - Added restart-safe unified Lab results: a verified second invocation is
   read-only and performs no duplicate optimization or Registry events.
+- Added a frozen 12-Task minimal scientific set with three retention, transfer,
+  adversarial and composition cases each, evaluated across A0→A4 under one
+  model, seed, Runtime and Verifier.
+- Added a compact manifest/snapshot/budget lock, a shared cross-episode
+  OpenRouter request and cost ledger, credential-free hosted dry-run evidence,
+  and a one-use USD 1.20 execution boundary. The result remains a controlled
+  mechanism test rather than an authoritative benchmark.
 
 ## 2.0.0 release candidate
 

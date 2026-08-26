@@ -273,6 +273,14 @@ repository visibility change
 
 External execution requires separate credentials, runtime, budget, and authorization.
 
+The Full-Agent external adapter and its credential-free hosted dry-run now
+pass. One separately authorized MiMo calibration also completed the exact
+Skill/Router/Memory/numeric-Policy Tool loop: 3 requests, 1,553 Tokens, USD
+0.00024206, exact Xiaomi provider, no fallback, verifier passed. This is
+integration calibration only, not benchmark or generalization evidence. See
+`docs/37-full-agent-external-calibration.md` for the public sanitized evidence
+hash and the measured one-seed planning envelope.
+
 ## Publication and performance-claim gates
 
 The public source snapshot was authorized by the owner after Python 3.11/3.12 validation, license and third-party review, and secret/privacy scanning. Its Git history starts with one privacy-safe commit and does not inherit the private development history, pull requests, Actions logs, or artifacts.

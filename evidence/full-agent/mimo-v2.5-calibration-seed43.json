@@ -1,0 +1,59 @@
+{
+  "approved_cost_cap_usd": 2.0,
+  "approver_ids": [
+    "owner-9014211214",
+    "static-budget-policy-v1"
+  ],
+  "authorization_anchor_hash": "1a1a67eb964ba7b41dce12174208d49e68b73bd5fda2205806761c1806adccaf",
+  "benchmark_score_claimed": false,
+  "canonical_model_id": "xiaomi/mimo-v2.5-20260422",
+  "claim_scope": "integration_calibration_only_not_benchmark_evidence",
+  "component_hashes": {
+    "memory": "a991ed20103fbe12a3e5f32f4d4d4d44f78d197deca782347bc3ae693b86498a",
+    "policy": "458ba577c83bb5fedcb4edfc8876b782a26ab1fb17ac80810223a57169d74a94",
+    "router": "69739d2eb245f32edbeaf1920ebffbd73479034fe24cdf4ea8ac2137583147a6",
+    "skill": "7bba60dfee86e57deedd08a794e1ecca92b8f7b79f8e177314f0754e8d0f7d52"
+  },
+  "controller_binding": {
+    "initial_policy_action": "inspect",
+    "memory_record_ids": [
+      "memory-write-verify-v1"
+    ],
+    "policy_state": "adversarial",
+    "router_source": "verified_memory",
+    "selected_skill_ids": [
+      "document_writer"
+    ]
+  },
+  "credentials_persisted": false,
+  "evidence_hash": "72d07550cca7731c2d68a12f228e326dc4d08e378c6da23a7356b63fded10300",
+  "external_execution_performed": true,
+  "format_version": "evoagent-mimo-full-agent-calibration-v1",
+  "mathematical_cost_ceiling_usd": 0.0139776,
+  "model_id": "xiaomi/mimo-v2.5",
+  "observable_trace_hash": "b1a6e55976e87771c0a87661f23b8adb6035c41e34c917d2a512e71c73d3549d",
+  "official_leaderboard_claimed": false,
+  "official_submission_performed": false,
+  "provider": "Xiaomi",
+  "provider_fallbacks": false,
+  "raw_prompts_persisted": false,
+  "raw_responses_persisted": false,
+  "requester_id": "codex-execution-requester",
+  "runtime_hash": "c67524b832b1bf26ebcd30b794572962ac4b837bfff8cd58520f3c050809b569",
+  "seed": 43,
+  "snapshot_hash": "952129f4304db3f1811cc9acd78f0a4d7c8d189a777b29fcdfff50ce63135a39",
+  "status": "passed",
+  "task_hash": "800bffea907a748a1b936ea28b9e2078dd4b2221c71eabfa54657f69197b9bc9",
+  "tool_call_count": 3,
+  "tool_contract_hash": "eeeae528c0503237a10a8c5d5d7bd706acfeb9fb42f9c19afbdee218817637e1",
+  "tool_sequence_hash": "da42e64d1300cb3c6cc099204c5cb9fb235c0b1bde9f00b08f2b26af4866ab3f",
+  "usage": {
+    "completion_tokens": 176,
+    "cost_usd": 0.00024206,
+    "prompt_tokens": 1377,
+    "requests": 3,
+    "total_tokens": 1553
+  },
+  "verifier_hash": "8e0cb8ccf72fe59bc1625d15a5a8621040547d60847a8d1bb02f631ffa1bc1c7",
+  "verifier_passed": true
+}

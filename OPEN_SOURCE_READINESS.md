@@ -1,6 +1,6 @@
 # Open-Source Readiness
 
-Updated: 2026-08-25
+Updated: 2026-08-26
 
 This file records the publication boundary for the public v2.0 Research Preview source snapshot. It does not authorize a Git tag, GitHub Release, package publication, paid model execution, benchmark submission, or performance claim.
 
@@ -17,8 +17,9 @@ This file records the publication boundary for the public v2.0 Research Preview 
 | Secret and privacy review | PASSED ON PUBLICATION CANDIDATE | The deterministic tracked-source scan, Gitleaks 8.30.1 directory scan, identifying-email/local-path scan, suspicious-file inventory, staged-path check, and GitHub no-reply author-metadata check all passed. |
 | SkillEvolBench integration | PARTIAL SKILL-COMPONENT SMOKE VERIFIED | A bounded two-task same-model smoke completed both conditions and strict import. It is integration evidence only, evaluates the Skill bridge only, and records `publishable_full_benchmark=false`. New artifacts also bind `agent_scope=skill_component` and `full_agent_evidence=false`. |
 | Full same-seed comparison | NOT RUN | No complete 180-trial no-skill / 270-trial EvoAgent comparison exists. No score is inferred or fabricated. |
-| Full-Agent external evaluation | NOT RUN | The benchmark-neutral Full-Agent contract is implemented and rejects component-only evidence. No external result yet binds Skill, Router, Memory and Agent Policy together. |
-| External model execution | DISABLED BY DEFAULT | Pull requests run credential-free preflight only. Smoke or compare needs an owner-supplied repository Secret and explicit manual dispatch; no Secret is copied into the public repository. |
+| Full-Agent external adapter | HOSTED DRY-RUN PASSED | Exact-head run `32970101477` passed the credential-free deterministic double-build and strict adapter tests. Artifact `9607245269` has digest `sha256:375114fb2e3790b6e45327f3ea1b021ce77e0ee3c01500e489c11a6caa61020b`. This proves the binding/import path only. |
+| Full-Agent external evaluation | CALIBRATION ONLY; EFFECTIVENESS NOT RUN | One owner-approved MiMo run bound Skill, Router, Memory and numeric Policy in the same real Tool loop and passed its verifier for USD 0.00024206. Sanitized evidence is tracked under `evidence/full-agent/`; it explicitly claims no benchmark score or generalization result. |
+| External model execution | DISABLED BY DEFAULT | Pull requests remain credential-free. The completed calibration used a private one-use manually dispatched workflow, two approval identities, a USD 2 hard stop and a repository Secret that was neither printed nor copied into the public repository. |
 | Employment / invention / confidentiality | OWNER CONFIRMED | On 2026-08-20 the owner confirmed Apache-2.0 publication authority and no applicable employment, invention-assignment, confidentiality, or organizational open-source conflict. |
 
 ## Publication boundary

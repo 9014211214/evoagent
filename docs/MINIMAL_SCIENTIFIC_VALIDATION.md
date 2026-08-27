@@ -80,7 +80,7 @@ generation. A real seed must run from a one-use private workflow pinned to the
 exact reviewed public commit, after separate action-time authorization, and
 the temporary remote branch must be deleted after the run.
 
-Exact-head hosted run `33024979960` regenerated and verified both model locks.
+Hosted implementation run `33024979960` regenerated and verified both model locks.
 Its Qwen no-reasoning artifact is `9628057696`, with GitHub artifact digest
 `sha256:942924093fe1f680d92f816d3e430d27891db90c1087c3d66c439bf884a3da22`.
 This remains zero-cost contract evidence; it is not the external seed result.

@@ -24,11 +24,21 @@ from evoagent.integrations.openrouter import (
 ROOT = Path(__file__).parents[1]
 PRESET_PATH = ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
 LOCK_PATH = ROOT / "configs/full_agent/minimal-scientific-seed-A.lock.json"
+QWEN_PRESET_PATH = ROOT / "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json"
+QWEN_LOCK_PATH = (
+    ROOT / "configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json"
+)
 
 
 def _preset() -> OpenRouterModelPreset:
     return OpenRouterModelPreset.model_validate_json(
         PRESET_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _qwen_preset() -> OpenRouterModelPreset:
+    return OpenRouterModelPreset.model_validate_json(
+        QWEN_PRESET_PATH.read_text(encoding="utf-8")
     )
 
 
@@ -78,6 +88,23 @@ def test_frozen_lock_binds_exact_12_task_five_snapshot_plan(tmp_path: Path):
     assert plan.budget.evaluation_episodes == 60
     assert plan.budget.max_model_cost_usd == 0.6
     assert plan.budget.authorization_cap_usd == 1.2
+
+
+def test_qwen_frozen_lock_binds_reasoning_disabled_preset(tmp_path: Path):
+    preset = _qwen_preset()
+    plan, _ = build_minimal_scientific_seed_plan(tmp_path, preset=preset)
+    lock = MinimalScientificSeedLock.model_validate_json(
+        QWEN_LOCK_PATH.read_text(encoding="utf-8")
+    )
+
+    verify_minimal_scientific_seed_lock(plan, lock)
+    mimo_plan, _ = build_minimal_scientific_seed_plan(
+        tmp_path / "mimo",
+        preset=_preset(),
+    )
+    assert preset.reasoning_enabled is False
+    assert plan.model_preset_hash != mimo_plan.model_preset_hash
+    assert plan.budget.evaluation_episodes == 60
 
 
 def test_zero_cost_dry_run_has_frozen_causal_progression(tmp_path: Path):

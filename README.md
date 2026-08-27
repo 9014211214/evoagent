@@ -140,12 +140,14 @@ integration calibration; it is not a benchmark result.
 ### Frozen 12-Task minimal scientific seed
 
 The next low-cost Full-Agent gate is a controlled 12-Task set: three retention,
-three transfer, three adversarial and three composition cases. The same pinned
-MiMo endpoint, seed 43, Environment and verifier evaluate all five A0→A4
-snapshots, for exactly 60 episodes. A compact lock binds every Task, snapshot,
-component, model-preset and budget hash. The public workflow is credential-free;
-real execution is private, one-use and capped at USD 1.20 including runner
-reserve. See
+three transfer, three adversarial and three composition cases. The current
+execution lock pins Qwen3.8 Flash to Alibaba, disables reasoning explicitly,
+and uses the same seed 43, Environment and verifier across all five A0→A4
+snapshots, for exactly 60 episodes. The earlier MiMo lock remains reproducible
+but is not interchangeable. A compact lock binds every Task, snapshot,
+component, model-preset, inference setting and budget hash. The public workflow
+is credential-free; real execution is private, one-use and capped at USD 1.20
+including runner reserve. See
 [`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`](docs/MINIMAL_SCIENTIFIC_VALIDATION.md).
 
 This is designed to test the causal mechanism and retention boundary at low
@@ -307,8 +309,10 @@ requires Full-Agent evidence binding Skill, Router, Memory and Agent Policy on
 every external Task. Neither result currently exists.
 
 The 12-Task Full-Agent mechanism set is frozen and its zero-cost local gate
-passes; the separately authorized external seed is tracked independently from
-the authoritative SkillEvolBench claim.
+passes. The first complete MiMo attempt stopped on model Tool-call
+noncompliance and produced no score; the reasoning-disabled Qwen3.8 Flash retry
+has a separate lock. External seed evidence remains independent from the
+authoritative SkillEvolBench claim.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

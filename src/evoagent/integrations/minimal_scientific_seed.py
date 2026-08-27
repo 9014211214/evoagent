@@ -182,6 +182,7 @@ class MinimalScientificSeedResult(BaseModel):
     canonical_model_id: str
     provider: str
     provider_fallbacks: Literal[False] = False
+    reasoning_enabled: bool | None
     seed_label: Literal["A"]
     seed: Literal[43]
     reports: tuple[ContinualEvaluationReport, ...]
@@ -491,7 +492,7 @@ def build_minimal_scientific_seed_plan(
             for item in snapshots
         ),
         "local_evolution_source_snapshot_hashes": source_hashes,
-        "model_preset_hash": canonical_sha256(preset.model_dump(mode="json")),
+        "model_preset_hash": canonical_sha256(preset.fingerprint_payload()),
         "budget": budget,
         "same_model_all_snapshots": True,
         "same_tasks_all_snapshots": True,
@@ -623,7 +624,7 @@ def execute_minimal_scientific_seed(
         item.snapshot_hash for item in plan.snapshots
     ):
         raise ValueError("Execution snapshots differ from the frozen plan.")
-    if canonical_sha256(preset.model_dump(mode="json")) != plan.model_preset_hash:
+    if canonical_sha256(preset.fingerprint_payload()) != plan.model_preset_hash:
         raise ValueError("Execution model preset differs from the frozen plan.")
 
     root = Path(root).expanduser().resolve()
@@ -719,6 +720,7 @@ def execute_minimal_scientific_seed(
         "canonical_model_id": preset.canonical_model_id,
         "provider": preset.provider_name,
         "provider_fallbacks": False,
+        "reasoning_enabled": preset.reasoning_enabled,
         "seed_label": SEED_LABEL,
         "seed": SEED,
         "reports": tuple(reports),

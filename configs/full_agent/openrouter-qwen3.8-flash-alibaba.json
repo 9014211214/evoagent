@@ -1,0 +1,14 @@
+{
+  "canonical_model_id": "qwen/qwen3.8-flash-20260826",
+  "catalogue_verified_at": "2026-08-26T23:41:37.8690765+00:00",
+  "completion_cost_per_token_usd": "0.00000047",
+  "context_length": 1000000,
+  "max_completion_tokens": 131072,
+  "model_id": "qwen/qwen3.8-flash",
+  "preset_id": "openrouter-qwen3.8-flash-alibaba-no-reasoning-v1",
+  "prompt_cost_per_token_usd": "0.00000016",
+  "provider_name": "Alibaba",
+  "provider_slug": "alibaba",
+  "reasoning_enabled": false,
+  "supports_tools": true
+}

@@ -8,11 +8,13 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
+MODEL_ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{model_id}/endpoints"
 RESPONSES_URL = "https://openrouter.ai/api/v1/responses"
 
 
@@ -98,10 +100,110 @@ def verify_model(model_id: str) -> dict[str, Any]:
         "context_length": model.get("context_length"),
         "max_completion_tokens": top_provider.get("max_completion_tokens"),
         "pricing": model.get("pricing"),
+        "reasoning": model.get("reasoning"),
         "supported_parameters": supported,
         "expiration_date": model.get("expiration_date"),
         "catalogue_url": MODELS_URL,
         "verified_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def verify_preset(path: Path) -> dict[str, Any]:
+    preset = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(preset, dict):
+        raise RuntimeError("OpenRouter preset root must be an object")
+    required_keys = {
+        "model_id",
+        "canonical_model_id",
+        "provider_slug",
+        "provider_name",
+        "prompt_cost_per_token_usd",
+        "completion_cost_per_token_usd",
+        "context_length",
+        "max_completion_tokens",
+        "supports_tools",
+    }
+    missing_keys = required_keys - set(preset)
+    if missing_keys:
+        raise RuntimeError(f"OpenRouter preset lacks fields: {sorted(missing_keys)}")
+
+    catalogue = verify_model(str(preset["model_id"]))
+    endpoint_url = MODEL_ENDPOINTS_URL.format(model_id=preset["model_id"])
+    payload = _request_json(urllib.request.Request(endpoint_url), timeout=30)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    endpoints = data.get("endpoints") if isinstance(data, dict) else None
+    if not isinstance(endpoints, list):
+        raise RuntimeError("OpenRouter endpoint catalogue has an unexpected schema")
+    endpoint = next(
+        (
+            item
+            for item in endpoints
+            if isinstance(item, dict)
+            and item.get("tag") == preset["provider_slug"]
+            and item.get("provider_name") == preset["provider_name"]
+        ),
+        None,
+    )
+    if endpoint is None:
+        raise RuntimeError("Pinned OpenRouter provider endpoint is unavailable")
+    supported = set(endpoint.get("supported_parameters") or [])
+    required_parameters = {"max_tokens", "tools", "tool_choice"}
+    if preset.get("reasoning_enabled") is not None:
+        required_parameters.add("reasoning")
+    missing_parameters = required_parameters - supported
+    if missing_parameters:
+        raise RuntimeError(
+            "Pinned OpenRouter endpoint lacks required parameters: "
+            f"{sorted(missing_parameters)}"
+        )
+    reasoning = catalogue.get("reasoning")
+    if preset.get("reasoning_enabled") is False and (
+        not isinstance(reasoning, dict) or reasoning.get("mandatory") is True
+    ):
+        raise RuntimeError("Pinned OpenRouter model cannot disable reasoning")
+
+    checks = {
+        "canonical_model_id": catalogue.get("canonical_slug"),
+        "context_length": endpoint.get("context_length"),
+        "max_completion_tokens": endpoint.get("max_completion_tokens"),
+        "provider_name": endpoint.get("provider_name"),
+        "provider_slug": endpoint.get("tag"),
+    }
+    for key, actual in checks.items():
+        if actual != preset[key]:
+            raise RuntimeError(
+                f"OpenRouter preset drift for {key}: expected {preset[key]!r}, "
+                f"catalogue returned {actual!r}"
+            )
+    endpoint_pricing = endpoint.get("pricing") or {}
+    pricing_checks = {
+        "prompt_cost_per_token_usd": endpoint_pricing.get("prompt"),
+        "completion_cost_per_token_usd": endpoint_pricing.get("completion"),
+    }
+    for key, actual in pricing_checks.items():
+        if Decimal(str(actual)) != Decimal(str(preset[key])):
+            raise RuntimeError(
+                f"OpenRouter preset price drift for {key}: expected {preset[key]!r}, "
+                f"catalogue returned {actual!r}"
+            )
+    if preset["supports_tools"] is not True:
+        raise RuntimeError("Scientific OpenRouter preset must require Tool support")
+
+    return {
+        "catalogue": catalogue,
+        "endpoint": {
+            "provider_name": endpoint["provider_name"],
+            "provider_slug": endpoint["tag"],
+            "model_id": endpoint.get("model_id"),
+            "context_length": endpoint["context_length"],
+            "max_completion_tokens": endpoint["max_completion_tokens"],
+            "pricing": endpoint_pricing,
+            "supported_parameters": sorted(supported),
+            "status": endpoint.get("status"),
+            "endpoint_url": endpoint_url,
+        },
+        "preset_id": preset.get("preset_id"),
+        "reasoning_enabled": preset.get("reasoning_enabled"),
     }
 
 
@@ -139,20 +241,27 @@ def probe_model(model_id: str) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-id", required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--model-id")
+    selection.add_argument("--preset", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args(argv)
 
-    record = {"catalogue": verify_model(args.model_id)}
+    if args.preset is not None:
+        record = verify_preset(args.preset)
+        model_id = str(record["catalogue"]["model_id"])
+    else:
+        model_id = str(args.model_id)
+        record = {"catalogue": verify_model(model_id)}
     if args.probe:
-        record["authenticated_probe"] = probe_model(args.model_id)
+        record["authenticated_probe"] = probe_model(model_id)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(record, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(f"OpenRouter model verified: {args.model_id}")
+    print(f"OpenRouter model verified: {model_id}")
     if args.probe:
         print("Authenticated OpenRouter probe succeeded")
     return 0

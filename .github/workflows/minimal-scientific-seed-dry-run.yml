@@ -5,10 +5,13 @@ on:
     paths:
       - ".github/workflows/minimal-scientific-seed-dry-run.yml"
       - "configs/full_agent/minimal-scientific-seed-A.lock.json"
+      - "configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json"
       - "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
+      - "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json"
       - "docs/MINIMAL_SCIENTIFIC_VALIDATION.md"
       - "scripts/run_minimal_scientific_dry_run.py"
       - "scripts/run_mimo_minimal_scientific_seed.py"
+      - "scripts/run_openrouter_minimal_scientific_seed.py"
       - "src/evoagent/continual/**"
       - "src/evoagent/integrations/minimal_scientific_seed.py"
       - "src/evoagent/integrations/openrouter.py"
@@ -27,9 +30,19 @@ concurrency:
 
 jobs:
   dry-run:
-    name: frozen 12-task zero-cost gate (Python 3.12)
+    name: frozen 12-task zero-cost gate (${{ matrix.profile }}, Python 3.12)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: mimo-v2.5
+            preset: configs/full_agent/openrouter-mimo-v2.5-xiaomi.json
+            lock: configs/full_agent/minimal-scientific-seed-A.lock.json
+          - profile: qwen3.8-flash-no-reasoning
+            preset: configs/full_agent/openrouter-qwen3.8-flash-alibaba.json
+            lock: configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,33 +63,33 @@ jobs:
         run: |
           python scripts/run_minimal_scientific_dry_run.py \
             --workspace "$RUNNER_TEMP/science-a" \
-            --preset configs/full_agent/openrouter-mimo-v2.5-xiaomi.json \
+            --preset "${{ matrix.preset }}" \
             --plan-output "$RUNNER_TEMP/plan-a.json" \
             --lock-output "$RUNNER_TEMP/lock-a.json" \
             --evidence-output "$RUNNER_TEMP/evidence-a.json"
           python scripts/run_minimal_scientific_dry_run.py \
             --workspace "$RUNNER_TEMP/science-b" \
-            --preset configs/full_agent/openrouter-mimo-v2.5-xiaomi.json \
+            --preset "${{ matrix.preset }}" \
             --plan-output "$RUNNER_TEMP/plan-b.json" \
             --lock-output "$RUNNER_TEMP/lock-b.json" \
             --evidence-output "$RUNNER_TEMP/evidence-b.json"
           cmp "$RUNNER_TEMP/plan-a.json" "$RUNNER_TEMP/plan-b.json"
           cmp "$RUNNER_TEMP/lock-a.json" "$RUNNER_TEMP/lock-b.json"
           cmp "$RUNNER_TEMP/lock-a.json" \
-            configs/full_agent/minimal-scientific-seed-A.lock.json
-          mkdir -p minimal-scientific-dry-run-artifact
+            "${{ matrix.lock }}"
+          mkdir -p "minimal-scientific-dry-run-artifact-${{ matrix.profile }}"
           cp "$RUNNER_TEMP/plan-a.json" \
-            minimal-scientific-dry-run-artifact/scientific-plan.json
+            "minimal-scientific-dry-run-artifact-${{ matrix.profile }}/scientific-plan.json"
           cp "$RUNNER_TEMP/evidence-a.json" \
-            minimal-scientific-dry-run-artifact/dry-run-evidence.json
+            "minimal-scientific-dry-run-artifact-${{ matrix.profile }}/dry-run-evidence.json"
           cp "$RUNNER_TEMP/lock-a.json" \
-            minimal-scientific-dry-run-artifact/scientific-lock.json
-          sha256sum minimal-scientific-dry-run-artifact/* \
-            > minimal-scientific-dry-run-artifact/SHA256SUMS
+            "minimal-scientific-dry-run-artifact-${{ matrix.profile }}/scientific-lock.json"
+          sha256sum "minimal-scientific-dry-run-artifact-${{ matrix.profile }}"/* \
+            > "minimal-scientific-dry-run-artifact-${{ matrix.profile }}/SHA256SUMS"
       - name: Upload zero-cost evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: minimal-scientific-seed-dry-run
-          path: minimal-scientific-dry-run-artifact
+          name: minimal-scientific-seed-dry-run-${{ matrix.profile }}
+          path: minimal-scientific-dry-run-artifact-${{ matrix.profile }}
           if-no-files-found: error
           retention-days: 30

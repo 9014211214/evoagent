@@ -121,9 +121,7 @@ def test_claude_code_policy_descriptors_avoid_harbor_extra_env_collision():
         "evoagent_max_context_tokens": "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
         "evoagent_autocompact_pct_override": "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     }
-    assert all(
-        descriptor.type == "int" for descriptor in FakeClaudeCode.ENV_VARS
-    )
+    assert all(descriptor.type == "int" for descriptor in FakeClaudeCode.ENV_VARS)
 
 
 def test_claude_code_extra_env_agent_kwarg_fails_before_harbor_factory(monkeypatch):
@@ -431,6 +429,178 @@ def test_openrouter_preset_separates_router_slug_from_exact_endpoint_tag(
     assert record["endpoint"]["provider_slug"] == "xiaomi"
     assert record["endpoint"]["endpoint_tag"] == "xiaomi/fp8"
     assert record["tool_choice_mode"] == "required_single_tool"
+    assert record["required_tool_choice_route_probe_required"] is True
+
+
+def test_openrouter_required_tool_choice_needs_route_probe_not_catalogue_subtype(
+    tmp_path: Path,
+    monkeypatch,
+):
+    preset = {
+        "model_id": "xiaomi/mimo-v2.5",
+        "canonical_model_id": "xiaomi/mimo-v2.5-20260422",
+        "provider_slug": "xiaomi",
+        "provider_name": "Xiaomi",
+        "endpoint_tag": "xiaomi/fp8",
+        "prompt_cost_per_token_usd": "0.00000014",
+        "completion_cost_per_token_usd": "0.00000028",
+        "context_length": 1_048_576,
+        "max_completion_tokens": 131_072,
+        "supports_tools": True,
+        "tool_choice_mode": "required_single_tool",
+        "tool_choice_verified_at": "2026-08-28T02:22:53+00:00",
+    }
+    path = tmp_path / "preset.json"
+    path.write_text(json.dumps(preset), encoding="utf-8")
+
+    def fake_request(request, *, timeout):
+        if request.full_url.endswith("/endpoints"):
+            return {
+                "data": {
+                    "endpoints": [
+                        {
+                            "tag": "xiaomi/fp8",
+                            "provider_name": "Xiaomi",
+                            "model_id": "xiaomi/mimo-v2.5",
+                            "context_length": 1_048_576,
+                            "max_completion_tokens": 131_072,
+                            "pricing": {
+                                "prompt": "0.00000014",
+                                "completion": "0.00000028",
+                            },
+                            "supported_parameters": [
+                                "max_tokens",
+                                "tools",
+                                "tool_choice",
+                            ],
+                            "status": 0,
+                        }
+                    ]
+                }
+            }
+        return {
+            "data": [
+                {
+                    "id": "xiaomi/mimo-v2.5",
+                    "canonical_slug": "xiaomi/mimo-v2.5-20260422",
+                    "name": "Xiaomi: MiMo-V2.5",
+                    "context_length": 1_050_000,
+                    "pricing": {
+                        "prompt": "0.00000014",
+                        "completion": "0.00000028",
+                    },
+                    "supported_parameters": ["max_tokens", "tools", "tool_choice"],
+                    "top_provider": {"max_completion_tokens": 131_072},
+                    "expiration_date": None,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(verify_openrouter_model, "_request_json", fake_request)
+
+    record = verify_openrouter_model.verify_preset(path)
+
+    assert record["required_tool_choice_route_probe_required"] is True
+    assert "supports_tool_choice" not in record["endpoint"]
+
+
+def test_openrouter_key_preflight_is_authenticated_and_redacted(monkeypatch):
+    captured = {}
+
+    def fake_request(request, *, timeout):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.get_header("Authorization")
+        return {
+            "data": {
+                "label": "private-label",
+                "usage": 1.25,
+                "limit": 6.0,
+                "limit_remaining": 4.75,
+                "is_free_tier": False,
+                "is_management_key": False,
+                "expires_at": "2026-08-29T00:00:00Z",
+            }
+        }
+
+    monkeypatch.setattr(verify_openrouter_model, "_request_json", fake_request)
+    checked_at = verify_openrouter_model.datetime(
+        2026,
+        8,
+        28,
+        0,
+        0,
+        tzinfo=verify_openrouter_model.timezone.utc,
+    )
+    record = verify_openrouter_model.verify_api_key_capacity(
+        "test-only-secret-key",
+        min_remaining_usd="1.20",
+        now=checked_at,
+    )
+
+    assert captured == {
+        "url": verify_openrouter_model.API_KEY_URL,
+        "authorization": "Bearer test-only-secret-key",
+    }
+    assert record["authenticated"] is True
+    assert record["remaining_sufficient"] is True
+    serialized = json.dumps(record, sort_keys=True)
+    assert "test-only-secret-key" not in serialized
+    assert "private-label" not in serialized
+    assert "4.75" not in serialized
+
+
+def test_openrouter_key_preflight_rejects_insufficient_credit(monkeypatch):
+    monkeypatch.setattr(
+        verify_openrouter_model,
+        "_request_json",
+        lambda request, *, timeout: {
+            "data": {
+                "limit": 6.0,
+                "limit_remaining": 0.25,
+                "is_free_tier": False,
+                "is_management_key": False,
+                "expires_at": None,
+            }
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="below the required cap"):
+        verify_openrouter_model.verify_api_key_capacity(
+            "test-only-secret-key",
+            min_remaining_usd="1.20",
+        )
+
+
+def test_openrouter_key_preflight_treats_null_independent_limit_as_unknown(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        verify_openrouter_model,
+        "_request_json",
+        lambda request, *, timeout: {
+            "data": {
+                "limit": None,
+                "limit_remaining": None,
+                "is_free_tier": False,
+                "is_management_key": False,
+                "expires_at": None,
+                "label": "must-not-be-persisted",
+            }
+        },
+    )
+
+    record = verify_openrouter_model.verify_api_key_capacity(
+        "test-only-secret-key",
+        min_remaining_usd="1.20",
+    )
+
+    assert record["limit_configured"] is False
+    assert record["remaining_credit_reported"] is False
+    assert record["remaining_sufficient"] is None
+    assert record["credit_status"] == (
+        "independent_limit_not_configured_credit_unknown"
+    )
+    assert "must-not-be-persisted" not in json.dumps(record, sort_keys=True)
 
 
 def test_openrouter_explicit_tool_choice_requires_exact_endpoint_tag(
@@ -497,12 +667,12 @@ def test_release_smoke_has_a_post_learning_task_and_uses_verified_plus_preset():
     workflow = Path(".github/workflows/skillevolbench-benchmark.yml").read_text(
         encoding="utf-8"
     )
-    preset = Path(
-        "configs/skillevolbench/openrouter-qwen3-coder-plus.yaml"
-    ).read_text(encoding="utf-8")
-    free_preset = Path(
-        "configs/skillevolbench/openrouter-glm-5.2-free.yaml"
-    ).read_text(encoding="utf-8")
+    preset = Path("configs/skillevolbench/openrouter-qwen3-coder-plus.yaml").read_text(
+        encoding="utf-8"
+    )
+    free_preset = Path("configs/skillevolbench/openrouter-glm-5.2-free.yaml").read_text(
+        encoding="utf-8"
+    )
     qwen37_preset = Path(
         "configs/skillevolbench/openrouter-qwen3.7-plus.yaml"
     ).read_text(encoding="utf-8")
@@ -673,6 +843,7 @@ def test_partial_comparison_requires_exact_positive_task_cap():
             config=config,
             partial_smoke=True,
         )
+
 
 def test_comparison_rejects_dry_run_config():
     report = SimpleNamespace(

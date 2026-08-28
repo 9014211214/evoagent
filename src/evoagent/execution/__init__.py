@@ -4,6 +4,7 @@ from .authorization import (
     ExecutionAuthorizationManager,
     authorization_hash,
     command_hash,
+    preflight_hash,
     request_hash,
 )
 from .models import (
@@ -37,5 +38,6 @@ __all__ = [
     "authorization_hash",
     "build_authorized_environment",
     "command_hash",
+    "preflight_hash",
     "request_hash",
 ]

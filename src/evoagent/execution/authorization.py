@@ -6,7 +6,7 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -85,6 +85,16 @@ def authorization_hash(authorization: ExecutionAuthorization | dict[str, Any]) -
         else _jsonable(authorization)
     )
     payload.pop("authorization_hash", None)
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
+
+
+def preflight_hash(preflight: ExecutionPreflightResult | dict[str, Any]) -> str:
+    payload = (
+        preflight.model_dump(mode="json")
+        if isinstance(preflight, ExecutionPreflightResult)
+        else _jsonable(preflight)
+    )
+    payload.pop("preflight_hash", None)
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
@@ -174,7 +184,9 @@ class ExecutionAuthorizationManager:
     def load_request(self, path: str | Path) -> ExecutionRequest:
         target = self._regular_file(path, label="Execution request")
         try:
-            request = ExecutionRequest.model_validate_json(target.read_text(encoding="utf-8"))
+            request = ExecutionRequest.model_validate_json(
+                target.read_text(encoding="utf-8")
+            )
         except (OSError, ValidationError, ValueError) as exc:
             raise ExecutionAuthorizationError("Execution request is invalid.") from exc
         self.verify_request(request)
@@ -187,7 +199,9 @@ class ExecutionAuthorizationManager:
                 target.read_text(encoding="utf-8")
             )
         except (OSError, ValidationError, ValueError) as exc:
-            raise ExecutionAuthorizationError("Execution authorization is invalid.") from exc
+            raise ExecutionAuthorizationError(
+                "Execution authorization is invalid."
+            ) from exc
         self.verify_authorization(authorization)
         return authorization
 
@@ -199,14 +213,21 @@ class ExecutionAuthorizationManager:
         environment: dict[str, str] | None = None,
         now: datetime | None = None,
         version_timeout_seconds: int = 10,
+        freshness_seconds: int = 300,
     ) -> ExecutionPreflightResult:
         self.verify_authorization(authorization)
         request = authorization.request
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
             raise ExecutionAuthorizationError("Preflight time must include a timezone.")
+        if not 1 <= freshness_seconds <= 900:
+            raise ExecutionAuthorizationError(
+                "Preflight freshness must be between 1 and 900 seconds."
+            )
         if now < request.issued_at:
-            raise ExecutionAuthorizationError("Execution authorization is not active yet.")
+            raise ExecutionAuthorizationError(
+                "Execution authorization is not active yet."
+            )
         if now >= request.expires_at:
             raise ExecutionAuthorizationError("Execution authorization has expired.")
         if invocation != request.invocation:
@@ -221,7 +242,9 @@ class ExecutionAuthorizationManager:
                 "Authorized execution workspace must already exist as a non-symlink directory."
             )
         if invocation.workspace_must_be_empty and any(workspace.iterdir()):
-            raise ExecutionAuthorizationError("Authorized execution workspace must be empty.")
+            raise ExecutionAuthorizationError(
+                "Authorized execution workspace must be empty."
+            )
 
         executable = shutil.which(invocation.command[0])
         if not executable:
@@ -269,10 +292,15 @@ class ExecutionAuthorizationManager:
                 "Missing required environment variables: " + ", ".join(missing)
             )
 
-        return ExecutionPreflightResult(
+        provisional = ExecutionPreflightResult(
             authorization_hash=authorization.authorization_hash,
             request_hash=request.request_hash,
             command_hash=command_hash(invocation.command),
+            checked_at=now,
+            fresh_until=min(
+                now + timedelta(seconds=freshness_seconds),
+                request.expires_at,
+            ),
             adapter=invocation.adapter,
             executable_path=str(Path(executable).resolve()),
             executable_version_output=output,
@@ -285,6 +313,10 @@ class ExecutionAuthorizationManager:
             public=invocation.public,
             training=invocation.training,
             budget=invocation.budget,
+            preflight_hash="0" * 64,
+        )
+        return provisional.model_copy(
+            update={"preflight_hash": preflight_hash(provisional)}
         )
 
     @staticmethod
@@ -313,7 +345,9 @@ class ExecutionAuthorizationManager:
         if len(set(approver_ids)) != len(approver_ids):
             raise ExecutionAuthorizationError("Execution approvers must be distinct.")
         if request.requester_id in approver_ids:
-            raise ExecutionAuthorizationError("Execution requester cannot self-approve.")
+            raise ExecutionAuthorizationError(
+                "Execution requester cannot self-approve."
+            )
         for approval in approvals:
             self._reject_secret_text(
                 approval.reason, label=f"Approval reason for {approval.approver_id}"
@@ -332,9 +366,7 @@ class ExecutionAuthorizationManager:
         if _SECRET_ASSIGNMENT.search(value) or any(
             pattern.search(value) for pattern in _SECRET_PATTERNS
         ):
-            raise ExecutionAuthorizationError(
-                f"{label} contains a potential secret."
-            )
+            raise ExecutionAuthorizationError(f"{label} contains a potential secret.")
 
     @staticmethod
     def _reject_secrets(command: tuple[str, ...]) -> None:
@@ -377,5 +409,6 @@ __all__ = [
     "ExecutionAuthorizationManager",
     "authorization_hash",
     "command_hash",
+    "preflight_hash",
     "request_hash",
 ]

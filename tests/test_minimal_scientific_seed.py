@@ -22,15 +22,11 @@ from evoagent.integrations.openrouter import (
 
 
 ROOT = Path(__file__).parents[1]
-PRESET_PATH = (
-    ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
-)
+PRESET_PATH = ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
 LOCK_PATH = (
     ROOT / "configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json"
 )
-LEGACY_MIMO_PRESET_PATH = (
-    ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
-)
+LEGACY_MIMO_PRESET_PATH = ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
 LEGACY_MIMO_LOCK_PATH = ROOT / "configs/full_agent/minimal-scientific-seed-A.lock.json"
 QWEN_PRESET_PATH = ROOT / "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json"
 QWEN_LOCK_PATH = (
@@ -96,9 +92,10 @@ def test_frozen_lock_binds_exact_12_task_five_snapshot_plan(tmp_path: Path):
 
     verify_minimal_scientific_seed_lock(plan, lock)
     assert len(plan.manifest.tasks) == 12
-    assert {role: sum(item.role == role for item in plan.manifest.tasks) for role in ContinualTaskRole} == {
-        role: 3 for role in ContinualTaskRole
-    }
+    assert {
+        role: sum(item.role == role for item in plan.manifest.tasks)
+        for role in ContinualTaskRole
+    } == {role: 3 for role in ContinualTaskRole}
     assert plan.budget.evaluation_episodes == 60
     assert plan.budget.max_model_cost_usd == 0.6
     assert plan.budget.authorization_cap_usd == 1.2
@@ -214,3 +211,35 @@ def test_shared_ledger_reserves_before_network_and_stops_at_exact_cap():
     with pytest.raises(OpenRouterIntegrationError, match="request-count cap"):
         ledger.reserve(prompt_bytes=100, max_output_tokens=20)
     assert ledger.usage.requests == 2
+
+
+def test_external_seed_enforces_max_runner_minutes_before_network(tmp_path: Path):
+    preset = _preset()
+    plan, snapshots = build_minimal_scientific_seed_plan(
+        tmp_path / "plan",
+        preset=preset,
+    )
+    calls = 0
+    clock_values = iter((0.0, 5400.0))
+
+    def transport(_payload, _api_key):
+        nonlocal calls
+        calls += 1
+        return {}
+
+    with pytest.raises(OpenRouterIntegrationError, match="global monotonic deadline"):
+        execute_minimal_scientific_seed(
+            tmp_path / "run",
+            plan=plan,
+            snapshots=snapshots,
+            preset=preset,
+            api_key="test-only-key",
+            source_commit="1" * 40,
+            requester_id="requester",
+            approver_ids=("owner", "static-budget-policy"),
+            authorization_anchor="github-actions://example/run/1",
+            transport=transport,
+            monotonic=lambda: next(clock_values),
+        )
+
+    assert calls == 0

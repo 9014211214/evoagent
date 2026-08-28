@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from evoagent.execution import (
     ExecutionUseError,
     ExecutionUseStatus,
     SQLiteExecutionUseStore,
+    preflight_hash,
 )
 from evoagent.integrations import HarborCLIAdapter
 from evoagent.training import MLInternCLIAdapter, MLInternTaskSpec
@@ -58,7 +59,12 @@ def authorized(invocation, *, requester="requester", approvals=2):
         )
         for index in range(1, approvals + 1)
     )
-    return manager, issued, request, manager.authorize(request, approvals=approval_items)
+    return (
+        manager,
+        issued,
+        request,
+        manager.authorize(request, approvals=approval_items),
+    )
 
 
 def base_invocation(tmp_path: Path, executable: Path) -> ExecutionInvocation:
@@ -147,9 +153,7 @@ def test_preflight_binds_exact_invocation_expiry_credentials_and_budget(tmp_path
         )
 
     changed_budget = invocation.model_copy(
-        update={
-            "budget": invocation.budget.model_copy(update={"max_cost_usd": 2})
-        }
+        update={"budget": invocation.budget.model_copy(update={"max_cost_usd": 2})}
     )
     with pytest.raises(ExecutionAuthorizationError, match="differs"):
         manager.preflight(
@@ -168,9 +172,14 @@ def test_preflight_binds_exact_invocation_expiry_credentials_and_budget(tmp_path
     assert result.environment_presence == {"MODEL_API_KEY": True}
     assert "not-returned" not in result.model_dump_json()
     assert result.required_approvals == 2
+    assert result.checked_at == issued + timedelta(minutes=10)
+    assert result.fresh_until == issued + timedelta(minutes=15)
+    assert result.preflight_hash == preflight_hash(result)
 
 
-def test_request_and_authorization_hash_tampering_and_command_secrets_are_rejected(tmp_path):
+def test_request_and_authorization_hash_tampering_and_command_secrets_are_rejected(
+    tmp_path,
+):
     invocation = base_invocation(tmp_path, fake_cli(tmp_path))
     manager, _, request, authorization = authorized(invocation)
 
@@ -186,7 +195,9 @@ def test_request_and_authorization_hash_tampering_and_command_secrets_are_reject
         )
 
     secret_invocation = invocation.model_copy(
-        update={"command": (invocation.command[0], "API_KEY=sk-abcdefghijklmnop")}  # synthetic-secret-fixture
+        update={
+            "command": (invocation.command[0], "API_KEY=sk-abcdefghijklmnop")
+        }  # synthetic-secret-fixture
     )
     with pytest.raises(ExecutionAuthorizationError, match="potential secret"):
         manager.prepare_request(
@@ -211,6 +222,7 @@ def test_transactional_one_use_ledger_rejects_replay(tmp_path):
     store = SQLiteExecutionUseStore(tmp_path / "execution-uses.db")
     first = store.claim(authorization, preflight, now=issued + timedelta(minutes=10))
     assert first.status == ExecutionUseStatus.CLAIMED
+    assert first.preflight_hash == preflight.preflight_hash
     with pytest.raises(ExecutionUseError, match="already used"):
         store.claim(authorization, preflight, now=issued + timedelta(minutes=11))
     completed = store.complete(
@@ -219,6 +231,142 @@ def test_transactional_one_use_ledger_rejects_replay(tmp_path):
         now=issued + timedelta(minutes=12),
     )
     assert completed.status == ExecutionUseStatus.COMPLETED
+
+
+def test_transactional_claim_revalidates_freshness_authorization_and_command(tmp_path):
+    invocation = base_invocation(tmp_path, fake_cli(tmp_path))
+    manager, issued, _, authorization = authorized(invocation)
+    preflight = manager.preflight(
+        authorization,
+        invocation,
+        environment={"MODEL_API_KEY": "value"},
+        now=issued + timedelta(minutes=10),
+    )
+
+    with pytest.raises(ExecutionUseError, match="stale"):
+        SQLiteExecutionUseStore(tmp_path / "stale.db").claim(
+            authorization,
+            preflight,
+            now=issued + timedelta(minutes=15),
+        )
+
+    tampered_authorization = authorization.model_copy(
+        update={
+            "request": authorization.request.model_copy(
+                update={"purpose": "tampered after approval"}
+            )
+        }
+    )
+    with pytest.raises(ExecutionUseError, match="invalid at claim time"):
+        SQLiteExecutionUseStore(tmp_path / "authorization.db").claim(
+            tampered_authorization,
+            preflight,
+            now=issued + timedelta(minutes=11),
+        )
+
+    changed_command = preflight.model_copy(update={"command_hash": "a" * 64})
+    changed_command = changed_command.model_copy(
+        update={"preflight_hash": preflight_hash(changed_command)}
+    )
+    with pytest.raises(ExecutionUseError, match="command hash"):
+        SQLiteExecutionUseStore(tmp_path / "command.db").claim(
+            authorization,
+            changed_command,
+            now=issued + timedelta(minutes=11),
+        )
+
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    other_executable = fake_cli(other_root)
+    changed_executable = preflight.model_copy(
+        update={"executable_path": str(other_executable.resolve())}
+    )
+    changed_executable = changed_executable.model_copy(
+        update={"preflight_hash": preflight_hash(changed_executable)}
+    )
+    with pytest.raises(ExecutionUseError, match="executable"):
+        SQLiteExecutionUseStore(tmp_path / "executable.db").claim(
+            authorization,
+            changed_executable,
+            now=issued + timedelta(minutes=11),
+        )
+
+    invalid_time_chain = preflight.model_copy(
+        update={
+            "checked_at": issued - timedelta(minutes=1),
+            "fresh_until": issued + timedelta(minutes=1),
+        }
+    )
+    invalid_time_chain = invalid_time_chain.model_copy(
+        update={"preflight_hash": preflight_hash(invalid_time_chain)}
+    )
+    with pytest.raises(ExecutionUseError, match="time chain"):
+        SQLiteExecutionUseStore(tmp_path / "time-chain.db").claim(
+            authorization,
+            invalid_time_chain,
+            now=issued + timedelta(seconds=30),
+        )
+
+
+def test_execution_use_store_migrates_legacy_receipts(tmp_path):
+    database = tmp_path / "legacy-uses.db"
+    authorization_digest = "b" * 64
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE execution_uses (
+                authorization_hash TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                command_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                return_code INTEGER
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO execution_uses VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                authorization_digest,
+                "request:legacy:1",
+                "c" * 64,
+                ExecutionUseStatus.COMPLETED.value,
+                "2026-08-10T01:00:00+00:00",
+                "2026-08-10T01:01:00+00:00",
+                0,
+            ),
+        )
+
+    receipt = SQLiteExecutionUseStore(database).get(authorization_digest)
+
+    assert receipt.preflight_hash is None
+    with sqlite3.connect(database) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(execution_uses)")
+        }
+    assert "preflight_hash" in columns
+
+
+def test_openrouter_execution_adapter_has_fixed_side_effect_free_probe(tmp_path):
+    workspace = tmp_path / "openrouter-workspace"
+    workspace.mkdir()
+    invocation = ExecutionInvocation(
+        adapter=ExecutionAdapter.OPENROUTER,
+        command=("python", "scripts/run_openrouter_minimal_scientific_seed.py"),
+        workspace=str(workspace.resolve()),
+        required_environment_variables=("OPENROUTER_API_KEY",),
+        network_access=True,
+        budget=ExecutionBudget(max_cost_usd=1.2, max_wall_seconds=5400),
+        version_arguments=("--version",),
+        expected_version_pattern=r"Python 3\.",
+    )
+
+    assert invocation.adapter is ExecutionAdapter.OPENROUTER
+    with pytest.raises(ValueError, match="fixed and side-effect-free"):
+        ExecutionInvocation.model_validate(
+            invocation.model_dump() | {"version_arguments": ("scripts/probe.py",)}
+        )
 
 
 def test_harbor_execute_requires_authorization_and_consumes_it_once(tmp_path):
@@ -315,4 +463,7 @@ def test_ml_intern_execute_requires_authorization_and_never_serializes_token(tmp
     )
     assert config == {"share_traces": False, "tool_runtime": "sandbox"}
     assert "secret-token" not in json.dumps(config)
-    assert store.get(authorization.authorization_hash).status == ExecutionUseStatus.COMPLETED
+    assert (
+        store.get(authorization.authorization_hash).status
+        == ExecutionUseStatus.COMPLETED
+    )

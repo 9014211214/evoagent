@@ -15,6 +15,7 @@ from evoagent.integrations.openrouter import (
     OpenRouterControlledToolPolicy,
     OpenRouterIntegrationError,
     OpenRouterModelPreset,
+    OpenRouterUsageLedger,
 )
 from evoagent.runtime import LocalDocumentEnvironment, RuntimeLimits, ToolAgentRuntime
 from scripts.run_mimo_full_agent_calibration import _authorization
@@ -49,8 +50,7 @@ def _required_mimo_preset() -> OpenRouterModelPreset:
     root = Path(__file__).resolve().parents[1]
     return OpenRouterModelPreset.model_validate_json(
         (
-            root
-            / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
+            root / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
         ).read_text(encoding="utf-8")
     )
 
@@ -91,7 +91,9 @@ def _matching_transport(*, provider="Xiaomi", mutate_arguments=False, cost=0.000
 
 
 def _run(tmp_path: Path, transport):
-    snapshot = build_calibration_snapshot(tmp_path / "snapshot", model_id=_preset().model_id)
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot", model_id=_preset().model_id
+    )
     task = build_calibration_task()
     policy = OpenRouterControlledToolPolicy(
         controller=UnifiedDocumentPolicy(snapshot),
@@ -378,7 +380,126 @@ def test_required_single_tool_transport_failure_does_not_retry_or_fallback(
     ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
 
     assert attempts == 1
+    assert policy.usage.requests == 1
     assert trace.verifier_passed is False
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
+
+
+def test_global_deadline_stops_policy_before_network(tmp_path: Path):
+    attempts = 0
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+
+    def transport(_payload, _api_key):
+        nonlocal attempts
+        attempts += 1
+        return {}
+
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        transport=transport,
+        deadline_monotonic=5.0,
+        monotonic=lambda: 5.0,
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert attempts == 0
+    assert policy.usage.requests == 0
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
+
+
+def test_global_deadline_is_rechecked_after_network(tmp_path: Path):
+    attempts = 0
+    clock_values = iter((0.0, 0.0, 0.0, 6.0))
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+    ledger = OpenRouterUsageLedger(
+        preset=preset,
+        max_requests=3,
+        max_prompt_bytes_per_request=32_768,
+        max_output_tokens_per_request=256,
+        max_cost_usd=2.0,
+    )
+
+    def transport(payload, api_key):
+        nonlocal attempts
+        attempts += 1
+        return _matching_transport()(payload, api_key)
+
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        transport=transport,
+        shared_ledger=ledger,
+        deadline_monotonic=5.0,
+        monotonic=lambda: next(clock_values),
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert attempts == 1
+    assert policy.usage.requests == 1
+    assert policy.usage.total_tokens == 110
+    assert policy.usage.cost_usd == pytest.approx(0.0001)
+    assert ledger.usage.requests == 1
+    assert ledger.usage.total_tokens == 110
+    assert ledger.usage.cost_usd == pytest.approx(0.0001)
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
+
+
+def test_default_transport_timeout_consumes_attempt_and_never_retries(
+    tmp_path: Path,
+    monkeypatch,
+):
+    attempts = 0
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+
+    def timeout(_request, *, timeout):
+        nonlocal attempts
+        attempts += 1
+        assert timeout <= 90
+        raise TimeoutError("synthetic timeout")
+
+    monkeypatch.setattr("urllib.request.urlopen", timeout)
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert attempts == 1
+    assert policy.usage.requests == 1
     assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
 
 
@@ -389,7 +510,9 @@ def test_required_single_tool_transport_failure_does_not_retry_or_fallback(
         _matching_transport(mutate_arguments=True),
     ],
 )
-def test_mimo_policy_fails_closed_on_provider_or_action_drift(tmp_path: Path, transport):
+def test_mimo_policy_fails_closed_on_provider_or_action_drift(
+    tmp_path: Path, transport
+):
     _, trace, _ = _run(tmp_path, transport)
     assert trace.verifier_passed is False
     assert any(

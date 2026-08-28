@@ -46,6 +46,10 @@ Historical entries below describe research-framework milestones. They do not imp
   one Tool schema. The new lock preserves the historical Task, snapshot and
   budget hashes, pins the exact Xiaomi endpoint slug, disables provider
   fallback, and keeps exact Tool-name/argument verification unchanged.
+- Recorded one exact-head, one-request MiMo required-Tool route probe. It
+  reached Xiaomi with HTTP 200, used 309 Tokens at observed cost USD 0.00004774,
+  but returned no required Tool call. The verifier failed closed, no scientific
+  seed episode ran, and no score was produced.
 
 ## 2.0.0 release candidate
 

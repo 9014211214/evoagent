@@ -58,17 +58,30 @@ Flash route probe then returned HTTP 404 before any provider attempt because
 no route accepted the stricter named-function request; this is consistent with,
 but does not by itself prove, the endpoint capability-table mismatch. It used
 zero Tokens, cost USD 0, and also produced no scientific score. The new MiMo
-preset changes only this compatibility field to the capability-table-indicated
+preset changed only this compatibility field to the capability-table-indicated
 `required` candidate. It never falls back to `auto`, another provider or
 another model.
 
 The public endpoint catalogue exposes generic `tool_choice` support but not a
 machine-verifiable guarantee for every Tool-choice subtype. Chat-completion
-responses identify the model and provider, not the endpoint tag. Therefore the
-new lock is a compatibility candidate until a separately authorized one-request
-probe returns the exact model/provider and exact frozen Tool call. A directory
-preflight or a successful public dry-run alone cannot authorize the 60-episode
-seed.
+responses identify the model and provider, not the endpoint tag. Private
+workflow run `33179418764` therefore executed one separately authorized probe
+from exact source head `920e972b268b13f5f5cb6e333fefa1058b1edaac`.
+The fresh metadata and regular-key preflights passed, and the only inference
+request returned HTTP 200 from Xiaomi for `xiaomi/mimo-v2.5`, with canonical
+response metadata `xiaomi/mimo-v2.5-20260422`, 277 prompt Tokens, 32 completion
+Tokens and complete observed cost USD 0.00004774. It did not return the required
+frozen Tool call. The verifier recorded `required_tool_call_verified=false`,
+`status=blocked` and `successful_response_failed_closed_verification`.
+
+Sanitized artifact `9689044579` has GitHub digest
+`sha256:a38fb4dd9e818ab8cfc26883fa151654ea79d200bb8e0e4586788cdaa1a0bb1b`;
+the evidence JSON has SHA-256
+`7dd79cab6df62ffa38209ee237100fd424651f0dac48025e8650e9150374664e`.
+It persists no credential, raw prompt, raw response or raw router summary.
+This single compatibility observation is sufficient to keep the frozen seed
+blocked, but is not a benchmark score, Task failure, or universal assertion
+that MiMo cannot call Tools.
 
 ## Success gate and claim boundary
 
@@ -105,8 +118,15 @@ Hosted implementation run `33024979960` regenerated and verified both model lock
 Its Qwen no-reasoning artifact is `9628057696`, with GitHub artifact digest
 `sha256:942924093fe1f680d92f816d3e430d27891db90c1087c3d66c439bf884a3da22`.
 This remains zero-cost contract evidence; it is not the external seed result.
-The newly versioned MiMo lock requires a fresh public dry-run artifact before
-any external execution is eligible. It also requires an expiring, exact-head,
-transactional one-use authorization and a successful one-request route probe;
-the public execution helper's caller-supplied approval strings are not by
-themselves sufficient authorization for paid execution.
+Exact public-head dry-run `33176159018` then passed the required-single-Tool,
+historical MiMo and Qwen profiles. Its required-single-Tool artifact is
+`9687672829`, with GitHub digest
+`sha256:2a5fa40928947755aaf1d38c8fd46bc22c87ecdc119e10f5bf049bd60ce64126`.
+This is also zero-cost contract evidence, not a Task result or score.
+The newly versioned MiMo lock's public dry-run and expiring exact-head,
+transactional one-use authorization gates were exercised. The corresponding
+one-request route probe failed the required-Tool response contract as recorded
+above, so the 60-episode external seed is not eligible. The public execution
+helper's caller-supplied approval strings are not by themselves sufficient
+authorization for paid execution, and a changed model, protocol or repeat
+probe would require a new lock rationale and a new explicit authorization.

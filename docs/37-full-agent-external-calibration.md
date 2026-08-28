@@ -176,13 +176,28 @@ scientific lock at
 `configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json`.
 Its Task, manifest and snapshot hashes remain identical to the historical MiMo
 protocol; only the explicitly studied transport-compatibility contract changes.
-This implementation and its dry-run are still zero-cost evidence. A new real
-request needs a separate one-use authorization. The request pins the full
+This implementation and its dry-run were zero-cost evidence. A real request
+required a separate one-use authorization. The request pinned the full
 `xiaomi/fp8` endpoint slug rather than the Xiaomi base slug, with fallbacks
-disabled. The generic catalogue still does not prove each strict `tool_choice`
-subtype. Consequently a fresh preflight and a one-request exact-Tool route
-probe must pass under the reviewed head before a 60-episode seed can be
-considered; this preset alone is not execution authorization.
+disabled. The generic catalogue still did not prove each strict `tool_choice`
+subtype.
+
+That gate was exercised once in private workflow run `33179418764` at source
+head `920e972b268b13f5f5cb6e333fefa1058b1edaac`. Fresh route-price and regular-key
+preflights passed. The sole inference request reached Xiaomi and returned HTTP
+200 for `xiaomi/mimo-v2.5`; canonical response metadata identified
+`xiaomi/mimo-v2.5-20260422`. It used 277 prompt plus 32 completion Tokens and
+reported complete cost USD 0.00004774. The response did not contain the exact
+required frozen Tool call, so the strict verifier recorded
+`required_tool_call_verified=false` and failed closed with
+`successful_response_failed_closed_verification`. Sanitized artifact
+`9689044579` has digest
+`sha256:a38fb4dd9e818ab8cfc26883fa151654ea79d200bb8e0e4586788cdaa1a0bb1b`;
+its JSON has SHA-256
+`7dd79cab6df62ffa38209ee237100fd424651f0dac48025e8650e9150374664e`.
+No seed episode or score was produced. Under the frozen protocol the
+60-episode seed therefore remains blocked; the single probe is not a general
+claim about all MiMo Tool behavior.
 
 ## One-seed planning envelope
 

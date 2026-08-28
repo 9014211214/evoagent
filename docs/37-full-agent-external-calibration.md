@@ -211,11 +211,20 @@ Sanitized artifact `9690717555` has GitHub digest
 its JSON has SHA-256
 `b8957ad45199457a0501cf4d92ec753ba14bcd4765c7253bac56ef1600e4946f`.
 This proves the exact required-Tool transport contract needed to make the
-frozen 60-episode seed eligible. It is still not a Task score or benchmark
-result; the seed must produce and pass its separately imported result before
-any effectiveness claim.
+frozen 60-episode seed eligible. That probe is still not a Task score or
+benchmark result.
 
-## One-seed planning envelope
+Subsequent full-seed attempts exposed two response-normalization bugs rather
+than model-performance failures. Public fixes first accepted an exact empty
+`content` placeholder, then accepted absent/null/exact-empty `reasoning` and
+`reasoning_content` plus absent/null/empty-list `reasoning_details`. Non-empty
+reasoning, prose, wrong types and any Tool/provider drift remain rejected.
+Governed run `33197785751` from exact public source
+`3f3e85b188ac6ecbb4734053ed5615da89d2e889` then completed all 60 frozen
+episodes and strict import. The authoritative attempt ledger and narrow claim
+boundary are in `docs/MINIMAL_SCIENTIFIC_VALIDATION.md`.
+
+## Historical pre-execution planning envelope
 
 The proposed minimal scientific seed is one complete A0 to A4 evolution path:
 
@@ -248,8 +257,11 @@ current USD 0.006/minute standard Linux rate. Standard runners in a public
 repository are free. Pricing source:
 https://docs.github.com/en/billing/reference/actions-runner-pricing.
 
-The recommended authorization cap for one minimal seed is therefore USD 1.20
+The recommended authorization cap for one minimal seed was therefore USD 1.20
 total: USD 0.60 model plus USD 0.60 hosted-runner reserve. A separate extreme
 32,000-input/4,000-output-token envelope would raise model cost to USD 1.68 to
-USD 2.10 after reserve and is not recommended for the minimum set. No complete
-seed has been authorized or executed by this calibration.
+USD 2.10 after reserve and is not recommended for the minimum set. The later
+frozen execution used 114 requests, 58,014 Tokens and USD 0.0086178344 model
+cost over 150.394 controller seconds. Those observed values replace this
+planning estimate for the exact successful seed, without turning the result
+into an authoritative benchmark.

@@ -1,6 +1,6 @@
 # Open-Source Readiness
 
-Updated: 2026-08-28
+Updated: 2026-08-29
 
 This file records the publication boundary for the public v2.0 Research Preview source snapshot. It does not authorize a Git tag, GitHub Release, package publication, paid model execution, benchmark submission, or performance claim.
 
@@ -12,20 +12,20 @@ This file records the publication boundary for the public v2.0 Research Preview 
 | History isolation | PASSED | The candidate was exported from the reviewed source tree and contains one new root commit. Private commits, branches, PRs, Actions logs, artifacts, and repository Secrets are not copied. |
 | Governed self-evolution core | UNIFIED LOCAL PATH IMPLEMENTED | One immutable Agent snapshot now binds Skill, Router, bounded Memory and numeric Agent Policy. All four act in the same Tool-Agent runtime; candidates, frozen evaluation, decision and explicit Registry activation remain separate. |
 | Unified continual reference evidence | LOCAL SYNTHETIC PASSED | The zero-cost A0→A4 lab changes Skill, Memory, Router and Policy one at a time and reaches all held-out retention/transfer/adversarial/composition Tasks with zero final regression, forgetting and safety violations. This is mechanism evidence only. |
-| Python regression | LOCAL AND HOSTED EXACT-HEAD MATRICES PASSED | Local Python 3.12 collected the complete 709-test matrix in two isolated file shards: 702 passed, 7 skipped, 0 failed. The 42 directly affected unified-runtime, Full-Agent, atomic-path, release-scanner and SkillEvolBench contract tests also pass together. Public code head `415e17f54d373267895b73804228eca74427e18e` completed all five required GitHub Actions workflows, including the full Python 3.11/3.12 jobs. |
+| Python regression | LOCAL AND HOSTED EXACT-HEAD MATRICES PASSED | Public experimental source head `3f3e85b188ac6ecbb4734053ed5615da89d2e889` completed all five required GitHub Actions workflows, including the full Python 3.11/3.12 CI jobs. The 89 directly affected OpenRouter, minimal-seed and strict-import tests also pass locally: 88 passed and 1 skipped. |
 | Third-party and license review | READY | The independently authored core is Apache-2.0. The lock, notices, and source-origin boundary avoid vendoring unresolved upstream benchmark source or assets. |
 | Secret and privacy review | PASSED ON PUBLICATION CANDIDATE | The deterministic tracked-source scan, Gitleaks 8.30.1 directory scan, identifying-email/local-path scan, suspicious-file inventory, staged-path check, and GitHub no-reply author-metadata check all passed. |
 | SkillEvolBench integration | PARTIAL SKILL-COMPONENT SMOKE VERIFIED | A bounded two-task same-model smoke completed both conditions and strict import. It is integration evidence only, evaluates the Skill bridge only, and records `publishable_full_benchmark=false`. New artifacts also bind `agent_scope=skill_component` and `full_agent_evidence=false`. |
 | Full same-seed comparison | NOT RUN | No complete 180-trial no-skill / 270-trial EvoAgent comparison exists. No score is inferred or fabricated. |
 | Full-Agent external adapter | HOSTED DRY-RUN PASSED | Exact-head run `32970101477` passed the credential-free deterministic double-build and strict adapter tests. Artifact `9607245269` has digest `sha256:375114fb2e3790b6e45327f3ea1b021ce77e0ee3c01500e489c11a6caa61020b`. This proves the binding/import path only. |
-| Full-Agent external evaluation | CALIBRATION ONLY; EFFECTIVENESS NOT RUN | One owner-approved MiMo run bound Skill, Router, Memory and numeric Policy in the same real Tool loop and passed its verifier for USD 0.00024206. Sanitized evidence is tracked under `evidence/full-agent/`; it explicitly claims no benchmark score or generalization result. |
-| Minimal scientific seed | REQUIRED-TOOL ROUTE VERIFIED; SEED NOT YET RUN | The lock binds three retention, three transfer, three adversarial and three composition Tasks, all five A0→A4 snapshot hashes, the exact no-reasoning model/provider policy, seed 43 and a USD 1.20 total ceiling. The initial 32-Token probe failed closed after hitting its output cap and produced no score. Corrected private run `33183563382` used one fresh exact-head authorization and exactly one inference request. Xiaomi returned HTTP 200 from the exact MiMo route with one typed Tool call matching the frozen name and arguments, no prose or reasoning fields, 279 prompt plus 22 completion Tokens and complete observed cost USD 0.00004522. Artifact `9690717555` has digest `sha256:1a219cb3f8fd035f25ee09ccb4f0852d7e5ed703aa4591633fc75c36a7fffabd`; its evidence JSON has SHA-256 `b8957ad45199457a0501cf4d92ec753ba14bcd4765c7253bac56ef1600e4946f`. This proves transport eligibility only. No 60-episode result or effectiveness score is claimed yet. |
-| External model execution | DISABLED BY DEFAULT | Pull requests remain credential-free. The completed calibration used a private one-use manually dispatched workflow, two approval identities, a USD 2 hard stop and a repository Secret that was neither printed nor copied into the public repository. |
+| Full-Agent external calibration | CALIBRATION PASSED | One owner-approved MiMo run bound Skill, Router, Memory and numeric Policy in the same real Tool loop and passed its verifier for USD 0.00024206. Sanitized evidence is tracked under `evidence/full-agent/`; it explicitly claims no benchmark score or generalization result. The separate multi-snapshot seed is recorded in the next row. |
+| Minimal scientific seed | ONE FROZEN SEED PASSED; NOT A BENCHMARK | Private run `33197785751` executed all 12 public synthetic Tasks against A0→A4 from exact public source `3f3e85b`. The strict importer accepted 5 reports and 60 Task results. Scores were `0, 0.5, 2/3, 0.75, 1.0`; final retention/transfer/adversarial/composition were all `1.0`, with zero regression, zero retention drop and zero final safety violations. All 114 requests were accounted and validated with no retry: 58,014 Tokens and USD 0.0086178344 model cost. Artifact `9696558786` has digest `sha256:f5b5435b977b9c82a194d8cbcf75b773c11686b85b5963d0a760841112df8905`; result SHA-256 is `3fb8ea9aab7de4f64fe1810362aa1c7dbf3a9fb2e835e76c437933455cbe8cc1` and strict receipt hash is `8ad68e19543f9e86682a93294ad8a412e67a5b00e12d73003457ef755231d6e9`. This supports only the preregistered controlled mechanism claim, not an authoritative benchmark or broad generalization claim. |
+| External model execution | DISABLED BY DEFAULT | Pull requests remain credential-free. Calibration and seed execution used separate private one-use manual workflows, independent approval identities, exact-head binding, cumulative hard caps and a repository Secret that was neither printed nor copied into the public repository. The successful seed used USD 0.0086178344 of model credit under its USD 0.60 model / USD 1.20 total authorization. |
 | Employment / invention / confidentiality | OWNER CONFIRMED | On 2026-08-20 the owner confirmed Apache-2.0 publication authority and no applicable employment, invention-assignment, confidentiality, or organizational open-source conflict. |
 
 ## Publication boundary
 
-The public repository contains source, tests, documentation, pinned integration metadata, and read-only or explicitly dispatched workflows. It intentionally excludes the private Git graph, review discussions, retained Actions logs and artifacts, benchmark outputs, credentials, and local audit working files.
+The public repository contains source, tests, documentation, pinned integration metadata, read-only or explicitly dispatched workflows, and a compact sanitized aggregate seed summary. It intentionally excludes the private Git graph, review discussions, retained Actions logs and artifacts, raw execution outputs, credentials, and local audit working files.
 
 The initial public commit uses a GitHub-provided no-reply author identity. Repository URLs and default provenance values point to `https://github.com/9014211214/evoagent`.
 
@@ -43,10 +43,12 @@ Task result binds the complete Skill, Router, Memory and Agent-policy hashes.
 The current SkillEvolBench strategy bridge cannot produce that evidence by
 design.
 
-The frozen 12-Task set is a separate controlled Full-Agent mechanism test. A
-passing external seed may support only the narrow A0→A4 causal-chain claim in
-`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`; it is not a SkillEvolBench result,
+The frozen 12-Task set is a separate controlled Full-Agent mechanism test. Its
+first complete external seed passed the preregistered local gates and therefore
+supports only the narrow A0→A4 causal-chain claim in
+`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`. It is not a SkillEvolBench result,
 leaderboard claim, broad generalization result or multi-seed significance test.
+The public aggregate evidence is under `evidence/minimal-scientific-seed/`.
 
 The local matrix also verifies read-only restart of the unified lab: the
 second invocation does not rerun optimization or append Registry events, and
@@ -56,6 +58,6 @@ returns the same result, snapshot and decision hashes.
 
 - Git tag or GitHub Release creation;
 - PyPI or other package publication;
-- paid model execution or a full benchmark run;
+- repeat paid model execution or a full benchmark run;
 - official benchmark submission or leaderboard claim;
 - deployment, traffic routing, checkpoint activation, or model training.

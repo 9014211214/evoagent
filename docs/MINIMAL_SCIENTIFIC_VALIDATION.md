@@ -11,8 +11,11 @@ leaderboard result.
   disabled, exact endpoint slug `xiaomi/fp8` pinned after zero-cost preflight,
   and verified `tool_choice="required"` with reasoning disabled. Every request
   exposes exactly one Tool schema, so `required` can select only the
-  controller's frozen action;
-  the response must still match its exact Tool name and arguments. Historical
+  controller's frozen action. The response must still match its exact Tool name
+  and arguments. Schema-valid empty placeholders are normalized: `reasoning`
+  and `reasoning_content` may be absent, null or an exact empty string, and
+  `reasoning_details` may be absent, null or an empty list. Non-empty reasoning,
+  wrong types, prose or Tool-call drift still fail closed. Historical
   MiMo named-function and Qwen locks remain reproducible and are not silently
   substituted for this run.
 - One seed: label `A`, numeric seed `43`.
@@ -98,6 +101,42 @@ It persists no credential, raw prompt, raw response or raw router summary.
 This makes the frozen seed transport-eligible, but supplies no scientific score
 and does not itself support an EvoAgent-effectiveness claim.
 
+## Governed full-seed attempts
+
+The full-seed authorization was cumulative and one-use. Each stopped attempt
+was accounted before a fresh exact-head authorization was issued. None of the
+first three attempts produced a Task report or score:
+
+| Run | External usage | Outcome |
+| --- | --- | --- |
+| `33190191940` | 0 inference requests; USD 0 model cost | Failed closed in source/authorization preflight. Artifact `9693416496`, digest `sha256:2bb0cc862f7ce1b7888c5908fad70bf131bd728d9216e8afe208825bf6c26063`. |
+| `33191680991` | 1 accounted response; 536 Tokens; USD 0.0000812 | The response reached the pinned route, but the old validator rejected a schema-valid exact empty `content` placeholder. Artifact `9694019292`, digest `sha256:8722bb04f242199bf9c08f239e6d95e1664a02c1cec72410ba5cf421cf42efc5`. |
+| `33195725641` | 1 accounted response; 536 Tokens; USD 0.0000197344 | The corrected content guard then exposed a second validator bug: schema-valid empty reasoning placeholders were rejected only because the fields were present. Artifact `9695661852`, digest `sha256:1f46235986f538a02bb3b89b98b05ec31911ac7b8a396a9ceb98cdf02e6feb59`. |
+| `33197785751` | 114 accounted and validated responses; 58,014 Tokens; USD 0.0086178344 | Completed and passed all 60 frozen episodes with no retry. Artifact `9696558786`, digest `sha256:f5b5435b977b9c82a194d8cbcf75b773c11686b85b5963d0a760841112df8905`. |
+
+The two response-normalization fixes do not weaken the Tool contract. Exact
+choice count, finish reason, call ID and type, function name, strict JSON
+arguments, provider/model identity, no-fallback routing and no-prose checks are
+unchanged. Only exact empty placeholders are accepted.
+
+The successful run used exact public source
+`3f3e85b188ac6ecbb4734053ed5615da89d2e889`, seed 43 and the frozen Xiaomi
+endpoint. The strict offline importer accepted 5 reports and 60 Task results.
+The A0→A4 overall scores were `0, 0.5, 2/3, 0.75, 1.0`; final retention,
+transfer, adversarial and composition scores were all `1.0`. Every snapshot had
+zero regression and zero forgetting. A0 through A3 retained three expected
+adversarial safety violations; A4 reduced the final count to zero. The final
+retention drop was zero.
+
+The source result SHA-256 is
+`3fb8ea9aab7de4f64fe1810362aa1c7dbf3a9fb2e835e76c437933455cbe8cc1`.
+Independent offline re-import reproduced result evidence hash
+`7f5db7f68c645d00397944425a76f90959dbcaead6f9d64b7887d55fcf267d84`
+and receipt hash
+`8ad68e19543f9e86682a93294ad8a412e67a5b00e12d73003457ef755231d6e9`.
+A public aggregate summary is retained at
+`evidence/minimal-scientific-seed/mimo-v2.5-seed-A-summary.json`.
+
 ## Success gate and claim boundary
 
 A seed passes only if the external run reproduces the complete frozen causal
@@ -115,9 +154,18 @@ significance across seeds, or an official benchmark ranking.
 - At most 180 OpenRouter requests (three per episode).
 - At most 4,096 prompt bytes and 128 output tokens per request.
 - Model hard cap: USD 0.60. The pricing-derived mathematical ceiling at the
-  capability-aware MiMo preset is USD 0.1096704 and remains below this cap.
+  successful live preflight was USD 0.111734784 and remained below this cap.
 - Private-runner timeout: 90 minutes, budgeted at USD 0.54.
 - Reserve: USD 0.06. Total authorization cannot exceed USD 1.20.
+
+Before the successful retry, the three stopped attempts had consumed USD
+0.0001009344 of observed model cost and a conservative USD 0.018 runner
+allowance. The final one-use authorization therefore reduced its limits to USD
+0.5998990656 model cost and 87 runner minutes / USD 0.522, preserving the USD
+0.06 reserve and closing exactly under the original USD 1.20 cumulative cap.
+The successful run itself used USD 0.0086178344 of model credit and its Actions
+job ran for 3 minutes 19 seconds; included-minute and invoice treatment remains
+an account-level GitHub billing fact, not a model-cost estimate.
 
 The shared ledger reserves a request before network I/O and aggregates usage
 across all 60 episodes. Evidence contains hashes, derived results and usage
@@ -125,8 +173,9 @@ only; API credentials, raw prompts, raw responses and full trajectories are
 never persisted.
 
 The offline result importer accepts only one caller-hashed regular JSON file
-inside a controlled root. It rejects raw prompt/response/trajectory/reasoning
-fields and verifies the exact public source commit, plan, lock, preset, five
+inside a controlled root. It rejects raw prompt/response/trajectory fields and
+non-empty `reasoning`, `reasoning_content` or `reasoning_details`, and verifies
+the exact public source commit, plan, lock, preset, five
 snapshot reports, all 60 Task IDs and hashes, report chain, derived metrics,
 usage and cost ceilings before emitting a compact self-hashed receipt.
 
@@ -146,10 +195,10 @@ historical MiMo and Qwen profiles. Its required-single-Tool artifact is
 This is also zero-cost contract evidence, not a Task result or score.
 The newly versioned MiMo lock's public dry-run and expiring exact-head,
 transactional one-use authorization gates were exercised. The corrected
-one-request route probe passed the required-Tool response contract as recorded
-above, so the 60-episode external seed is transport-eligible but not yet
-executed. The public execution helper now rejects direct paid execution; the
-private controller must supply the fresh preflight, expiring exact-head
-authorization and transactional one-use claim. A changed model, protocol or
-repeat probe would require a new lock rationale and a new explicit
-authorization.
+one-request route probe passed the required-Tool transport contract, and the
+subsequent governed run completed all 60 external episodes and strict import as
+recorded above. The public execution helper still rejects direct paid
+execution; the private controller supplied fresh preflight, expiring exact-head
+authorization and a transactional one-use claim. A changed model, protocol,
+repeat seed or authoritative benchmark would require a new lock rationale and
+new explicit authorization.

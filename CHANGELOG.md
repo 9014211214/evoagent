@@ -54,7 +54,19 @@ Historical entries below describe research-framework milestones. They do not imp
   256-Token probe-only response ceiling. Exact-head run `33183563382` returned
   the exact typed Tool call from Xiaomi in 301 Tokens at observed cost USD
   0.00004522. This verifies transport eligibility only; the 60-episode seed has
-  not yet produced a result or score.
+  not yet produced a result or score at that stage.
+- Fixed two overly strict OpenRouter response guards exposed by governed seed
+  attempts. Exact empty `content` is accepted while whitespace, prose and wrong
+  types remain rejected. Empty `reasoning`/`reasoning_content` placeholders and
+  an empty `reasoning_details` list are normalized, while every non-empty or
+  wrong-typed value still fails closed. The stopped attempts produced no Task
+  report or score.
+- Completed one frozen MiMo seed from exact public source `3f3e85b`: 12 public
+  synthetic Tasks across five A0→A4 snapshots, 60 strictly imported Task
+  results, scores `0, 0.5, 2/3, 0.75, 1.0`, zero final regression/retention
+  drop/safety violations, 114 accounted and validated requests, 58,014 Tokens,
+  no retry and USD 0.0086178344 observed model cost. This is controlled external
+  mechanism evidence, not an authoritative benchmark or leaderboard result.
 - Added strict offline seed-result admission: exact source, authorization
   identities, plan/lock/preset, all five snapshots and 60 per-Task episode
   contracts, positive external usage, costs and hashes are independently

@@ -1,6 +1,6 @@
 # Full-Agent external adapter and low-cost calibration
 
-Updated: 2026-08-26
+Updated: 2026-08-28
 
 ## Claim boundary
 
@@ -146,6 +146,43 @@ The claim remains `integration_calibration_only_not_benchmark_evidence`.
 This result proves the exact-model/provider route, complete-snapshot controller
 binding, bounded Tool-call loop, usage accounting and verifier path. It does
 not measure continual-learning effectiveness or generalization.
+
+## Capability-aware scientific preset
+
+Later scientific execution exposed a narrower routing constraint. The
+historical MiMo calibration used the named-function Tool-choice object and a
+first complete-seed attempt stopped with `model_tool_call_noncompliance`. A
+separate one-request Qwen3.8 Flash route probe reached OpenRouter but returned
+HTTP 404 before provider selection: provider attempt count 0, model requests 1,
+Token usage 0 and observed cost USD 0. Neither failure is a Task score.
+
+Current endpoint metadata and OpenRouter's per-provider feature table checked
+on 2026-08-28 identify the active Xiaomi route as exact endpoint tag
+`xiaomi/fp8`, with a 1,048,576-Token endpoint context, and indicate that
+`required` is the compatibility candidate rather than the stricter
+named-function form. This directory signal is not route-execution proof. The
+versioned preset
+`configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json` therefore sends
+`tool_choice="required"` while exposing exactly one Tool schema. This preserves
+the controller boundary: the model has no alternative Tool to choose, and the
+existing response verifier still requires one call with the exact frozen name
+and arguments. Provider/model fallback remains disabled, `auto` is not an
+allowed mode, and malformed, zero-call, multi-call or drifted responses fail
+closed.
+
+The historical preset and lock are unchanged. The new mode has a distinct
+preset ID, endpoint tag, capability-verification timestamp, fingerprint and
+scientific lock at
+`configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json`.
+Its Task, manifest and snapshot hashes remain identical to the historical MiMo
+protocol; only the explicitly studied transport-compatibility contract changes.
+This implementation and its dry-run are still zero-cost evidence. A new real
+request needs a separate one-use authorization. The request pins the full
+`xiaomi/fp8` endpoint slug rather than the Xiaomi base slug, with fallbacks
+disabled. The generic catalogue still does not prove each strict `tool_choice`
+subtype. Consequently a fresh preflight and a one-request exact-Tool route
+probe must pass under the reviewed head before a 60-episode seed can be
+considered; this preset alone is not execution authorization.
 
 ## One-seed planning envelope
 

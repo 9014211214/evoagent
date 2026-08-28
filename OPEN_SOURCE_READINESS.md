@@ -1,6 +1,6 @@
 # Open-Source Readiness
 
-Updated: 2026-08-27
+Updated: 2026-08-28
 
 This file records the publication boundary for the public v2.0 Research Preview source snapshot. It does not authorize a Git tag, GitHub Release, package publication, paid model execution, benchmark submission, or performance claim.
 
@@ -19,7 +19,7 @@ This file records the publication boundary for the public v2.0 Research Preview 
 | Full same-seed comparison | NOT RUN | No complete 180-trial no-skill / 270-trial EvoAgent comparison exists. No score is inferred or fabricated. |
 | Full-Agent external adapter | HOSTED DRY-RUN PASSED | Exact-head run `32970101477` passed the credential-free deterministic double-build and strict adapter tests. Artifact `9607245269` has digest `sha256:375114fb2e3790b6e45327f3ea1b021ce77e0ee3c01500e489c11a6caa61020b`. This proves the binding/import path only. |
 | Full-Agent external evaluation | CALIBRATION ONLY; EFFECTIVENESS NOT RUN | One owner-approved MiMo run bound Skill, Router, Memory and numeric Policy in the same real Tool loop and passed its verifier for USD 0.00024206. Sanitized evidence is tracked under `evidence/full-agent/`; it explicitly claims no benchmark score or generalization result. |
-| Minimal scientific seed | QWEN RETRY LOCKED; LOCAL/HOSTED ZERO-COST GATES PASSED; EXTERNAL PENDING | The current lock binds three retention, three transfer, three adversarial and three composition Tasks, all five A0→A4 snapshot hashes, exact Alibaba Qwen3.8 Flash endpoint, reasoning disabled, seed 43 and a USD 1.20 total ceiling. The deterministic 60-episode local matrix reaches `0, 0.5, 2/3, 0.75, 1.0`. Hosted implementation run `33024979960` passed both Qwen and legacy MiMo profiles; Qwen artifact `9628057696` has digest `sha256:942924093fe1f680d92f816d3e430d27891db90c1087c3d66c439bf884a3da22`. The earlier full MiMo attempt stopped on first-episode Tool-call noncompliance and produced no score. |
+| Minimal scientific seed | MIMO REQUIRED-SINGLE-TOOL COMPATIBILITY CANDIDATE; LOCAL ZERO-COST PASSED; HOSTED/EXTERNAL PENDING | The current lock binds three retention, three transfer, three adversarial and three composition Tasks, all five A0→A4 snapshot hashes, Xiaomi MiMo-V2.5 model metadata, exact `xiaomi/fp8` endpoint slug, proposed required-single-Tool mode, seed 43 and a USD 1.20 total ceiling. The deterministic 60-episode local matrix reaches `0, 0.5, 2/3, 0.75, 1.0`. Historical Qwen and MiMo locks remain unchanged. The earlier full MiMo attempt stopped on first-episode Tool-call noncompliance; a later Qwen route probe stopped before provider selection with HTTP 404, zero Tokens and USD 0. Neither produced a score. A fresh hosted artifact, exact-head one-use authorization and one-request route probe are required before any seed. |
 | External model execution | DISABLED BY DEFAULT | Pull requests remain credential-free. The completed calibration used a private one-use manually dispatched workflow, two approval identities, a USD 2 hard stop and a repository Secret that was neither printed nor copied into the public repository. |
 | Employment / invention / confidentiality | OWNER CONFIRMED | On 2026-08-20 the owner confirmed Apache-2.0 publication authority and no applicable employment, invention-assignment, confidentiality, or organizational open-source conflict. |
 

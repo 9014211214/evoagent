@@ -22,8 +22,16 @@ from evoagent.integrations.openrouter import (
 
 
 ROOT = Path(__file__).parents[1]
-PRESET_PATH = ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
-LOCK_PATH = ROOT / "configs/full_agent/minimal-scientific-seed-A.lock.json"
+PRESET_PATH = (
+    ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
+)
+LOCK_PATH = (
+    ROOT / "configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json"
+)
+LEGACY_MIMO_PRESET_PATH = (
+    ROOT / "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
+)
+LEGACY_MIMO_LOCK_PATH = ROOT / "configs/full_agent/minimal-scientific-seed-A.lock.json"
 QWEN_PRESET_PATH = ROOT / "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json"
 QWEN_LOCK_PATH = (
     ROOT / "configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json"
@@ -39,6 +47,12 @@ def _preset() -> OpenRouterModelPreset:
 def _qwen_preset() -> OpenRouterModelPreset:
     return OpenRouterModelPreset.model_validate_json(
         QWEN_PRESET_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _legacy_mimo_preset() -> OpenRouterModelPreset:
+    return OpenRouterModelPreset.model_validate_json(
+        LEGACY_MIMO_PRESET_PATH.read_text(encoding="utf-8")
     )
 
 
@@ -90,6 +104,36 @@ def test_frozen_lock_binds_exact_12_task_five_snapshot_plan(tmp_path: Path):
     assert plan.budget.authorization_cap_usd == 1.2
 
 
+def test_legacy_mimo_lock_remains_reproducible(tmp_path: Path):
+    plan, _ = build_minimal_scientific_seed_plan(
+        tmp_path,
+        preset=_legacy_mimo_preset(),
+    )
+    lock = MinimalScientificSeedLock.model_validate_json(
+        LEGACY_MIMO_LOCK_PATH.read_text(encoding="utf-8")
+    )
+
+    verify_minimal_scientific_seed_lock(plan, lock)
+    assert "tool_choice_mode" not in _legacy_mimo_preset().fingerprint_payload()
+
+
+def test_required_mimo_lock_changes_only_transport_bound_hashes():
+    required = MinimalScientificSeedLock.model_validate_json(
+        LOCK_PATH.read_text(encoding="utf-8")
+    )
+    legacy = MinimalScientificSeedLock.model_validate_json(
+        LEGACY_MIMO_LOCK_PATH.read_text(encoding="utf-8")
+    )
+
+    assert required.manifest_hash == legacy.manifest_hash
+    assert required.task_hashes == legacy.task_hashes
+    assert required.snapshot_hashes == legacy.snapshot_hashes
+    assert required.budget == legacy.budget
+    assert required.model_preset_hash != legacy.model_preset_hash
+    assert required.plan_hash != legacy.plan_hash
+    assert required.lock_hash != legacy.lock_hash
+
+
 def test_qwen_frozen_lock_binds_reasoning_disabled_preset(tmp_path: Path):
     preset = _qwen_preset()
     plan, _ = build_minimal_scientific_seed_plan(tmp_path, preset=preset)
@@ -99,7 +143,7 @@ def test_qwen_frozen_lock_binds_reasoning_disabled_preset(tmp_path: Path):
 
     verify_minimal_scientific_seed_lock(plan, lock)
     mimo_plan, _ = build_minimal_scientific_seed_plan(
-        tmp_path / "mimo",
+        tmp_path / "mimo-required",
         preset=_preset(),
     )
     assert preset.reasoning_enabled is False

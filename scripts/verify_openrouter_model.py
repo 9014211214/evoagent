@@ -126,6 +126,25 @@ def verify_preset(path: Path) -> dict[str, Any]:
     missing_keys = required_keys - set(preset)
     if missing_keys:
         raise RuntimeError(f"OpenRouter preset lacks fields: {sorted(missing_keys)}")
+    tool_choice_mode = preset.get("tool_choice_mode")
+    tool_choice_verified_at = preset.get("tool_choice_verified_at")
+    endpoint_tag = preset.get("endpoint_tag")
+    if tool_choice_mode not in {None, "named_function", "required_single_tool"}:
+        raise RuntimeError("OpenRouter preset has an invalid Tool-choice mode")
+    if (tool_choice_mode is None) != (tool_choice_verified_at is None):
+        raise RuntimeError(
+            "Explicit Tool-choice mode lacks its capability verification time"
+        )
+    if (tool_choice_mode is None) != (endpoint_tag is None):
+        raise RuntimeError("Explicit Tool-choice mode lacks its exact endpoint tag")
+    if endpoint_tag == "":
+        raise RuntimeError("Explicit Tool-choice endpoint tag cannot be empty")
+    selected_endpoint_tag = endpoint_tag or preset["provider_slug"]
+    provider_slug = str(preset["provider_slug"])
+    if selected_endpoint_tag != provider_slug and not str(
+        selected_endpoint_tag
+    ).startswith(f"{provider_slug}/"):
+        raise RuntimeError("Pinned endpoint tag does not belong to the provider slug")
 
     catalogue = verify_model(str(preset["model_id"]))
     endpoint_url = MODEL_ENDPOINTS_URL.format(model_id=preset["model_id"])
@@ -139,13 +158,29 @@ def verify_preset(path: Path) -> dict[str, Any]:
             item
             for item in endpoints
             if isinstance(item, dict)
-            and item.get("tag") == preset["provider_slug"]
+            and item.get("tag") == selected_endpoint_tag
             and item.get("provider_name") == preset["provider_name"]
         ),
         None,
     )
     if endpoint is None:
         raise RuntimeError("Pinned OpenRouter provider endpoint is unavailable")
+    if endpoint.get("status") != 0:
+        raise RuntimeError("Pinned OpenRouter provider endpoint is not active")
+    active_provider_endpoints = [
+        item
+        for item in endpoints
+        if isinstance(item, dict)
+        and item.get("provider_name") == preset["provider_name"]
+        and item.get("status") == 0
+    ]
+    if endpoint_tag is not None and (
+        len(active_provider_endpoints) != 1
+        or active_provider_endpoints[0].get("tag") != selected_endpoint_tag
+    ):
+        raise RuntimeError(
+            "Pinned provider slug does not resolve to one exact active endpoint"
+        )
     supported = set(endpoint.get("supported_parameters") or [])
     required_parameters = {"max_tokens", "tools", "tool_choice"}
     if preset.get("reasoning_enabled") is not None:
@@ -167,12 +202,13 @@ def verify_preset(path: Path) -> dict[str, Any]:
         "context_length": endpoint.get("context_length"),
         "max_completion_tokens": endpoint.get("max_completion_tokens"),
         "provider_name": endpoint.get("provider_name"),
-        "provider_slug": endpoint.get("tag"),
+        "endpoint_tag": endpoint.get("tag"),
     }
     for key, actual in checks.items():
-        if actual != preset[key]:
+        expected = selected_endpoint_tag if key == "endpoint_tag" else preset[key]
+        if actual != expected:
             raise RuntimeError(
-                f"OpenRouter preset drift for {key}: expected {preset[key]!r}, "
+                f"OpenRouter preset drift for {key}: expected {expected!r}, "
                 f"catalogue returned {actual!r}"
             )
     endpoint_pricing = endpoint.get("pricing") or {}
@@ -193,7 +229,8 @@ def verify_preset(path: Path) -> dict[str, Any]:
         "catalogue": catalogue,
         "endpoint": {
             "provider_name": endpoint["provider_name"],
-            "provider_slug": endpoint["tag"],
+            "provider_slug": provider_slug,
+            "endpoint_tag": endpoint["tag"],
             "model_id": endpoint.get("model_id"),
             "context_length": endpoint["context_length"],
             "max_completion_tokens": endpoint["max_completion_tokens"],
@@ -204,6 +241,8 @@ def verify_preset(path: Path) -> dict[str, Any]:
         },
         "preset_id": preset.get("preset_id"),
         "reasoning_enabled": preset.get("reasoning_enabled"),
+        "tool_choice_mode": tool_choice_mode,
+        "tool_choice_verified_at": tool_choice_verified_at,
     }
 
 

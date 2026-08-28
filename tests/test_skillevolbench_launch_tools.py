@@ -1,4 +1,5 @@
 import io
+import json
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -356,6 +357,103 @@ def test_openrouter_catalogue_rejects_unlisted_model(monkeypatch):
 
     with pytest.raises(RuntimeError, match="not currently listed"):
         verify_openrouter_model.verify_model("qwen/guessed-id")
+
+
+def test_openrouter_preset_separates_router_slug_from_exact_endpoint_tag(
+    tmp_path: Path,
+    monkeypatch,
+):
+    preset = {
+        "preset_id": "mimo-required-v2",
+        "model_id": "xiaomi/mimo-v2.5",
+        "canonical_model_id": "xiaomi/mimo-v2.5-20260422",
+        "provider_slug": "xiaomi",
+        "provider_name": "Xiaomi",
+        "endpoint_tag": "xiaomi/fp8",
+        "prompt_cost_per_token_usd": "0.00000014",
+        "completion_cost_per_token_usd": "0.00000028",
+        "context_length": 1_048_576,
+        "max_completion_tokens": 131_072,
+        "supports_tools": True,
+        "tool_choice_mode": "required_single_tool",
+        "tool_choice_verified_at": "2026-08-28T02:22:53+00:00",
+    }
+    path = tmp_path / "preset.json"
+    path.write_text(json.dumps(preset), encoding="utf-8")
+
+    def fake_request(request, *, timeout):
+        if request.full_url.endswith("/endpoints"):
+            return {
+                "data": {
+                    "endpoints": [
+                        {
+                            "tag": "xiaomi/fp8",
+                            "provider_name": "Xiaomi",
+                            "model_id": "xiaomi/mimo-v2.5",
+                            "context_length": 1_048_576,
+                            "max_completion_tokens": 131_072,
+                            "pricing": {
+                                "prompt": "0.00000014",
+                                "completion": "0.00000028",
+                            },
+                            "supported_parameters": [
+                                "max_tokens",
+                                "tools",
+                                "tool_choice",
+                            ],
+                            "status": 0,
+                        }
+                    ]
+                }
+            }
+        return {
+            "data": [
+                {
+                    "id": "xiaomi/mimo-v2.5",
+                    "canonical_slug": "xiaomi/mimo-v2.5-20260422",
+                    "name": "Xiaomi: MiMo-V2.5",
+                    "context_length": 1_050_000,
+                    "pricing": {
+                        "prompt": "0.00000014",
+                        "completion": "0.00000028",
+                    },
+                    "supported_parameters": ["max_tokens", "tools", "tool_choice"],
+                    "top_provider": {"max_completion_tokens": 131_072},
+                    "expiration_date": None,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(verify_openrouter_model, "_request_json", fake_request)
+
+    record = verify_openrouter_model.verify_preset(path)
+
+    assert record["endpoint"]["provider_slug"] == "xiaomi"
+    assert record["endpoint"]["endpoint_tag"] == "xiaomi/fp8"
+    assert record["tool_choice_mode"] == "required_single_tool"
+
+
+def test_openrouter_explicit_tool_choice_requires_exact_endpoint_tag(
+    tmp_path: Path,
+):
+    preset = {
+        "model_id": "xiaomi/mimo-v2.5",
+        "canonical_model_id": "xiaomi/mimo-v2.5-20260422",
+        "provider_slug": "xiaomi",
+        "provider_name": "Xiaomi",
+        "prompt_cost_per_token_usd": "0.00000014",
+        "completion_cost_per_token_usd": "0.00000028",
+        "context_length": 1_048_576,
+        "max_completion_tokens": 131_072,
+        "supports_tools": True,
+        "tool_choice_mode": "required_single_tool",
+        "tool_choice_verified_at": "2026-08-28T02:22:53+00:00",
+    }
+    path = tmp_path / "preset.json"
+    path.write_text(json.dumps(preset), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="exact endpoint tag"):
+        verify_openrouter_model.verify_preset(path)
 
 
 def test_openrouter_probe_retries_transient_shared_pool_limit(monkeypatch):

@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -34,12 +34,33 @@ class OpenRouterModelPreset(BaseModel):
     max_completion_tokens: int = Field(gt=0)
     supports_tools: bool
     reasoning_enabled: bool | None = None
+    # None preserves the pre-capability-field named-function behavior and its
+    # frozen fingerprint. New presets must explicitly bind their mode.
+    tool_choice_mode: Literal["named_function", "required_single_tool"] | None = None
+    tool_choice_verified_at: str | None = None
+    endpoint_tag: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9._/-]{0,127}$",
+    )
     catalogue_verified_at: str
 
     @model_validator(mode="after")
     def validate_agent_support(self):
         if not self.supports_tools:
             raise ValueError("OpenRouter calibration preset must support Tool calls.")
+        if (self.tool_choice_mode is None) != (self.tool_choice_verified_at is None):
+            raise ValueError(
+                "Explicit Tool-choice modes must bind a capability verification time."
+            )
+        if (self.tool_choice_mode is None) != (self.endpoint_tag is None):
+            raise ValueError(
+                "Explicit Tool-choice modes must bind one exact provider endpoint."
+            )
+        if self.endpoint_tag is not None and (
+            self.endpoint_tag != self.provider_slug
+            and not self.endpoint_tag.startswith(f"{self.provider_slug}/")
+        ):
+            raise ValueError("OpenRouter endpoint tag does not belong to its provider.")
         return self
 
     def fingerprint_payload(self) -> dict[str, Any]:
@@ -250,15 +271,16 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
                     ),
                 },
             ],
+            # Exactly one schema is exposed. In required-single-tool mode,
+            # requiring some Tool call is therefore equivalent to requiring
+            # this one Tool; response verification below still enforces its
+            # exact name and arguments.
             "tools": [self._tool_schema(tool.tool_name)],
-            "tool_choice": {
-                "type": "function",
-                "function": {"name": tool.tool_name},
-            },
+            "tool_choice": self._tool_choice(tool.tool_name),
             "max_tokens": self.max_output_tokens,
             "temperature": 0,
             "provider": {
-                "only": [self.preset.provider_slug],
+                "only": [self.preset.endpoint_tag or self.preset.provider_slug],
                 "allow_fallbacks": False,
                 "require_parameters": True,
             },
@@ -350,6 +372,21 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         provider = response.get("provider")
         if provider != self.preset.provider_name:
             raise OpenRouterIntegrationError("OpenRouter returned another provider.")
+
+    @staticmethod
+    def _named_function_tool_choice(tool_name: str) -> dict[str, object]:
+        return {
+            "type": "function",
+            "function": {"name": tool_name},
+        }
+
+    def _tool_choice(self, tool_name: str) -> str | dict[str, object]:
+        mode = self.preset.tool_choice_mode
+        if mode == "required_single_tool":
+            return "required"
+        if mode in {None, "named_function"}:
+            return self._named_function_tool_choice(tool_name)
+        raise OpenRouterIntegrationError("OpenRouter Tool-choice mode is invalid.")
 
     @staticmethod
     def _one_tool_call(response: dict[str, Any]) -> tuple[str, dict[str, Any]]:

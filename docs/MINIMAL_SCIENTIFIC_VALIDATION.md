@@ -7,9 +7,13 @@ leaderboard result.
 ## Frozen design
 
 - One model endpoint and provider per frozen lock. The current execution
-  candidate is `qwen/qwen3.8-flash`, Alibaba only, with provider fallbacks
-  disabled, required-parameter routing enabled, and reasoning explicitly
-  disabled. The earlier MiMo lock remains reproducible but is not silently
+  candidate is `xiaomi/mimo-v2.5`, Xiaomi only, with provider fallbacks
+  disabled, exact endpoint slug `xiaomi/fp8` pinned after zero-cost preflight,
+  and proposed `tool_choice="required"`. Every request
+  exposes exactly one Tool schema, so `required` can select only the
+  controller's frozen action;
+  the response must still match its exact Tool name and arguments. Historical
+  MiMo named-function and Qwen locks remain reproducible and are not silently
   substituted for this run.
 - One seed: label `A`, numeric seed `43`.
 - Five immutable Agent snapshots: A0, then one-component changes to Skill,
@@ -20,13 +24,17 @@ leaderboard result.
 - The model, Task hashes, Environment, verifier, seed and per-episode limits are
   identical across snapshots. Evaluation never changes a snapshot.
 
-The Qwen execution lock at
-`configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json` binds
-the generated plan hash, manifest hash, all 12 Task hashes, all five snapshot
-hashes, the exact reasoning-disabled model-preset hash and every budget limit.
-The earlier MiMo protocol remains frozen at
-`configs/full_agent/minimal-scientific-seed-A.lock.json`. A different source
-tree, model, provider or reasoning setting cannot run under either lock.
+The capability-aware MiMo execution lock at
+`configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json`
+binds the generated plan hash, manifest hash, all 12 Task hashes, all five
+snapshot hashes, the exact required-single-Tool model-preset hash and every
+budget limit. The historical MiMo and Qwen protocols remain frozen at
+`configs/full_agent/minimal-scientific-seed-A.lock.json` and
+`configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json`.
+A different model, provider or Tool-choice mode changes the plan and cannot run
+under the new lock. Source identity is not established by the lock alone; an
+external run additionally requires exact-head authorization bound outside this
+public helper.
 
 ## What the four groups test
 
@@ -45,9 +53,22 @@ usage accounting, budget violation or source/lock mismatch fails closed.
 
 The first full MiMo attempt stopped on the first external episode with
 `model_tool_call_noncompliance`; it produced no scientific score and is not
-treated as negative performance evidence. Qwen3.8 Flash is a separately frozen
-retry because its endpoint currently supports `tools`, `tool_choice` and an
-explicit no-reasoning setting.
+treated as negative performance evidence. A separately controlled Qwen3.8
+Flash route probe then returned HTTP 404 before any provider attempt because
+no route accepted the stricter named-function request; this is consistent with,
+but does not by itself prove, the endpoint capability-table mismatch. It used
+zero Tokens, cost USD 0, and also produced no scientific score. The new MiMo
+preset changes only this compatibility field to the capability-table-indicated
+`required` candidate. It never falls back to `auto`, another provider or
+another model.
+
+The public endpoint catalogue exposes generic `tool_choice` support but not a
+machine-verifiable guarantee for every Tool-choice subtype. Chat-completion
+responses identify the model and provider, not the endpoint tag. Therefore the
+new lock is a compatibility candidate until a separately authorized one-request
+probe returns the exact model/provider and exact frozen Tool call. A directory
+preflight or a successful public dry-run alone cannot authorize the 60-episode
+seed.
 
 ## Success gate and claim boundary
 
@@ -66,7 +87,7 @@ significance across seeds, or an official benchmark ranking.
 - At most 180 OpenRouter requests (three per episode).
 - At most 4,096 prompt bytes and 128 output tokens per request.
 - Model hard cap: USD 0.60. The pricing-derived mathematical ceiling at the
-  Qwen preset is USD 0.1287936 and remains below this cap.
+  capability-aware MiMo preset is USD 0.1096704 and remains below this cap.
 - Private-runner timeout: 90 minutes, budgeted at USD 0.54.
 - Reserve: USD 0.06. Total authorization cannot exceed USD 1.20.
 
@@ -84,3 +105,8 @@ Hosted implementation run `33024979960` regenerated and verified both model lock
 Its Qwen no-reasoning artifact is `9628057696`, with GitHub artifact digest
 `sha256:942924093fe1f680d92f816d3e430d27891db90c1087c3d66c439bf884a3da22`.
 This remains zero-cost contract evidence; it is not the external seed result.
+The newly versioned MiMo lock requires a fresh public dry-run artifact before
+any external execution is eligible. It also requires an expiring, exact-head,
+transactional one-use authorization and a successful one-request route probe;
+the public execution helper's caller-supplied approval strings are not by
+themselves sufficient authorization for paid execution.

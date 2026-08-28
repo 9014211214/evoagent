@@ -41,6 +41,11 @@ Historical entries below describe research-framework milestones. They do not imp
   reasoning disabled, required-parameter routing, exact live endpoint pricing,
   and a USD 0.1287936 mathematical model-cost ceiling. The prior MiMo external
   attempt stopped on Tool-call noncompliance and produced no score.
+- Recorded the zero-Token, zero-cost Qwen route rejection and added a
+  capability-aware MiMo-V2.5 preset using `tool_choice="required"` with exactly
+  one Tool schema. The new lock preserves the historical Task, snapshot and
+  budget hashes, pins the exact Xiaomi endpoint slug, disables provider
+  fallback, and keeps exact Tool-name/argument verification unchanged.
 
 ## 2.0.0 release candidate
 

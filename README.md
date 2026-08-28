@@ -134,20 +134,26 @@ The concrete benchmark-neutral external evidence adapter and credential-free
 hosted dry-run are documented in
 [`docs/37-full-agent-external-calibration.md`](docs/37-full-agent-external-calibration.md).
 Its strict importer also binds each frozen Task payload hash, caller SHA-256 and
-resource usage. The included MiMo preset is only for a bounded Tool-call
-integration calibration; it is not a benchmark result.
+resource usage. The historical MiMo preset is only for a bounded Tool-call
+integration calibration; the separately versioned capability-aware preset is
+used by the minimal scientific protocol. Neither is a benchmark result.
 
 ### Frozen 12-Task minimal scientific seed
 
 The next low-cost Full-Agent gate is a controlled 12-Task set: three retention,
 three transfer, three adversarial and three composition cases. The current
-execution lock pins Qwen3.8 Flash to Alibaba, disables reasoning explicitly,
-and uses the same seed 43, Environment and verifier across all five A0→A4
-snapshots, for exactly 60 episodes. The earlier MiMo lock remains reproducible
-but is not interchangeable. A compact lock binds every Task, snapshot,
-component, model-preset, inference setting and budget hash. The public workflow
-is credential-free; real execution is private, one-use and capped at USD 1.20
-including runner reserve. See
+execution lock pins MiMo-V2.5 to the exact Xiaomi `xiaomi/fp8` provider endpoint
+slug after zero-cost preflight. It proposes
+`tool_choice="required"` with exactly one available Tool. Exact Tool-name and
+argument verification, model/provider pinning and no-fallback routing remain
+unchanged. Because inference responses do not expose the endpoint tag, a
+separate one-request route probe must pass before a seed is eligible. The same
+seed 43, Environment and verifier run across all five
+A0→A4 snapshots for exactly 60 episodes. Historical MiMo named-function and
+Qwen locks remain reproducible but are not interchangeable. A compact lock
+binds every Task, snapshot, component, model-preset, inference setting and
+budget hash. The public workflow is credential-free; real execution is
+private, one-use and capped at USD 1.20 including runner reserve. See
 [`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`](docs/MINIMAL_SCIENTIFIC_VALIDATION.md).
 
 This is designed to test the causal mechanism and retention boundary at low
@@ -310,9 +316,11 @@ every external Task. Neither result currently exists.
 
 The 12-Task Full-Agent mechanism set is frozen and its zero-cost local gate
 passes. The first complete MiMo attempt stopped on model Tool-call
-noncompliance and produced no score; the reasoning-disabled Qwen3.8 Flash retry
-has a separate lock. External seed evidence remains independent from the
-authoritative SkillEvolBench claim.
+noncompliance and produced no score. A Qwen3.8 Flash route probe then stopped
+before provider selection with HTTP 404, zero Tokens and USD 0. The current
+versioned MiMo preset uses the catalogue-indicated required-single-Tool form;
+its fresh public dry-run remains a gate before any new real request. External
+seed evidence remains independent from the authoritative SkillEvolBench claim.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

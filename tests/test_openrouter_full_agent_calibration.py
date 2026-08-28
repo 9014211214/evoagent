@@ -13,6 +13,7 @@ from evoagent.integrations.full_agent_calibration import (
 )
 from evoagent.integrations.openrouter import (
     OpenRouterControlledToolPolicy,
+    OpenRouterIntegrationError,
     OpenRouterModelPreset,
 )
 from evoagent.runtime import LocalDocumentEnvironment, RuntimeLimits, ToolAgentRuntime
@@ -41,6 +42,16 @@ def _qwen_preset() -> OpenRouterModelPreset:
         (root / "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json").read_text(
             encoding="utf-8"
         )
+    )
+
+
+def _required_mimo_preset() -> OpenRouterModelPreset:
+    root = Path(__file__).resolve().parents[1]
+    return OpenRouterModelPreset.model_validate_json(
+        (
+            root
+            / "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
+        ).read_text(encoding="utf-8")
     )
 
 
@@ -202,6 +213,173 @@ def test_mimo_preset_omits_unfrozen_reasoning_setting(tmp_path: Path):
 
     assert trace.verifier_passed is True
     assert all("reasoning" not in payload for payload in payloads)
+
+
+def test_required_single_tool_mode_exposes_one_tool_and_never_uses_auto(
+    tmp_path: Path,
+):
+    preset = _required_mimo_preset()
+    assert preset.endpoint_tag == "xiaomi/fp8"
+    assert preset.context_length == 1_048_576
+    payloads = []
+    transport = _matching_transport()
+
+    def capture(payload, api_key):
+        payloads.append(payload)
+        return transport(payload, api_key)
+
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        transport=capture,
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert trace.verifier_passed is True
+    assert payloads
+    assert all(payload["tool_choice"] == "required" for payload in payloads)
+    assert all(len(payload["tools"]) == 1 for payload in payloads)
+    assert all(
+        payload["provider"]
+        == {
+            "only": ["xiaomi/fp8"],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+        }
+        for payload in payloads
+    )
+    assert all(
+        payload["tools"][0]["function"]["name"]
+        == json.loads(payload["messages"][1]["content"])["required_tool"]
+        for payload in payloads
+    )
+
+
+def test_required_single_tool_mode_requires_capability_timestamp():
+    payload = _preset().model_dump(mode="json")
+    payload["tool_choice_mode"] = "required_single_tool"
+    payload["tool_choice_verified_at"] = None
+
+    with pytest.raises(ValueError, match="capability verification time"):
+        OpenRouterModelPreset.model_validate(payload)
+
+
+def test_legacy_mode_rejects_unbound_capability_timestamp():
+    payload = _preset().model_dump(mode="json")
+    payload["tool_choice_mode"] = None
+    payload["tool_choice_verified_at"] = "2026-08-28T02:22:53+00:00"
+
+    with pytest.raises(ValueError, match="capability verification time"):
+        OpenRouterModelPreset.model_validate(payload)
+
+
+def test_explicit_tool_choice_mode_requires_exact_endpoint_tag():
+    payload = _preset().model_dump(mode="json")
+    payload["tool_choice_mode"] = "required_single_tool"
+    payload["tool_choice_verified_at"] = "2026-08-28T02:22:53+00:00"
+    payload["endpoint_tag"] = None
+
+    with pytest.raises(ValueError, match="exact provider endpoint"):
+        OpenRouterModelPreset.model_validate(payload)
+
+
+def test_exact_endpoint_tag_must_belong_to_provider_slug():
+    payload = _required_mimo_preset().model_dump(mode="json")
+    payload["endpoint_tag"] = "another-provider/fp8"
+
+    with pytest.raises(ValueError, match="does not belong"):
+        OpenRouterModelPreset.model_validate(payload)
+
+
+def test_legacy_named_function_preset_retains_historical_fingerprint_shape():
+    preset = _preset()
+    round_tripped = OpenRouterModelPreset.model_validate_json(preset.model_dump_json())
+
+    assert preset.tool_choice_mode is None
+    assert "tool_choice_mode" not in preset.fingerprint_payload()
+    assert round_tripped.fingerprint_payload() == preset.fingerprint_payload()
+    assert _required_mimo_preset().fingerprint_payload()["tool_choice_mode"] == (
+        "required_single_tool"
+    )
+
+
+def test_tool_choice_schema_rejects_auto_mode():
+    payload = _required_mimo_preset().model_dump(mode="json")
+    payload["tool_choice_mode"] = "auto"
+
+    with pytest.raises(ValueError):
+        OpenRouterModelPreset.model_validate(payload)
+
+
+@pytest.mark.parametrize("tool_call_count", [0, 2])
+def test_required_single_tool_response_still_requires_exactly_one_call(
+    tool_call_count: int,
+):
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "read_document",
+                                "arguments": '{"path":"note.txt"}',
+                            }
+                        }
+                        for _ in range(tool_call_count)
+                    ]
+                }
+            }
+        ]
+    }
+
+    with pytest.raises(OpenRouterIntegrationError, match="one Tool call"):
+        OpenRouterControlledToolPolicy._one_tool_call(response)
+
+
+def test_required_single_tool_transport_failure_does_not_retry_or_fallback(
+    tmp_path: Path,
+):
+    attempts = 0
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+
+    def reject(_payload, _api_key):
+        nonlocal attempts
+        attempts += 1
+        raise OpenRouterIntegrationError("synthetic route rejection")
+
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        transport=reject,
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert attempts == 1
+    assert trace.verifier_passed is False
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
 
 
 @pytest.mark.parametrize(

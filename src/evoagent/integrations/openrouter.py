@@ -521,7 +521,7 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
             raise OpenRouterIntegrationError(
                 "OpenRouter required-Tool response contains unexpected prose."
             )
-        if "reasoning" in message or "reasoning_details" in message:
+        if OpenRouterControlledToolPolicy._has_nonempty_reasoning(message):
             raise OpenRouterIntegrationError(
                 "OpenRouter required-Tool response contains unexpected reasoning."
             )
@@ -540,6 +540,17 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
             raise OpenRouterIntegrationError(
                 "OpenRouter required-Tool call identity is invalid."
             )
+
+    @staticmethod
+    def _has_nonempty_reasoning(message: dict[str, Any]) -> bool:
+        """Treat OpenRouter's schema-valid empty placeholders as no reasoning."""
+
+        if message.get("reasoning") not in (None, ""):
+            return True
+        if message.get("reasoning_content") not in (None, ""):
+            return True
+        reasoning_details = message.get("reasoning_details")
+        return reasoning_details is not None and reasoning_details != []
 
     @staticmethod
     def _one_tool_call(response: dict[str, Any]) -> tuple[str, dict[str, Any]]:

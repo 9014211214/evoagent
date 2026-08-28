@@ -236,7 +236,15 @@ def test_required_single_tool_mode_exposes_one_tool_and_never_uses_auto(
 
     def capture(payload, api_key, timeout_seconds):
         payloads.append(payload)
-        return transport(payload, api_key, timeout_seconds)
+        response = transport(payload, api_key, timeout_seconds)
+        response["choices"][0]["message"].update(
+            {
+                "reasoning": None,
+                "reasoning_content": "",
+                "reasoning_details": [],
+            }
+        )
+        return response
 
     snapshot = build_calibration_snapshot(
         tmp_path / "snapshot",
@@ -401,7 +409,12 @@ def test_required_single_tool_arguments_reject_ambiguous_or_non_finite_json(
     [
         ({"finish_reason": "stop"}, "did not finish"),
         ({"content": "unexpected prose"}, "unexpected prose"),
-        ({"reasoning": None}, "unexpected reasoning"),
+        ({"reasoning": "private reasoning"}, "unexpected reasoning"),
+        ({"reasoning_content": "private reasoning"}, "unexpected reasoning"),
+        (
+            {"reasoning_details": [{"type": "reasoning.text"}]},
+            "unexpected reasoning",
+        ),
         ({"tool_call_id": ""}, "identity is invalid"),
         ({"tool_call_type": "custom"}, "identity is invalid"),
     ],
@@ -425,8 +438,9 @@ def test_required_single_tool_shape_fails_closed_on_incomplete_response(
             ],
         },
     }
-    if "reasoning" in mutation:
-        choice["message"]["reasoning"] = mutation["reasoning"]
+    for key in ("reasoning", "reasoning_content", "reasoning_details"):
+        if key in mutation:
+            choice["message"][key] = mutation[key]
 
     with pytest.raises(OpenRouterIntegrationError, match=error):
         OpenRouterControlledToolPolicy._verify_required_single_tool_shape(
@@ -460,6 +474,85 @@ def test_required_single_tool_shape_accepts_no_prose_content(
     }
 
     OpenRouterControlledToolPolicy._verify_required_single_tool_shape(response)
+
+
+@pytest.mark.parametrize(
+    "reasoning_fields",
+    [
+        {},
+        {"reasoning": None},
+        {"reasoning": ""},
+        {"reasoning_content": None},
+        {"reasoning_content": ""},
+        {"reasoning_details": None},
+        {"reasoning_details": []},
+        {
+            "reasoning": None,
+            "reasoning_content": "",
+            "reasoning_details": [],
+        },
+    ],
+)
+def test_required_single_tool_shape_accepts_empty_reasoning_placeholders(
+    reasoning_fields: dict[str, object],
+):
+    message = {
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_frozen_action",
+                "type": "function",
+                "function": {
+                    "name": "read_document",
+                    "arguments": '{"path":"note.txt"}',
+                },
+            }
+        ],
+        **reasoning_fields,
+    }
+    response = {
+        "choices": [{"finish_reason": "tool_calls", "message": message}]
+    }
+
+    OpenRouterControlledToolPolicy._verify_required_single_tool_shape(response)
+
+
+@pytest.mark.parametrize(
+    "reasoning_fields",
+    [
+        {"reasoning": " "},
+        {"reasoning": False},
+        {"reasoning": []},
+        {"reasoning_content": "\n"},
+        {"reasoning_content": {}},
+        {"reasoning_details": ""},
+        {"reasoning_details": {}},
+        {"reasoning_details": [{"type": "reasoning.text"}]},
+    ],
+)
+def test_required_single_tool_shape_rejects_nonempty_or_invalid_reasoning(
+    reasoning_fields: dict[str, object],
+):
+    message = {
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_frozen_action",
+                "type": "function",
+                "function": {
+                    "name": "read_document",
+                    "arguments": '{"path":"note.txt"}',
+                },
+            }
+        ],
+        **reasoning_fields,
+    }
+    response = {
+        "choices": [{"finish_reason": "tool_calls", "message": message}]
+    }
+
+    with pytest.raises(OpenRouterIntegrationError, match="unexpected reasoning"):
+        OpenRouterControlledToolPolicy._verify_required_single_tool_shape(response)
 
 
 @pytest.mark.parametrize("content", [" ", "\n", [], {}, 0, False])

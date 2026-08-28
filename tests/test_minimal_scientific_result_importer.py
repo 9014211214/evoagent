@@ -512,7 +512,16 @@ def test_rejects_secret_before_schema_projection(
         _import(tmp_path, digest, plan, lock, preset)
 
 
-@pytest.mark.parametrize("raw_key", ["raw_response", "trajectory", "reasoning"])
+@pytest.mark.parametrize(
+    "raw_key",
+    [
+        "raw_response",
+        "trajectory",
+        "reasoning",
+        "reasoning_content",
+        "reasoning_details",
+    ],
+)
 def test_rejects_nested_raw_evidence_fields_before_pydantic_projection(
     tmp_path: Path,
     scientific_fixture,

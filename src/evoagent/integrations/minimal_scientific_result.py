@@ -72,6 +72,7 @@ _PROHIBITED_RAW_KEYS = {
     "raw_trajectory",
     "raw_trajectories",
     "reasoning",
+    "reasoning_content",
     "reasoning_details",
     "response",
     "responses",

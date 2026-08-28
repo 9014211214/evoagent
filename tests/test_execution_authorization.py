@@ -194,10 +194,9 @@ def test_request_and_authorization_hash_tampering_and_command_secrets_are_reject
             )
         )
 
+    synthetic_secret = "API_KEY=sk-abcdefghijklmnop"  # synthetic-secret-fixture
     secret_invocation = invocation.model_copy(
-        update={
-            "command": (invocation.command[0], "API_KEY=sk-abcdefghijklmnop")
-        }  # synthetic-secret-fixture
+        update={"command": (invocation.command[0], synthetic_secret)}
     )
     with pytest.raises(ExecutionAuthorizationError, match="potential secret"):
         manager.prepare_request(

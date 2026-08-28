@@ -55,7 +55,9 @@ def _required_mimo_preset() -> OpenRouterModelPreset:
     )
 
 
-def _matching_transport(*, provider="Xiaomi", mutate_arguments=False, cost=0.0001):
+def _matching_transport(
+    *, provider="Xiaomi", mutate_arguments=False, cost=0.0001, content=None
+):
     def transport(payload, api_key, timeout_seconds):
         assert api_key == "test-only-key"
         assert 0 < timeout_seconds <= 90
@@ -70,7 +72,7 @@ def _matching_transport(*, provider="Xiaomi", mutate_arguments=False, cost=0.000
                 {
                     "finish_reason": "tool_calls",
                     "message": {
-                        "content": None,
+                        "content": content,
                         "tool_calls": [
                             {
                                 "id": "call_frozen_action",
@@ -230,7 +232,7 @@ def test_required_single_tool_mode_exposes_one_tool_and_never_uses_auto(
     assert preset.endpoint_tag == "xiaomi/fp8"
     assert preset.context_length == 1_048_576
     payloads = []
-    transport = _matching_transport()
+    transport = _matching_transport(content="")
 
     def capture(payload, api_key, timeout_seconds):
         payloads.append(payload)
@@ -430,6 +432,63 @@ def test_required_single_tool_shape_fails_closed_on_incomplete_response(
         OpenRouterControlledToolPolicy._verify_required_single_tool_shape(
             {"choices": [choice]}
         )
+
+
+@pytest.mark.parametrize("content", [None, ""])
+def test_required_single_tool_shape_accepts_no_prose_content(
+    content: str | None,
+):
+    response = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": content,
+                    "tool_calls": [
+                        {
+                            "id": "call_frozen_action",
+                            "type": "function",
+                            "function": {
+                                "name": "read_document",
+                                "arguments": '{"path":"note.txt"}',
+                            },
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    OpenRouterControlledToolPolicy._verify_required_single_tool_shape(response)
+
+
+@pytest.mark.parametrize("content", [" ", "\n", [], {}, 0, False])
+def test_required_single_tool_shape_rejects_any_other_content(
+    content: object,
+):
+    response = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": content,
+                    "tool_calls": [
+                        {
+                            "id": "call_frozen_action",
+                            "type": "function",
+                            "function": {
+                                "name": "read_document",
+                                "arguments": '{"path":"note.txt"}',
+                            },
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    with pytest.raises(OpenRouterIntegrationError, match="unexpected prose"):
+        OpenRouterControlledToolPolicy._verify_required_single_tool_shape(response)
 
 
 def test_required_single_tool_transport_failure_does_not_retry_or_fallback(

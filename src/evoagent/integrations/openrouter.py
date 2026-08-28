@@ -515,7 +515,9 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
                 "OpenRouter required-Tool response did not finish with Tool calls."
             )
         message = choice.get("message")
-        if not isinstance(message, dict) or message.get("content") is not None:
+        if not isinstance(message, dict) or (
+            message.get("content") is not None and message.get("content") != ""
+        ):
             raise OpenRouterIntegrationError(
                 "OpenRouter required-Tool response contains unexpected prose."
             )

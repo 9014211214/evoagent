@@ -56,8 +56,9 @@ def _required_mimo_preset() -> OpenRouterModelPreset:
 
 
 def _matching_transport(*, provider="Xiaomi", mutate_arguments=False, cost=0.0001):
-    def transport(payload, api_key):
+    def transport(payload, api_key, timeout_seconds):
         assert api_key == "test-only-key"
+        assert 0 < timeout_seconds <= 90
         requested = json.loads(payload["messages"][1]["content"])
         arguments = dict(requested["required_arguments"])
         if mutate_arguments:
@@ -67,9 +68,13 @@ def _matching_transport(*, provider="Xiaomi", mutate_arguments=False, cost=0.000
             "provider": provider,
             "choices": [
                 {
+                    "finish_reason": "tool_calls",
                     "message": {
+                        "content": None,
                         "tool_calls": [
                             {
+                                "id": "call_frozen_action",
+                                "type": "function",
                                 "function": {
                                     "name": requested["required_tool"],
                                     "arguments": json.dumps(arguments),
@@ -140,8 +145,9 @@ def test_qwen_policy_disables_reasoning_and_requires_exact_provider_parameters(
     preset = _qwen_preset()
     payloads = []
 
-    def transport(payload, api_key):
+    def transport(payload, api_key, timeout_seconds):
         assert api_key == "test-only-key"
+        assert 0 < timeout_seconds <= 90
         payloads.append(payload)
         requested = json.loads(payload["messages"][1]["content"])
         return {
@@ -207,9 +213,9 @@ def test_mimo_preset_omits_unfrozen_reasoning_setting(tmp_path: Path):
     payloads = []
     transport = _matching_transport()
 
-    def capture(payload, api_key):
+    def capture(payload, api_key, timeout_seconds):
         payloads.append(payload)
-        return transport(payload, api_key)
+        return transport(payload, api_key, timeout_seconds)
 
     _, trace, _ = _run(tmp_path, capture)
 
@@ -226,9 +232,9 @@ def test_required_single_tool_mode_exposes_one_tool_and_never_uses_auto(
     payloads = []
     transport = _matching_transport()
 
-    def capture(payload, api_key):
+    def capture(payload, api_key, timeout_seconds):
         payloads.append(payload)
-        return transport(payload, api_key)
+        return transport(payload, api_key, timeout_seconds)
 
     snapshot = build_calibration_snapshot(
         tmp_path / "snapshot",
@@ -250,6 +256,7 @@ def test_required_single_tool_mode_exposes_one_tool_and_never_uses_auto(
 
     assert trace.verifier_passed is True
     assert payloads
+    assert all(payload["reasoning"] == {"enabled": False} for payload in payloads)
     assert all(payload["tool_choice"] == "required" for payload in payloads)
     assert all(len(payload["tools"]) == 1 for payload in payloads)
     assert all(
@@ -331,9 +338,13 @@ def test_required_single_tool_response_still_requires_exactly_one_call(
     response = {
         "choices": [
             {
+                "finish_reason": "tool_calls",
                 "message": {
+                    "content": None,
                     "tool_calls": [
                         {
+                            "id": "call_frozen_action",
+                            "type": "function",
                             "function": {
                                 "name": "read_document",
                                 "arguments": '{"path":"note.txt"}',
@@ -350,6 +361,77 @@ def test_required_single_tool_response_still_requires_exactly_one_call(
         OpenRouterControlledToolPolicy._one_tool_call(response)
 
 
+@pytest.mark.parametrize(
+    "raw_arguments",
+    [
+        '{"path":"attacker-value","path":"note.txt"}',
+        '{"path":NaN}',
+        '{"path":Infinity}',
+        '{"nested":{"value":1,"value":2}}',
+    ],
+)
+def test_required_single_tool_arguments_reject_ambiguous_or_non_finite_json(
+    raw_arguments: str,
+):
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "read_document",
+                                "arguments": raw_arguments,
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    with pytest.raises(OpenRouterIntegrationError, match="unambiguous finite JSON"):
+        OpenRouterControlledToolPolicy._one_tool_call(response)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ({"finish_reason": "stop"}, "did not finish"),
+        ({"content": "unexpected prose"}, "unexpected prose"),
+        ({"reasoning": None}, "unexpected reasoning"),
+        ({"tool_call_id": ""}, "identity is invalid"),
+        ({"tool_call_type": "custom"}, "identity is invalid"),
+    ],
+)
+def test_required_single_tool_shape_fails_closed_on_incomplete_response(
+    mutation: dict[str, object], error: str
+):
+    choice = {
+        "finish_reason": mutation.get("finish_reason", "tool_calls"),
+        "message": {
+            "content": mutation.get("content"),
+            "tool_calls": [
+                {
+                    "id": mutation.get("tool_call_id", "call_frozen_action"),
+                    "type": mutation.get("tool_call_type", "function"),
+                    "function": {
+                        "name": "read_document",
+                        "arguments": '{"path":"note.txt"}',
+                    },
+                }
+            ],
+        },
+    }
+    if "reasoning" in mutation:
+        choice["message"]["reasoning"] = mutation["reasoning"]
+
+    with pytest.raises(OpenRouterIntegrationError, match=error):
+        OpenRouterControlledToolPolicy._verify_required_single_tool_shape(
+            {"choices": [choice]}
+        )
+
+
 def test_required_single_tool_transport_failure_does_not_retry_or_fallback(
     tmp_path: Path,
 ):
@@ -360,7 +442,7 @@ def test_required_single_tool_transport_failure_does_not_retry_or_fallback(
         model_id=preset.model_id,
     )
 
-    def reject(_payload, _api_key):
+    def reject(_payload, _api_key, _timeout_seconds):
         nonlocal attempts
         attempts += 1
         raise OpenRouterIntegrationError("synthetic route rejection")
@@ -393,7 +475,7 @@ def test_global_deadline_stops_policy_before_network(tmp_path: Path):
         model_id=preset.model_id,
     )
 
-    def transport(_payload, _api_key):
+    def transport(_payload, _api_key, _timeout_seconds):
         nonlocal attempts
         attempts += 1
         return {}
@@ -419,6 +501,89 @@ def test_global_deadline_stops_policy_before_network(tmp_path: Path):
     assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
 
 
+def test_policy_rejects_actual_completion_over_requested_cap(tmp_path: Path):
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+    matching_transport = _matching_transport()
+
+    def overlong_transport(payload, api_key, timeout_seconds):
+        response = matching_transport(payload, api_key, timeout_seconds)
+        response["usage"] = {
+            "prompt_tokens": 100,
+            "completion_tokens": 9,
+            "total_tokens": 109,
+            "cost": 0.0001,
+        }
+        return response
+
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        max_output_tokens=8,
+        transport=overlong_transport,
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert policy.usage.requests == 1
+    assert policy.usage.completion_tokens == 9
+    assert policy.usage.total_tokens == 109
+    assert policy.usage.cost_usd == pytest.approx(0.0001)
+    assert trace.verifier_passed is False
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
+
+
+def test_policy_and_shared_ledger_record_billed_cost_before_cap_failure(
+    tmp_path: Path,
+):
+    preset = _required_mimo_preset()
+    snapshot = build_calibration_snapshot(
+        tmp_path / "snapshot",
+        model_id=preset.model_id,
+    )
+    ledger = OpenRouterUsageLedger(
+        preset=preset,
+        max_requests=3,
+        max_prompt_bytes_per_request=4_096,
+        max_output_tokens_per_request=256,
+        max_cost_usd=0.01,
+    )
+    policy = OpenRouterControlledToolPolicy(
+        controller=UnifiedDocumentPolicy(snapshot),
+        preset=preset,
+        api_key="test-only-key",
+        max_prompt_bytes_per_request=4_096,
+        max_cost_usd=0.01,
+        shared_ledger=ledger,
+        transport=_matching_transport(cost=0.02),
+    )
+    trace = ToolAgentRuntime(
+        environment_factory=lambda: LocalDocumentEnvironment(tmp_path / "environment"),
+        policy=policy,
+        verifier=ContinualDocumentVerifier(),
+        limits=RuntimeLimits(max_steps=6, max_tool_calls=4, max_wall_seconds=30),
+        seed=43,
+    ).run(build_calibration_task(), to_runtime_snapshot(snapshot))
+
+    assert policy.usage.requests == 1
+    assert policy.usage.total_tokens == 110
+    assert policy.usage.cost_usd == pytest.approx(0.02)
+    assert ledger.usage.requests == 1
+    assert ledger.usage.total_tokens == 110
+    assert ledger.usage.cost_usd == pytest.approx(0.02)
+    assert trace.verifier_passed is False
+    assert trace.final_output["error_type"] == "OpenRouterIntegrationError"
+
+
 def test_global_deadline_is_rechecked_after_network(tmp_path: Path):
     attempts = 0
     clock_values = iter((0.0, 0.0, 0.0, 6.0))
@@ -435,10 +600,11 @@ def test_global_deadline_is_rechecked_after_network(tmp_path: Path):
         max_cost_usd=2.0,
     )
 
-    def transport(payload, api_key):
+    def transport(payload, api_key, timeout_seconds):
         nonlocal attempts
         attempts += 1
-        return _matching_transport()(payload, api_key)
+        assert 0 < timeout_seconds <= 5.0
+        return _matching_transport()(payload, api_key, timeout_seconds)
 
     policy = OpenRouterControlledToolPolicy(
         controller=UnifiedDocumentPolicy(snapshot),

@@ -50,6 +50,17 @@ Historical entries below describe research-framework milestones. They do not imp
   reached Xiaomi with HTTP 200, used 309 Tokens at observed cost USD 0.00004774,
   but returned no required Tool call. The verifier failed closed, no scientific
   seed episode ran, and no score was produced.
+- Corrected that probe by explicitly disabling reasoning and allowing a
+  256-Token probe-only response ceiling. Exact-head run `33183563382` returned
+  the exact typed Tool call from Xiaomi in 301 Tokens at observed cost USD
+  0.00004522. This verifies transport eligibility only; the 60-episode seed has
+  not yet produced a result or score.
+- Added strict offline seed-result admission: exact source, authorization
+  identities, plan/lock/preset, all five snapshots and 60 per-Task episode
+  contracts, positive external usage, costs and hashes are independently
+  checked; duplicate keys and raw prompt/response/reasoning fields are rejected.
+  Direct paid execution from the public helper is disabled in favor of an
+  expiring, exact-head, transactional one-use private controller.
 
 ## 2.0.0 release candidate
 

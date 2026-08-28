@@ -52,16 +52,21 @@ def _legacy_mimo_preset() -> OpenRouterModelPreset:
     )
 
 
-def _matching_transport(payload, _api_key):
+def _matching_transport(payload, _api_key, timeout_seconds):
+    assert 0 < timeout_seconds <= 90
     requested = json.loads(payload["messages"][1]["content"])
     return {
         "model": "xiaomi/mimo-v2.5-20260422",
         "provider": "Xiaomi",
         "choices": [
             {
+                "finish_reason": "tool_calls",
                 "message": {
+                    "content": None,
                     "tool_calls": [
                         {
+                            "id": "call_frozen_action",
+                            "type": "function",
                             "function": {
                                 "name": requested["required_tool"],
                                 "arguments": json.dumps(
@@ -162,6 +167,16 @@ def test_zero_cost_dry_run_has_frozen_causal_progression(tmp_path: Path):
     assert evidence["benchmark_score_claimed"] is False
 
 
+def test_public_paid_seed_helper_cannot_bypass_one_use_governance():
+    source = (ROOT / "scripts/run_openrouter_minimal_scientific_seed.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "OPENROUTER_API_KEY" not in source
+    assert "execute_minimal_scientific_seed(" not in source
+    assert "Direct paid execution is disabled" in source
+
+
 def test_external_seed_derives_scores_and_persists_no_raw_trajectory(tmp_path: Path):
     preset = _preset()
     plan, snapshots = build_minimal_scientific_seed_plan(
@@ -213,6 +228,55 @@ def test_shared_ledger_reserves_before_network_and_stops_at_exact_cap():
     assert ledger.usage.requests == 2
 
 
+def test_shared_ledger_rejects_actual_completion_over_per_request_cap():
+    ledger = OpenRouterUsageLedger(
+        preset=_preset(),
+        max_requests=1,
+        max_prompt_bytes_per_request=4096,
+        max_output_tokens_per_request=128,
+        max_cost_usd=0.01,
+    )
+    ledger.reserve(prompt_bytes=100, max_output_tokens=128)
+
+    with pytest.raises(OpenRouterIntegrationError, match="shared output-token cap"):
+        ledger.record(
+            prompt_tokens=100,
+            completion_tokens=129,
+            total_tokens=229,
+            cost_usd=0.0001,
+        )
+
+    assert ledger.usage.requests == 1
+    assert ledger.usage.completion_tokens == 129
+    assert ledger.usage.total_tokens == 229
+    assert ledger.usage.cost_usd == pytest.approx(0.0001)
+
+
+def test_shared_ledger_records_billed_usage_before_cost_cap_failure():
+    ledger = OpenRouterUsageLedger(
+        preset=_preset(),
+        max_requests=1,
+        max_prompt_bytes_per_request=4096,
+        max_output_tokens_per_request=128,
+        max_cost_usd=0.01,
+    )
+    ledger.reserve(prompt_bytes=100, max_output_tokens=128)
+
+    with pytest.raises(OpenRouterIntegrationError, match="shared run exceeded"):
+        ledger.record(
+            prompt_tokens=100,
+            completion_tokens=10,
+            total_tokens=110,
+            cost_usd=0.02,
+        )
+
+    assert ledger.usage.requests == 1
+    assert ledger.usage.prompt_tokens == 100
+    assert ledger.usage.completion_tokens == 10
+    assert ledger.usage.total_tokens == 110
+    assert ledger.usage.cost_usd == pytest.approx(0.02)
+
+
 def test_external_seed_enforces_max_runner_minutes_before_network(tmp_path: Path):
     preset = _preset()
     plan, snapshots = build_minimal_scientific_seed_plan(
@@ -222,7 +286,7 @@ def test_external_seed_enforces_max_runner_minutes_before_network(tmp_path: Path
     calls = 0
     clock_values = iter((0.0, 5400.0))
 
-    def transport(_payload, _api_key):
+    def transport(_payload, _api_key, _timeout_seconds):
         nonlocal calls
         calls += 1
         return {}

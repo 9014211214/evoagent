@@ -153,15 +153,39 @@ class OpenRouterUsageLedger:
         total_tokens: int,
         cost_usd: float,
     ) -> None:
-        projected = self._cost_usd + cost_usd
-        if projected > self.max_cost_usd:
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in (prompt_tokens, completion_tokens, total_tokens)
+        ):
             raise OpenRouterIntegrationError(
-                "OpenRouter shared run exceeded its cost cap."
+                "OpenRouter shared token accounting is invalid."
             )
+        if total_tokens != prompt_tokens + completion_tokens:
+            raise OpenRouterIntegrationError(
+                "OpenRouter shared token accounting is inconsistent."
+            )
+        if (
+            not isinstance(cost_usd, (int, float))
+            or isinstance(cost_usd, bool)
+            or not math.isfinite(float(cost_usd))
+            or cost_usd < 0
+        ):
+            raise OpenRouterIntegrationError(
+                "OpenRouter shared cost accounting is invalid."
+            )
+        projected = self._cost_usd + cost_usd
         self._prompt_tokens += prompt_tokens
         self._completion_tokens += completion_tokens
         self._total_tokens += total_tokens
         self._cost_usd = projected
+        if projected > self.max_cost_usd:
+            raise OpenRouterIntegrationError(
+                "OpenRouter shared run exceeded its cost cap."
+            )
+        if completion_tokens > self.max_output_tokens_per_request:
+            raise OpenRouterIntegrationError(
+                "OpenRouter response exceeded the shared output-token cap."
+            )
 
     @property
     def usage(self) -> OpenRouterPolicyUsage:
@@ -174,7 +198,22 @@ class OpenRouterUsageLedger:
         )
 
 
-Transport = Callable[[dict[str, Any], str], dict[str, Any]]
+Transport = Callable[[dict[str, Any], str, float], dict[str, Any]]
+
+
+def _reject_non_finite_tool_argument(value: str) -> None:
+    raise ValueError(f"non-finite Tool argument: {value}")
+
+
+def _reject_duplicate_tool_argument_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate Tool argument key: {key}")
+        result[key] = value
+    return result
 
 
 class OpenRouterControlledToolPolicy(ToolAgentPolicy):
@@ -340,12 +379,18 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
                 timeout_seconds=min(90.0, remaining),
             )
         else:
-            response = self._transport(payload, self._api_key)
+            response = self._transport(
+                payload,
+                self._api_key,
+                min(90.0, remaining),
+            )
         self._record_usage(response)
         # Account for a completed provider response before enforcing the global
         # deadline so late responses cannot escape usage/cost evidence.
         self._require_time_remaining()
         self._verify_routing(response)
+        if self.preset.tool_choice_mode == "required_single_tool":
+            self._verify_required_single_tool_shape(response)
         model_name, arguments = self._one_tool_call(response)
         if model_name != tool.tool_name or arguments != tool.arguments:
             raise OpenRouterIntegrationError(
@@ -404,16 +449,20 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         self._completion_tokens += completion
         self._total_tokens += total
         self._cost_usd += float(cost)
-        if self._cost_usd > self.max_cost_usd:
-            raise OpenRouterIntegrationError(
-                "OpenRouter calibration exceeded its cost cap."
-            )
         if self._shared_ledger is not None:
             self._shared_ledger.record(
                 prompt_tokens=prompt,
                 completion_tokens=completion,
                 total_tokens=total,
                 cost_usd=float(cost),
+            )
+        if self._cost_usd > self.max_cost_usd:
+            raise OpenRouterIntegrationError(
+                "OpenRouter calibration exceeded its cost cap."
+            )
+        if completion > self.max_output_tokens:
+            raise OpenRouterIntegrationError(
+                "OpenRouter response exceeded the requested output-token cap."
             )
 
     def _verify_routing(self, response: dict[str, Any]) -> None:
@@ -452,6 +501,45 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
         return remaining
 
     @staticmethod
+    def _verify_required_single_tool_shape(response: dict[str, Any]) -> None:
+        """Fail closed unless a required-Tool response is structurally complete."""
+
+        choices = response.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise OpenRouterIntegrationError(
+                "OpenRouter response must contain one choice."
+            )
+        choice = choices[0]
+        if not isinstance(choice, dict) or choice.get("finish_reason") != "tool_calls":
+            raise OpenRouterIntegrationError(
+                "OpenRouter required-Tool response did not finish with Tool calls."
+            )
+        message = choice.get("message")
+        if not isinstance(message, dict) or message.get("content") is not None:
+            raise OpenRouterIntegrationError(
+                "OpenRouter required-Tool response contains unexpected prose."
+            )
+        if "reasoning" in message or "reasoning_details" in message:
+            raise OpenRouterIntegrationError(
+                "OpenRouter required-Tool response contains unexpected reasoning."
+            )
+        calls = message.get("tool_calls")
+        if not isinstance(calls, list) or len(calls) != 1:
+            raise OpenRouterIntegrationError(
+                "OpenRouter response must contain one Tool call."
+            )
+        call = calls[0]
+        if (
+            not isinstance(call, dict)
+            or not isinstance(call.get("id"), str)
+            or not call["id"].strip()
+            or call.get("type") != "function"
+        ):
+            raise OpenRouterIntegrationError(
+                "OpenRouter required-Tool call identity is invalid."
+            )
+
+    @staticmethod
     def _one_tool_call(response: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         choices = response.get("choices")
         if not isinstance(choices, list) or len(choices) != 1:
@@ -475,10 +563,14 @@ class OpenRouterControlledToolPolicy(ToolAgentPolicy):
                 "OpenRouter Tool arguments are invalid or oversized."
             )
         try:
-            arguments = json.loads(raw_arguments)
-        except json.JSONDecodeError as exc:
+            arguments = json.loads(
+                raw_arguments,
+                parse_constant=_reject_non_finite_tool_argument,
+                object_pairs_hook=_reject_duplicate_tool_argument_keys,
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
             raise OpenRouterIntegrationError(
-                "OpenRouter Tool arguments are not valid JSON."
+                "OpenRouter Tool arguments are not unambiguous finite JSON."
             ) from exc
         if not isinstance(arguments, dict):
             raise OpenRouterIntegrationError(

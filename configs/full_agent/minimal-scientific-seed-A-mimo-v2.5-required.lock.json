@@ -1,6 +1,6 @@
 {
   "format_version": "evoagent-minimal-scientific-lock-v1",
-  "plan_hash": "ce008be610578271dc35f2eee181dde3942f7e0d120515352213b9771e14833b",
+  "plan_hash": "b3a1ea9df9afa4a26ea5e9438097b69495d0c292510325c9671b3a5ac749cbc2",
   "manifest_hash": "919cc4f9e50f236236cd3cd5fbd24ec334e147001ae299f2c88b8d77700acc54",
   "task_hashes": {
     "science:retention:new-note": "0c5441054f0a19be10007905b3068d91e9ba3ac2e36ba82587ccc65751f72982",
@@ -23,7 +23,7 @@
     "A3-unified-router": "f730201a3ab0db74bf5792e0490b23c543b0f8a19295cfe56f1d1d888bad5182",
     "A4-unified-policy": "dc4165184402b328a855d3f8fd5cde8d7375def228609bd9fa1e893e97f8de65"
   },
-  "model_preset_hash": "e688d1c1514940c50338cc221f7345ddbc84e160636f0109282288e87e2c03e7",
+  "model_preset_hash": "afe4de39fe8872f5735855ca052b4d82c936ab84bb31a74e7ac8757efb801ad2",
   "budget": {
     "evaluation_episodes": 60,
     "max_requests": 180,
@@ -36,5 +36,5 @@
     "authorization_cap_usd": 1.2,
     "reserve_usd": 0.06
   },
-  "lock_hash": "37e9b46d0d45f076d7107f33b0bf4740011b68c07f0734a13f0aafae2c27fe6d"
+  "lock_hash": "92b0765d222b97f4a15c3052793a191cbfa449b3c9d9e22bda7bf755aa8788a7"
 }

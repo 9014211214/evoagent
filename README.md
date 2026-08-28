@@ -143,14 +143,14 @@ used by the minimal scientific protocol. Neither is a benchmark result.
 The next low-cost Full-Agent gate is a controlled 12-Task set: three retention,
 three transfer, three adversarial and three composition cases. The current
 execution lock pins MiMo-V2.5 to the Xiaomi `xiaomi/fp8` provider endpoint slug
-after zero-cost preflight and proposes `tool_choice="required"` with exactly one
-available Tool. Exact Tool-name and argument verification, model/provider
-pinning and no-fallback routing remain unchanged. A separately authorized
-one-request probe reached Xiaomi with HTTP 200 and complete usage/cost
-accounting, but the response did not contain the required frozen Tool call.
-The compatibility gate therefore failed closed and this seed is not eligible
-to run. This single compatibility result is neither a benchmark score nor a
-universal claim about MiMo. The same seed 43, Environment and verifier run
+after live route verification and uses `tool_choice="required"`, disabled
+reasoning and exactly one available Tool. Exact Tool-name and argument
+verification, model/provider pinning and no-fallback routing remain unchanged.
+A separately authorized one-request probe reached Xiaomi with HTTP 200 and
+returned the exact typed Tool call, complete usage/cost accounting, no prose
+and no reasoning fields. This makes the frozen seed transport-eligible, but it
+is neither a Task score nor an effectiveness claim. The same seed 43,
+Environment and verifier run
 across all five A0→A4 snapshots for exactly 60 episodes. Historical MiMo named-function and
 Qwen locks remain reproducible but are not interchangeable. A compact lock
 binds every Task, snapshot, component, model-preset, inference setting and
@@ -320,12 +320,13 @@ The 12-Task Full-Agent mechanism set is frozen and its zero-cost local and
 hosted gates pass. The first complete MiMo attempt stopped on model Tool-call
 noncompliance and produced no score. A Qwen3.8 Flash route probe then stopped
 before provider selection with HTTP 404, zero Tokens and USD 0. The current
-versioned MiMo preset uses the catalogue-indicated required-single-Tool form.
-Its one-use hosted probe reached the pinned Xiaomi/model route with HTTP 200,
-309 Tokens and observed cost USD 0.00004774, but still returned no required
-Tool call. The verifier failed closed, so no 60-episode seed was started and no
-scientific score exists. External seed evidence remains independent from the
-authoritative SkillEvolBench claim.
+versioned MiMo preset uses the verified required-single-Tool form with
+reasoning disabled. Corrected one-use hosted run `33183563382` reached the
+pinned Xiaomi/model route with HTTP 200 and returned the exact typed Tool call
+in 301 Tokens at observed cost USD 0.00004522. This makes the 60-episode seed
+transport-eligible, but the seed has not yet produced a result or scientific
+score. External seed evidence remains independent from the authoritative
+SkillEvolBench claim.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

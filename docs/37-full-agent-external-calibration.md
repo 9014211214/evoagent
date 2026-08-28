@@ -171,7 +171,8 @@ allowed mode, and malformed, zero-call, multi-call or drifted responses fail
 closed.
 
 The historical preset and lock are unchanged. The new mode has a distinct
-preset ID, endpoint tag, capability-verification timestamp, fingerprint and
+preset ID, endpoint tag, capability-verification timestamp, disabled-reasoning
+setting, fingerprint and
 scientific lock at
 `configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json`.
 Its Task, manifest and snapshot hashes remain identical to the historical MiMo
@@ -182,22 +183,37 @@ required a separate one-use authorization. The request pinned the full
 disabled. The generic catalogue still did not prove each strict `tool_choice`
 subtype.
 
-That gate was exercised once in private workflow run `33179418764` at source
+An initial gate exercise in private workflow run `33179418764` at source
 head `920e972b268b13f5f5cb6e333fefa1058b1edaac`. Fresh route-price and regular-key
 preflights passed. The sole inference request reached Xiaomi and returned HTTP
 200 for `xiaomi/mimo-v2.5`; canonical response metadata identified
-`xiaomi/mimo-v2.5-20260422`. It used 277 prompt plus 32 completion Tokens and
-reported complete cost USD 0.00004774. The response did not contain the exact
-required frozen Tool call, so the strict verifier recorded
+`xiaomi/mimo-v2.5-20260422`. It used 277 prompt plus 32 completion Tokens,
+reached its 32-Token completion cap, and reported complete cost USD 0.00004774.
+It did not contain the exact required frozen Tool call, so the strict verifier recorded
 `required_tool_call_verified=false` and failed closed with
 `successful_response_failed_closed_verification`. Sanitized artifact
 `9689044579` has digest
 `sha256:a38fb4dd9e818ab8cfc26883fa151654ea79d200bb8e0e4586788cdaa1a0bb1b`;
 its JSON has SHA-256
 `7dd79cab6df62ffa38209ee237100fd424651f0dac48025e8650e9150374664e`.
-No seed episode or score was produced. Under the frozen protocol the
-60-episode seed therefore remains blocked; the single probe is not a general
-claim about all MiMo Tool behavior.
+No seed episode or score was produced by that run.
+
+The corrected, separately authorized probe disabled reasoning, raised only the
+probe output ceiling to 256 Tokens, and strengthened the success check. Private
+workflow run `33183563382` at exact source head
+`252344023c75152bf67be33aa0c9d51fa997f094` then completed the one allowed
+inference request. Xiaomi returned HTTP 200, exact model/provider routing,
+`finish_reason=tool_calls`, one typed Tool call with an ID, the exact frozen
+function name and arguments, no prose or reasoning fields, and complete usage
+of 279 prompt plus 22 completion Tokens. Observed cost was USD 0.00004522.
+Sanitized artifact `9690717555` has GitHub digest
+`sha256:1a219cb3f8fd035f25ee09ccb4f0852d7e5ed703aa4591633fc75c36a7fffabd`;
+its JSON has SHA-256
+`b8957ad45199457a0501cf4d92ec753ba14bcd4765c7253bac56ef1600e4946f`.
+This proves the exact required-Tool transport contract needed to make the
+frozen 60-episode seed eligible. It is still not a Task score or benchmark
+result; the seed must produce and pass its separately imported result before
+any effectiveness claim.
 
 ## One-seed planning envelope
 

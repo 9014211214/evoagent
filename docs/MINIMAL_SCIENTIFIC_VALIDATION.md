@@ -9,7 +9,7 @@ leaderboard result.
 - One model endpoint and provider per frozen lock. The current execution
   candidate is `xiaomi/mimo-v2.5`, Xiaomi only, with provider fallbacks
   disabled, exact endpoint slug `xiaomi/fp8` pinned after zero-cost preflight,
-  and proposed `tool_choice="required"`. Every request
+  and verified `tool_choice="required"` with reasoning disabled. Every request
   exposes exactly one Tool schema, so `required` can select only the
   controller's frozen action;
   the response must still match its exact Tool name and arguments. Historical
@@ -58,9 +58,9 @@ Flash route probe then returned HTTP 404 before any provider attempt because
 no route accepted the stricter named-function request; this is consistent with,
 but does not by itself prove, the endpoint capability-table mismatch. It used
 zero Tokens, cost USD 0, and also produced no scientific score. The new MiMo
-preset changed only this compatibility field to the capability-table-indicated
-`required` candidate. It never falls back to `auto`, another provider or
-another model.
+preset changed the compatibility field to `required` and now explicitly
+disables reasoning. It never falls back to `auto`, another provider or another
+model.
 
 The public endpoint catalogue exposes generic `tool_choice` support but not a
 machine-verifiable guarantee for every Tool-choice subtype. Chat-completion
@@ -79,9 +79,24 @@ Sanitized artifact `9689044579` has GitHub digest
 the evidence JSON has SHA-256
 `7dd79cab6df62ffa38209ee237100fd424651f0dac48025e8650e9150374664e`.
 It persists no credential, raw prompt, raw response or raw router summary.
-This single compatibility observation is sufficient to keep the frozen seed
-blocked, but is not a benchmark score, Task failure, or universal assertion
-that MiMo cannot call Tools.
+That response hit its 32-Token completion cap and did not contain the required
+call, so it was insufficient to decide whether the exact route could comply
+under a non-truncated contract. It is not a benchmark score or Task failure.
+
+A corrected, independently authorized probe disabled reasoning, allowed up to
+256 output Tokens for the single probe request, and required a complete
+`finish_reason=tool_calls` response with one typed call ID, exact function and
+arguments, no prose, and no reasoning fields. Private workflow run
+`33183563382` at exact source head
+`252344023c75152bf67be33aa0c9d51fa997f094` passed that contract. It used 279
+prompt plus 22 completion Tokens and USD 0.00004522. Sanitized artifact
+`9690717555` has GitHub digest
+`sha256:1a219cb3f8fd035f25ee09ccb4f0852d7e5ed703aa4591633fc75c36a7fffabd`;
+the evidence JSON has SHA-256
+`b8957ad45199457a0501cf4d92ec753ba14bcd4765c7253bac56ef1600e4946f`.
+It persists no credential, raw prompt, raw response or raw router summary.
+This makes the frozen seed transport-eligible, but supplies no scientific score
+and does not itself support an EvoAgent-effectiveness claim.
 
 ## Success gate and claim boundary
 
@@ -109,6 +124,12 @@ across all 60 episodes. Evidence contains hashes, derived results and usage
 only; API credentials, raw prompts, raw responses and full trajectories are
 never persisted.
 
+The offline result importer accepts only one caller-hashed regular JSON file
+inside a controlled root. It rejects raw prompt/response/trajectory/reasoning
+fields and verifies the exact public source commit, plan, lock, preset, five
+snapshot reports, all 60 Task IDs and hashes, report chain, derived metrics,
+usage and cost ceilings before emitting a compact self-hashed receipt.
+
 The public workflow performs only credential-free tests and deterministic plan
 generation. A real seed must run from a one-use private workflow pinned to the
 exact reviewed public commit, after separate action-time authorization, and
@@ -124,9 +145,11 @@ historical MiMo and Qwen profiles. Its required-single-Tool artifact is
 `sha256:2a5fa40928947755aaf1d38c8fd46bc22c87ecdc119e10f5bf049bd60ce64126`.
 This is also zero-cost contract evidence, not a Task result or score.
 The newly versioned MiMo lock's public dry-run and expiring exact-head,
-transactional one-use authorization gates were exercised. The corresponding
-one-request route probe failed the required-Tool response contract as recorded
-above, so the 60-episode external seed is not eligible. The public execution
-helper's caller-supplied approval strings are not by themselves sufficient
-authorization for paid execution, and a changed model, protocol or repeat
-probe would require a new lock rationale and a new explicit authorization.
+transactional one-use authorization gates were exercised. The corrected
+one-request route probe passed the required-Tool response contract as recorded
+above, so the 60-episode external seed is transport-eligible but not yet
+executed. The public execution helper now rejects direct paid execution; the
+private controller must supply the fresh preflight, expiring exact-head
+authorization and transactional one-use claim. A changed model, protocol or
+repeat probe would require a new lock rationale and a new explicit
+authorization.

@@ -30,7 +30,12 @@ from seagym_evoagent.models import (
     HarnessSnapshot,
     default_a0,
 )
-from seagym_evoagent.openrouter import ModelUsage, OpenRouterStructuredClient, StructuredCompletion
+from seagym_evoagent.openrouter import (
+    ModelUsage,
+    OpenRouterStructuredClient,
+    StructuredCompletion,
+    safe_probe_failure_code,
+)
 from seagym_evoagent.routing import expected_route_contract
 from seagym_evoagent.runtime_sanitizer import sanitize_runtime_jsonl
 
@@ -366,6 +371,24 @@ class BaselineTests(unittest.TestCase):
 
 
 class OpenRouterTests(unittest.TestCase):
+    def test_probe_failure_codes_are_bounded_and_secret_free(self) -> None:
+        self.assertEqual(
+            safe_probe_failure_code(RuntimeError("OpenRouter returned HTTP 429")),
+            "openrouter_http_429",
+        )
+        self.assertEqual(
+            safe_probe_failure_code(RuntimeError("OpenRouter request failed (TimeoutError)")),
+            "openrouter_transport_failure",
+        )
+        self.assertEqual(
+            safe_probe_failure_code(RuntimeError("provider body " + SECRET)),
+            "openrouter_runtime_failure",
+        )
+        self.assertEqual(
+            safe_probe_failure_code(ValueError("response body " + SECRET)),
+            "openrouter_response_validation_failed",
+        )
+
     def test_request_sends_exact_route_and_accepts_only_empty_reasoning(self) -> None:
         captured: dict[str, object] = {}
 
@@ -438,6 +461,7 @@ class OpenRouterTests(unittest.TestCase):
         self.assertEqual(body["tool_choice"], "required")
         self.assertEqual(len(body["tools"]), 1)
         self.assertEqual(body["tools"][0]["function"]["name"], "evoagent_harness_components")
+        self.assertNotIn("seed", body)
         self.assertNotIn("response_format", body)
         self.assertEqual(captured["headers"]["X-OpenRouter-Cache"], "false")
         self.assertEqual(captured["headers"]["X-OpenRouter-Metadata"], "enabled")

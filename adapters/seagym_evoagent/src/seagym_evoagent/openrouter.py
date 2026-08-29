@@ -22,6 +22,24 @@ CANDIDATE_TOOL_NAME = "evoagent_harness_components"
 Transport = Callable[[str, dict[str, str], bytes, float], bytes]
 
 
+def safe_probe_failure_code(exc: BaseException) -> str:
+    """Return a bounded diagnostic code without serializing provider data."""
+
+    if isinstance(exc, RuntimeError):
+        prefix = "OpenRouter returned HTTP "
+        message = str(exc)
+        if message.startswith(prefix):
+            status = message[len(prefix) :]
+            if len(status) == 3 and status.isascii() and status.isdigit() and 400 <= int(status) <= 599:
+                return f"openrouter_http_{status}"
+        if message.startswith("OpenRouter request failed ("):
+            return "openrouter_transport_failure"
+        return "openrouter_runtime_failure"
+    if isinstance(exc, ValueError):
+        return "openrouter_response_validation_failed"
+    return "unexpected_probe_failure"
+
+
 @dataclass(frozen=True)
 class ModelUsage:
     prompt_tokens: int
@@ -128,7 +146,12 @@ class OpenRouterStructuredClient:
             "provider": self.route_contract["provider"],
             "reasoning": self.route_contract["reasoning"],
             "temperature": 0,
-            "seed": seed,
+            # The frozen Xiaomi endpoint does not advertise the OpenRouter
+            # ``seed`` parameter.  With require_parameters=True, forwarding it
+            # removes the only permitted endpoint before inference.  The host
+            # seed still binds split/order and host-side attempt/evidence
+            # records; provider sampling determinism is deliberately not
+            # claimed.
             "max_tokens": 3000,
             "usage": {"include": True},
         }

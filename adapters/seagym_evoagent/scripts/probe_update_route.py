@@ -8,7 +8,7 @@ from pathlib import Path
 
 from seagym_evoagent.canonical import atomic_write_json, sha256_json
 from seagym_evoagent.models import HarnessComponents, default_a0
-from seagym_evoagent.openrouter import OpenRouterStructuredClient
+from seagym_evoagent.openrouter import OpenRouterStructuredClient, safe_probe_failure_code
 from seagym_evoagent.routing import expected_route_contract
 
 
@@ -29,7 +29,20 @@ def main() -> int:
         )
         components = HarnessComponents.from_dict(completion.candidate)
     except Exception as exc:
-        raise SystemExit(f"exact update-route probe failed closed: {type(exc).__name__}") from None
+        failure_code = safe_probe_failure_code(exc)
+        atomic_write_json(
+            args.output,
+            {
+                "schema_version": "evoagent-seagym-update-route-probe-v1",
+                "status": "failed",
+                "failure_code": failure_code,
+                "requested_model": "xiaomi/mimo-v2.5",
+                "candidate_persisted": False,
+                "raw_response_persisted": False,
+                "reasoning_persisted": False,
+            },
+        )
+        raise SystemExit(f"exact update-route probe failed closed: {failure_code}") from None
 
     atomic_write_json(
         args.output,

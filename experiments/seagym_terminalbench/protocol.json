@@ -20,6 +20,21 @@
     },
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
+  "amendment": {
+    "amended_at": "2026-08-29T06:03:09Z",
+    "diagnostic_artifact_id": 9710284320,
+    "diagnostic_controller_run_id": 33237155533,
+    "prior_benchmark_trials": 0,
+    "prior_controller_attempts": 4,
+    "prior_model_inference_completed": false,
+    "prior_observed_usage_delta_usd": 0.0,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+    "prior_score_produced": false,
+    "preflight_artifact_digest_kind": "github_actions_artifact_zip_sha256",
+    "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
+    "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
+    "score_blind": true
+  },
   "claim_boundary": {
     "automatic_promotion": false,
     "causal_attribution_claimed": false,
@@ -87,6 +102,7 @@
       "response_provider": "Xiaomi"
     },
     "provider_rollout_sampling_determinism_claimed": false,
+    "provider_update_sampling_determinism_claimed": false,
     "router_audit": {
       "accepted_strategies": [
         "alias",
@@ -97,9 +113,10 @@
       "metadata_required": true,
       "successful_attempt": 1
     },
-    "same_model_for_update_and_rollout": true
+    "same_model_for_update_and_rollout": true,
+    "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,
@@ -176,9 +193,10 @@
       "controls": [
         "task_split",
         "frozen_batch_order",
-        "update_request",
+        "update_attempt_record",
         "checkpoint_and_trial_attestation"
       ],
+      "provider_update_sampling_determinism_claimed": false,
       "provider_rollout_sampling_determinism_claimed": false
     },
     "shuffle_train": false,

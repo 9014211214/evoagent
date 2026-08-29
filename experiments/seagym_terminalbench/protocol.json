@@ -1,0 +1,239 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "experiments/seagym_terminalbench/configs/evoagent_mimo_v2_5_seed42.json",
+      "sha256": "b298c9ab579616554d5b22d6077b1eb8fe86ff490ac21df175f729b01647fb17"
+    },
+    "seagym_redaction_patch": {
+      "path": "experiments/seagym_terminalbench/patches/seagym-token-count-redaction.patch",
+      "sha256": "0c5302339bdcbeec076796b38f6ffd81803ce7f40cec1922c410294e8472018c",
+      "target_blob_sha": "daa4fe84a28c63b68aaaffa6318e82a54b7be2df",
+      "target_path": "seagym/logging/redaction.py"
+    },
+    "split": {
+      "path": "experiments/seagym_terminalbench/splits/seed42.json",
+      "sha256": "354e1677862ff598d751f4622d2804232ae40e2fb2be92eee689f3578dcfc6ec"
+    },
+    "task_index": {
+      "path": "experiments/seagym_terminalbench/tasks/task_index.json",
+      "sha256": "bf604dc369ec25fd14d89aa3b2f7994f42e68093d671075306ba9312bdd1f6f9"
+    },
+    "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
+  },
+  "claim_boundary": {
+    "automatic_promotion": false,
+    "causal_attribution_claimed": false,
+    "leaderboard_submission": false,
+    "paper_scale_reproduction": false,
+    "pilot_kind": "real_external_scientific_pilot",
+    "results_status": "preregistered_not_yet_executed"
+  },
+  "evaluation": {
+    "final_comparison": {
+      "baseline_checkpoint": "A_0",
+      "candidate_checkpoint": "A_T",
+      "same_frozen_test_tasks": true,
+      "same_model_route": true
+    },
+    "frozen_update_validation": {
+      "selection": "fixed_subset",
+      "size": 3,
+      "source_split": "val"
+    },
+    "interpretation_rule": {
+      "negative_signal_if": [
+        "final.id_test.gain_vs_A_0 < 0",
+        "final frozen-validation score is below initial frozen-validation score",
+        "any credential exposure or safety-boundary violation is observed"
+      ],
+      "no_detectable_signal_if": [
+        "final.id_test.gain_vs_A_0 == 0 and no negative-signal condition holds"
+      ],
+      "positive_pilot_signal_if": [
+        "final.id_test.gain_vs_A_0 > 0",
+        "final frozen-validation score is not below initial frozen-validation score",
+        "all 24 planned task trials and required reports are complete",
+        "no credential exposure or safety-boundary violation is observed"
+      ],
+      "promotion_effect": "none"
+    },
+    "replay": {
+      "frequency_batches": 1,
+      "selection": "fixed_subset",
+      "size": 3,
+      "source": "seen_train_tasks"
+    }
+  },
+  "format_version": "evoagent-seagym-terminalbench-pilot-v1",
+  "frozen_at": "2026-08-29T00:00:00Z",
+  "model_route": {
+    "harbor_model": "openrouter/xiaomi/mimo-v2.5",
+    "request_model": "xiaomi/mimo-v2.5",
+    "route_contract": {
+      "accepted_response_models": [
+        "xiaomi/mimo-v2.5",
+        "xiaomi/mimo-v2.5-20260422"
+      ],
+      "provider": {
+        "allow_fallbacks": false,
+        "only": [
+          "xiaomi/fp8"
+        ],
+        "require_parameters": true
+      },
+      "reasoning": {
+        "enabled": false
+      },
+      "response_provider": "Xiaomi"
+    },
+    "provider_rollout_sampling_determinism_claimed": false,
+    "router_audit": {
+      "accepted_strategies": [
+        "alias",
+        "direct"
+      ],
+      "cache_enabled": false,
+      "material_pipeline_stages_allowed": false,
+      "metadata_required": true,
+      "successful_attempt": 1
+    },
+    "same_model_for_update_and_rollout": true
+  },
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+  "resources": {
+    "agent_timeout_seconds": 1800,
+    "authorized_max_observed_key_usage_delta_usd": 1.2,
+    "backend": "docker",
+    "budget_guard": {
+      "accounting_scope": "entire_openrouter_key_between_before_and_after_checks",
+      "poll_seconds": 10,
+      "stop_threshold_usd": 0.9,
+      "usage_check_failures_before_stop": 3
+    },
+    "global_workflow_timeout_minutes": 355,
+    "harbor_concurrency": 2,
+    "host_profile": {
+      "logical_cpus": 4,
+      "memory_gib": 16,
+      "name": "github-hosted-ubuntu-standard"
+    },
+    "per_task_declared_resources": {
+      "cpus": 1,
+      "gpus": 0,
+      "memory_mb": 2048,
+      "storage_mb": 10240
+    },
+    "verifier_timeout_seconds": 600
+  },
+  "runtime": {
+    "credential_transport": {
+      "account_key_in_task_container": false,
+      "container_credential_kind": "ephemeral_proxy_capability",
+      "kind": "host_guard_proxy",
+      "proxy_base_url": "http://evoagent-openrouter-proxy:18765/api/v1"
+    },
+    "mimocode": {
+      "asset": "mimocode-linux-x64.tar.gz",
+      "asset_bytes": 46489490,
+      "asset_sha256": "0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada",
+      "asset_url": "https://github.com/XiaomiMiMo/MiMo-Code/releases/download/v0.1.13/mimocode-linux-x64.tar.gz",
+      "commit": "67c9cf1e26288d03c65fb844be71f39581ffc1de",
+      "version": "0.1.13"
+    },
+    "openrouter_api_base": "https://openrouter.ai/api/v1",
+    "privacy_sanitizer": {
+      "raw_jsonl_max_bytes": 67108864,
+      "raw_persisted": false,
+      "raw_record_max_bytes": 16777216,
+      "raw_string_max_chars": 16777216
+    },
+    "secret_environment_variable": "OPENROUTER_API_KEY",
+    "token_semantics": {
+      "harbor_cached_tokens": "cache_read_subset_of_harbor_input_tokens",
+      "harbor_input_tokens": "non_cached_input_plus_cache_read",
+      "reported_attested_total_tokens": "harbor_input_tokens_plus_output_tokens",
+      "seagym_total_tokens": "harbor_input_tokens_plus_harbor_cached_tokens_plus_output_tokens"
+    }
+  },
+  "schedule": {
+    "batch_size": 3,
+    "expected_task_trials": {
+      "final_A_0": 3,
+      "final_A_T": 3,
+      "frozen_validation_initial": 3,
+      "frozen_validation_post_epoch": 3,
+      "replay_after_two_batches": 6,
+      "total": 24,
+      "train_rollouts": 6
+    },
+    "frozen_manifest_order": true,
+    "num_epochs": 1,
+    "num_train_batches": 2,
+    "num_updates": 2,
+    "num_updates_per_batch": 1,
+    "seed": 42,
+    "seed_semantics": {
+      "controls": [
+        "task_split",
+        "frozen_batch_order",
+        "update_request",
+        "checkpoint_and_trial_attestation"
+      ],
+      "provider_rollout_sampling_determinism_claimed": false
+    },
+    "shuffle_train": false,
+    "test_size": 3,
+    "train_size": 6,
+    "val_size": 3
+  },
+  "selection": {
+    "consulted_task_scores": false,
+    "consulted_task_solutions": false,
+    "criteria": [
+      "membership in the pinned official SEAGym paper train/val/test split",
+      "declared CPU, memory, storage, and timeout fit for a GitHub-hosted pilot",
+      "domain coverage and preregistered transfer clusters"
+    ],
+    "paper_split_git_blob_sha": "f7102cd900834dd483e8c399e74fa5683f4ac6f0",
+    "paper_split_path": "runs/paper_reproduction/splits/terminal_hle_seed42_80_35_55.json",
+    "paper_task_index_git_blob_sha": "cbf654c4f07de8eec4dc33f91e4233232a5c97c2",
+    "paper_task_index_path": "runs/paper_reproduction/tasks/terminal_hle_task_index.json",
+    "score_blind": true,
+    "transfer_clusters": [
+      {
+        "held_out": [
+          "terminal-bench/sanitize-git-repo"
+        ],
+        "name": "git_and_secret_hygiene",
+        "train": [
+          "terminal-bench/fix-git",
+          "terminal-bench/vulnerable-secret",
+          "terminal-bench/configure-git-webserver"
+        ]
+      },
+      {
+        "held_out": [
+          "terminal-bench/regex-log"
+        ],
+        "name": "log_parsing",
+        "train": [
+          "terminal-bench/log-summary-date-ranges"
+        ]
+      },
+      {
+        "held_out": [
+          "terminal-bench/build-cython-ext"
+        ],
+        "name": "cross_language_build",
+        "train": [
+          "terminal-bench/polyglot-c-py"
+        ]
+      }
+    ]
+  },
+  "upstream": {
+    "harbor_seagym_gitlink": "f7110f1a240c6a50589b90c4d69714763946d088",
+    "seagym": "9e61e14db1f1355de944cd7c5b10c244fc74e82d",
+    "terminal_bench_2": "2fd12b88aafdd04a52c298e3940bcb189f9766d6"
+  }
+}

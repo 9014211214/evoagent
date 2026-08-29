@@ -1,0 +1,166 @@
+{
+  "backend": {
+    "agent_override_timeout_sec": 1800,
+    "env": "docker",
+    "extra_args": [],
+    "n_concurrent": 2,
+    "name": "harbor",
+    "verifier_override_timeout_sec": 600,
+    "yes": true
+  },
+  "baseline": {
+    "class_path": "seagym_evoagent.baseline:EvoAgentSEAGymBaseline",
+    "config": {
+      "automatic_promotion": false,
+      "causal_attribution_claimed": false,
+      "fail_on_update_error": true,
+      "route_contract": {
+        "accepted_response_models": [
+          "xiaomi/mimo-v2.5",
+          "xiaomi/mimo-v2.5-20260422"
+        ],
+        "provider": {
+          "allow_fallbacks": false,
+          "only": [
+            "xiaomi/fp8"
+          ],
+          "require_parameters": true
+        },
+        "reasoning": {
+          "enabled": false
+        },
+        "response_provider": "Xiaomi"
+      },
+      "seed": 42,
+      "update_model_ref": "update_model"
+    },
+    "models": {
+      "update_model": {
+        "api_base": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "model": "xiaomi/mimo-v2.5",
+        "provider": "openai_compatible"
+      }
+    },
+    "name": "evoagent"
+  },
+  "dataloader": {
+    "batching_strategy": "shuffle",
+    "drop_last": false,
+    "seed": 42,
+    "shuffle_train": false
+  },
+  "description": "Pre-registered EvoAgent SEAGym pilot on a score-blind 6/3/3 Terminal-Bench 2.0 subset with one fixed MiMo model.",
+  "evaluation_strategy": {
+    "final_test_views": [
+      {
+        "name": "id_test",
+        "source_split": "test",
+        "test_size": 3
+      }
+    ],
+    "replay": {
+      "enabled": true,
+      "frequency": 1,
+      "replay_size": 3,
+      "selection": "fixed_subset",
+      "source": "seen_train_tasks"
+    },
+    "update_validation": {
+      "selection": "fixed_subset",
+      "source_split": "val",
+      "val_size": 3
+    }
+  },
+  "experiment_id": "evoagent_seagym_terminalbench2_mimo_v2_5_seed42",
+  "metrics": {
+    "aggregation": {
+      "default": "domain_macro",
+      "group_by": [
+        "attributes.domain"
+      ]
+    },
+    "primary": [
+      "success_rate",
+      "mean_score",
+      "domain_macro_success_rate",
+      "update_validation_gain",
+      "validation_supported_update_rate",
+      "final_gain",
+      "forgetting_rate"
+    ],
+    "update_assessment": {
+      "enabled": true,
+      "harm_tolerance": 0.0,
+      "min_improvement": 0.0,
+      "primary_metric": "success_rate",
+      "threshold_ref": "evoagent.seagym.pilot.v1"
+    }
+  },
+  "output": {
+    "run_dir": "results://runs/evoagent_seagym_terminalbench2_mimo_v2_5_seed42"
+  },
+  "rollout_agent": {
+    "class_path": "seagym.rollout_agents.harbor:HarborRolloutAgent",
+    "config": {
+      "agent": "evoagent-mimo",
+      "import_path": "seagym_evoagent.harbor_agent:EvoAgentMiMo",
+      "kwargs": {
+        "mimocode_asset_sha256": "0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada",
+        "mimocode_asset_url": "https://github.com/XiaomiMiMo/MiMo-Code/releases/download/v0.1.13/mimocode-linux-x64.tar.gz",
+        "mimocode_version": "0.1.13",
+        "seed": 42,
+        "route_contract": {
+          "accepted_response_models": [
+            "xiaomi/mimo-v2.5",
+            "xiaomi/mimo-v2.5-20260422"
+          ],
+          "provider": {
+            "allow_fallbacks": false,
+            "only": [
+              "xiaomi/fp8"
+            ],
+            "require_parameters": true
+          },
+          "reasoning": {
+            "enabled": false
+          },
+          "response_provider": "Xiaomi"
+        }
+      },
+      "model_ref": "rollout_model",
+      "n_attempts": 1
+    },
+    "models": {
+      "rollout_model": {
+        "api_base": "http://evoagent-openrouter-proxy:18765/api/v1",
+        "api_key_env": "EVOAGENT_MIMOCODE_PROXY_TOKEN",
+        "exports": {
+          "LLM_BASE_URL": "{api_base}",
+          "LLM_MODEL": "openrouter/xiaomi/mimo-v2.5",
+          "OPENROUTER_API_KEY": "{api_key}"
+        },
+        "model": "openrouter/xiaomi/mimo-v2.5",
+        "provider": "openrouter"
+      }
+    },
+    "name": "evoagent-mimo"
+  },
+  "schedule": {
+    "batch_size": 3,
+    "num_epochs": 1,
+    "num_updates_per_batch": 1,
+    "test_size": 3,
+    "train_size": 6,
+    "val_size": 3
+  },
+  "seed": 42,
+  "split_manifest": {
+    "path": "../splits/seed42.json",
+    "split_id": "evoagent_tb2_seed42_6_3_3_v1"
+  },
+  "task_dataset": {
+    "path": "../tasks/task_index.json",
+    "version": "terminal-bench-2@2fd12b88aafdd04a52c298e3940bcb189f9766d6"
+  }
+}

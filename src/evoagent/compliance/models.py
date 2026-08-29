@@ -109,11 +109,20 @@ class ThirdPartyLock(BaseModel):
         if not value:
             raise ValueError("Third-party lock requires at least one component.")
         names = [item.name.casefold() for item in value]
-        repositories = [item.repository.casefold() for item in value]
+        integration_pins = [
+            (
+                item.repository.casefold(),
+                item.reviewed_commit,
+                item.integration_method.value,
+            )
+            for item in value
+        ]
         if len(set(names)) != len(names):
             raise ValueError("Third-party component names must be unique.")
-        if len(set(repositories)) != len(repositories):
-            raise ValueError("Third-party repositories must be unique.")
+        if len(set(integration_pins)) != len(integration_pins):
+            raise ValueError(
+                "Third-party repository, commit, and integration pins must be unique."
+            )
         return value
 
 

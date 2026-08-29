@@ -1,0 +1,26 @@
+{
+  "description": "Score-blind Terminal-Bench 2.0 pilot subset drawn only from the pinned SEAGym paper reproduction train, validation, and test pools.",
+  "seed": 42,
+  "split_id": "evoagent_tb2_seed42_6_3_3_v1",
+  "split_version": "v1",
+  "splits": {
+    "test": [
+      "terminal-bench/regex-log",
+      "terminal-bench/sanitize-git-repo",
+      "terminal-bench/build-cython-ext"
+    ],
+    "train": [
+      "terminal-bench/fix-git",
+      "terminal-bench/log-summary-date-ranges",
+      "terminal-bench/vulnerable-secret",
+      "terminal-bench/pytorch-model-recovery",
+      "terminal-bench/polyglot-c-py",
+      "terminal-bench/configure-git-webserver"
+    ],
+    "val": [
+      "terminal-bench/cancel-async-tasks",
+      "terminal-bench/openssl-selfsigned-cert",
+      "terminal-bench/multi-source-data-merger"
+    ]
+  }
+}

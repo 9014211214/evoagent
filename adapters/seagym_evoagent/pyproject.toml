@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evoagent-seagym"
+version = "0.1.0"
+description = "Optional, privacy-preserving SEAGym and Harbor adapter for EvoAgent."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+dependencies = []
+
+[project.optional-dependencies]
+seagym = [
+  "seagym @ git+https://github.com/antropy-research/SEAGym.git@9e61e14db1f1355de944cd7c5b10c244fc74e82d",
+]
+harbor = [
+  "harbor @ git+https://github.com/harbor-framework/harbor.git@f7110f1a240c6a50589b90c4d69714763946d088",
+]
+test = ["pytest>=9,<10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

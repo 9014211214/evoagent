@@ -107,7 +107,7 @@ def test_compliance_cli_show_and_verify(tmp_path, capsys):
 
     assert main(["compliance", "show", "--lock", str(lock)]) == 0
     shown = json.loads(capsys.readouterr().out)
-    assert len(shown["components"]) == 5
+    assert len(shown["components"]) == 9
 
     assert main(
         [
@@ -121,4 +121,4 @@ def test_compliance_cli_show_and_verify(tmp_path, capsys):
     ) == 0
     verified = json.loads(capsys.readouterr().out)
     assert verified["verified"] is True
-    assert verified["components_verified"] == 5
+    assert verified["components_verified"] == 9

@@ -422,6 +422,35 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
             },
         },
     )
+    attempt_error_classes = {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES}
+    attempt_error_classes["http_4xx"] = 1
+    status_buckets = {name: 0 for name in pilot_verifier.PROXY_HTTP_STATUS_BUCKETS}
+    status_buckets["429"] = 1
+    _write_json(
+        run / "evidence" / "guard-proxy-health.json",
+        {
+            "active_requests": 0,
+            "completed_requests": 26,
+            "credential_persisted": False,
+            "forwarded_requests": 26,
+            "guard_proxy_source_sha256": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["source_sha256"],
+            "limits": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["limits"],
+            "max_upstream_retries": 2,
+            "ready": True,
+            "rejected_requests": 0,
+            "rejection_classes": {"concurrency_limit": 0, "request_limit": 0, "other": 0},
+            "remaining_requests": 742,
+            "request_limit": 768,
+            "retry_policy": pilot_verifier.EXPECTED_RETRY_POLICY,
+            "schema_version": "openrouter-guard-proxy-health-v3",
+            "upstream_attempt_error_classes": attempt_error_classes,
+            "upstream_attempts": 27,
+            "upstream_error_classes": {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES},
+            "upstream_errors": 0,
+            "upstream_http_statuses": status_buckets,
+            "upstream_retries": 1,
+        },
+    )
     before = tmp_path / "before.json"
     after = tmp_path / "after.json"
     _usage(before, 1.0)
@@ -468,6 +497,10 @@ def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -
     assert result["usage"]["observed_key_usage_delta_usd"] == pytest.approx(0.03)
     assert len(rows) == 24
     assert len(updates) == 2
+    assert result["evidence"]["guard_proxy_health"]["upstream_retries"] == 1
+    assert result["evidence"]["verified_rollout_model_calls"] == 24
+    assert result["evidence"]["verified_update_model_calls"] == 2
+    assert result["evidence"]["verified_logical_model_requests"] == 26
     output = tmp_path / "bundle"
     write_bundle(output, result, rows, updates)
     assert (output / "SHA256SUMS").is_file()
@@ -599,3 +632,65 @@ def test_rejects_seed_claim_amendment_drift(
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError):
         pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_retry_policy_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["runtime"]["openrouter_retry_policy"]["max_retries_per_client_request"] = 3
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="runtime retry policy drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pilot_kind", "leaderboard_result"),
+        ("results_status", "verified_completed_real_pilot"),
+    ],
+)
+def test_rejects_claim_boundary_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["claim_boundary"][field] = value
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="protocol claim boundary drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    health["guard_proxy_source_sha256"] = "0" * 64
+    _write_json(health_path, health)
+    with pytest.raises(VerificationError, match="runtime identity or retry policy drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("forwarded", [25, 27])
+def test_rejects_guard_proxy_logical_request_count_drift(
+    tmp_path: Path,
+    forwarded: int,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    health["forwarded_requests"] = forwarded
+    health["completed_requests"] = forwarded
+    health["upstream_attempts"] = forwarded + health["upstream_retries"]
+    health["remaining_requests"] = health["request_limit"] - forwarded
+    _write_json(health_path, health)
+    with pytest.raises(VerificationError, match="completed-run counters are inconsistent"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)

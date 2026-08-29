@@ -21,19 +21,63 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
-    "amended_at": "2026-08-29T06:03:09Z",
-    "diagnostic_artifact_id": 9710284320,
-    "diagnostic_controller_run_id": 33237155533,
-    "prior_benchmark_trials": 0,
-    "prior_controller_attempts": 4,
-    "prior_model_inference_completed": false,
-    "prior_observed_usage_delta_usd": 0.0,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+    "amended_at": "2026-08-29T16:02:31Z",
+    "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
+    "diagnostic_artifact_id": 9716899456,
+    "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
+    "diagnostic_controller_run_id": 33259140059,
+    "diagnostic_observation": {
+      "completed_requests": 101,
+      "forwarded_requests": 101,
+      "rejected_requests": 0,
+      "upstream_http_4xx": 4,
+      "upstream_other_errors": 0
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 8,
+    "prior_pre_v2_controller_attempts": 4,
+    "prior_v2_controller_attempts": 4,
+    "prior_model_inference_completed": true,
+    "prior_observed_usage_delta_usd": 0.090477099,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2",
+    "prior_v2_run_evidence": [
+      {
+        "artifact_id": 9710915384,
+        "artifact_sha256": "911253517539b6bfb0d851c0362d8de070eef21655e3d09e4da96991295f157c",
+        "controller_commit": "c79bc1eae30c30c462cf034a8b355199ddb5f31f",
+        "observed_usage_delta_usd": 0.000395987,
+        "run_id": 33239134974,
+        "score_produced": false
+      },
+      {
+        "artifact_id": 9715191473,
+        "artifact_sha256": "a251cbde6595868e94e113d9bf1a3867ec0b3251e07806cc3a37bfefffebeb15",
+        "controller_commit": "7f0088cfea552cbd09fc0c124b1d3d01acf36feb",
+        "observed_usage_delta_usd": 0.002472451,
+        "run_id": 33253565374,
+        "score_produced": false
+      },
+      {
+        "artifact_id": 9716114523,
+        "artifact_sha256": "47545121eacca279e25ff890a6dfc3d33832490955abb1ac0853daddddd93e9f",
+        "controller_commit": "a6039f08e8931ee6e51b56e21e1146a623e834df",
+        "observed_usage_delta_usd": 0.043002461,
+        "run_id": 33256278875,
+        "score_produced": false
+      },
+      {
+        "artifact_id": 9716899456,
+        "artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
+        "controller_commit": "d896cae72135b43ff204b2fb29914deede8b9d0b",
+        "observed_usage_delta_usd": 0.0446062,
+        "run_id": 33259140059,
+        "score_produced": false
+      }
+    ],
     "prior_score_produced": false,
-    "preflight_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
-    "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
-    "score_blind": true
+    "reason_code": "intermittent_upstream_http_failures_without_bounded_same_route_retry",
+    "score_blind": true,
+    "transport_only_change": true
   },
   "claim_boundary": {
     "automatic_promotion": false,
@@ -41,7 +85,7 @@
     "leaderboard_submission": false,
     "paper_scale_reproduction": false,
     "pilot_kind": "real_external_scientific_pilot",
-    "results_status": "preregistered_not_yet_executed"
+    "results_status": "preregistered_incomplete_attempts_no_score"
   },
   "evaluation": {
     "final_comparison": {
@@ -116,7 +160,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,
@@ -149,6 +193,19 @@
       "kind": "host_guard_proxy",
       "proxy_base_url": "http://evoagent-openrouter-proxy:18765/api/v1"
     },
+    "guard_proxy": {
+      "health_schema_version": "openrouter-guard-proxy-health-v3",
+      "limits": {
+        "client_timeout_seconds": 30.0,
+        "max_concurrency": 4,
+        "max_output_tokens": 16000,
+        "max_request_bytes": 2097152,
+        "max_requests": 768,
+        "max_response_bytes": 16777216,
+        "upstream_timeout_seconds": 300.0
+      },
+      "source_sha256": "86a0308661d2cdff285815313e01549b3a52100fce22ee583cd2703ef3eaf665"
+    },
     "mimocode": {
       "asset": "mimocode-linux-x64.tar.gz",
       "asset_bytes": 46489490,
@@ -158,6 +215,29 @@
       "version": "0.1.13"
     },
     "openrouter_api_base": "https://openrouter.ai/api/v1",
+    "openrouter_retry_policy": {
+      "ambiguous_transport_failures_retried": false,
+      "backoff_seconds": [
+        1.0,
+        2.0
+      ],
+      "fallbacks_enabled": false,
+      "max_retries_per_client_request": 2,
+      "request_body_changed_between_attempts": false,
+      "retryable_http_statuses": [
+        408,
+        409,
+        425,
+        429,
+        500,
+        502,
+        503,
+        504,
+        524,
+        529
+      ],
+      "same_model_provider_endpoint": true
+    },
     "privacy_sanitizer": {
       "raw_jsonl_max_bytes": 67108864,
       "raw_persisted": false,

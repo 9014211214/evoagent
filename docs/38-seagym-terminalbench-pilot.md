@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No result exists at freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v3 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -104,17 +104,37 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v2, a score-blind amendment to v1. Four controller
-infrastructure/preflight attempts occurred after v1; all stopped before
-provider inference, official Task trials, or any benchmark score. The final
-diagnostic run `33237155533` recorded zero observed usage delta and exposed the
-safe `openrouter_http_404` category. The endpoint capability record showed that
-Xiaomi supports the required Tool parameters but not the API `seed` parameter.
-The amendment therefore changes only that transport field and the corresponding
-determinism claim; it does not change the 12 Tasks, split, order, model,
-provider, Tool contract, budget, metrics, or interpretation rule. GitHub
-Actions artifact ZIP `9710284320` is bound by SHA-256
-`caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb`.
+This is protocol v3, a score-blind amendment. Four pre-v2 controller attempts
+were infrastructure/preflight diagnostics. Protocol v2 then removed the
+unsupported update `seed` request field without changing the frozen task
+schedule. Four real v2 controller attempts reached progressively deeper parts
+of the pinned external pipeline, but none completed the A_0/A_T comparison and
+none produced a score. Those four v2 runs had a total observed key-usage delta
+of USD 0.090477099.
+
+The latest diagnostic run `33259140059` forwarded and completed 101 requests,
+rejected none, and observed four intermittent upstream HTTP 4xx failures. Its
+artifact `9716899456` is bound by the GitHub Actions artifact-ZIP SHA-256
+`512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145`.
+The evidence contains no complete comparison or reportable effect score.
+
+Protocol v3 changes only failure handling at the locked OpenRouter transport.
+For HTTP 408, 409, 425, 429, 500, 502, 503, 504, 524, or 529, the guard may
+retry the identical request at most twice after one and two seconds. The model,
+Xiaomi-only provider endpoint, request body, Tool contract, and no-fallback
+policy remain unchanged. Ambiguous transport failures are not retried because
+the upstream may already have accepted the POST. The 12 Tasks, split, order,
+model, budget, metrics, and interpretation rule are unchanged.
+
+The public protocol also pins guard-proxy source SHA-256
+`86a0308661d2cdff285815313e01549b3a52100fce22ee583cd2703ef3eaf665`,
+health schema v3, and all request, response, concurrency, token and timeout
+limits. A completed result is accepted only if its safe runtime health evidence
+matches that identity and proves the logical-request, attempt and retry counts.
+The controller repository remains private, so the digest binds the reviewed
+implementation used by this pilot but does not make that implementation
+publicly inspectable. This is an explicit controller trust boundary, not a
+claim of independent end-to-end reproduction from the public repository alone.
 
 | Stage | Task trials |
 | --- | ---: |

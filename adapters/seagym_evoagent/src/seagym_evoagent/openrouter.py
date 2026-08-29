@@ -139,6 +139,8 @@ class OpenRouterStructuredClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": "evoagent-seagym/0.1.0",
+            "X-OpenRouter-Cache": "false",
+            "X-OpenRouter-Metadata": "enabled",
         }
         try:
             raw_response = self.transport(self.endpoint, headers, body, self.timeout_seconds)
@@ -181,6 +183,7 @@ def _parse_response(
     provider = response.get("provider")
     if provider != route_contract["response_provider"]:
         raise ValueError("OpenRouter response provider drifted from Xiaomi")
+    _validate_router_metadata(response.get("openrouter_metadata"), route_contract)
     choices = response.get("choices")
     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
         raise ValueError("OpenRouter response must contain exactly one choice")
@@ -223,6 +226,41 @@ def _parse_response(
         raise ValueError("structured candidate must be an object")
     usage = _parse_usage(response.get("usage"))
     return candidate, usage, served_model_id, provider
+
+
+def _validate_router_metadata(raw: Any, route_contract: dict[str, Any]) -> None:
+    if not isinstance(raw, dict):
+        raise ValueError("OpenRouter router metadata is required on the cache-disabled route")
+    if raw.get("requested") != UPDATE_MODEL_ID:
+        raise ValueError("OpenRouter router metadata requested model drifted")
+    if raw.get("strategy") not in {"alias", "direct"} or raw.get("attempt") != 1:
+        raise ValueError("OpenRouter router metadata strategy or attempt drifted")
+    if raw.get("pipeline", []) != []:
+        raise ValueError("OpenRouter materially altered the request or response")
+    endpoints = raw.get("endpoints")
+    available = endpoints.get("available") if isinstance(endpoints, dict) else None
+    if not isinstance(available, list) or not available:
+        raise ValueError("OpenRouter router metadata lacks endpoint evidence")
+    selected = [item for item in available if isinstance(item, dict) and item.get("selected") is True]
+    if len(selected) != 1:
+        raise ValueError("OpenRouter router metadata must select exactly one endpoint")
+    endpoint = selected[0]
+    if (
+        endpoint.get("provider") != route_contract["response_provider"]
+        or endpoint.get("model") not in route_contract["accepted_response_models"]
+    ):
+        raise ValueError("OpenRouter selected endpoint drifted from Xiaomi")
+    attempts = raw.get("attempts")
+    if attempts is not None:
+        if not isinstance(attempts, list) or len(attempts) != 1 or not isinstance(attempts[0], dict):
+            raise ValueError("OpenRouter router metadata attempt history drifted")
+        attempt = attempts[0]
+        if (
+            attempt.get("provider") != route_contract["response_provider"]
+            or attempt.get("model") not in route_contract["accepted_response_models"]
+            or attempt.get("status") != 200
+        ):
+            raise ValueError("OpenRouter router metadata records an unexpected attempt")
 
 
 def _reject_reasoning(value: Any) -> None:

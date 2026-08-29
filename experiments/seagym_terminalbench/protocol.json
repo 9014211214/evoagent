@@ -87,6 +87,16 @@
       "response_provider": "Xiaomi"
     },
     "provider_rollout_sampling_determinism_claimed": false,
+    "router_audit": {
+      "accepted_strategies": [
+        "alias",
+        "direct"
+      ],
+      "cache_enabled": false,
+      "material_pipeline_stages_allowed": false,
+      "metadata_required": true,
+      "successful_attempt": 1
+    },
     "same_model_for_update_and_rollout": true
   },
   "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",

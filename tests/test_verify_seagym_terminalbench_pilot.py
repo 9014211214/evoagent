@@ -566,3 +566,13 @@ def test_rejects_incomplete_task_evidence(tmp_path: Path) -> None:
     path.write_text("\n".join(path.read_text(encoding="utf-8").splitlines()[:-1]) + "\n", encoding="utf-8")
     with pytest.raises(VerificationError, match="expected 24"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    usage = json.loads(after.read_text(encoding="utf-8"))
+    usage["numeric"]["usage"] = 2.21
+    after.write_text(json.dumps(usage), encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="authorized USD 1.20 maximum"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)

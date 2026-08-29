@@ -375,6 +375,24 @@ class OpenRouterTests(unittest.TestCase):
                 {
                     "model": CANONICAL_MODEL_ID,
                     "provider": "Xiaomi",
+                    "openrouter_metadata": {
+                        "requested": "xiaomi/mimo-v2.5",
+                        "strategy": "alias",
+                        "attempt": 1,
+                        "endpoints": {
+                            "available": [
+                                {
+                                    "provider": "Xiaomi",
+                                    "model": CANONICAL_MODEL_ID,
+                                    "selected": True,
+                                }
+                            ]
+                        },
+                        "attempts": [
+                            {"provider": "Xiaomi", "model": CANONICAL_MODEL_ID, "status": 200}
+                        ],
+                        "pipeline": [],
+                    },
                     "choices": [
                         {
                             "finish_reason": "tool_calls",
@@ -421,6 +439,8 @@ class OpenRouterTests(unittest.TestCase):
         self.assertEqual(len(body["tools"]), 1)
         self.assertEqual(body["tools"][0]["function"]["name"], "evoagent_harness_components")
         self.assertNotIn("response_format", body)
+        self.assertEqual(captured["headers"]["X-OpenRouter-Cache"], "false")
+        self.assertEqual(captured["headers"]["X-OpenRouter-Metadata"], "enabled")
         self.assertNotIn(SECRET, captured["body"].decode())
         self.assertEqual(completion.served_model_id, CANONICAL_MODEL_ID)
         self.assertEqual(completion.provider, "Xiaomi")
@@ -429,6 +449,20 @@ class OpenRouterTests(unittest.TestCase):
         base = {
             "model": CANONICAL_MODEL_ID,
             "provider": "Xiaomi",
+            "openrouter_metadata": {
+                "requested": "xiaomi/mimo-v2.5",
+                "strategy": "alias",
+                "attempt": 1,
+                "endpoints": {
+                    "available": [
+                        {"provider": "Xiaomi", "model": CANONICAL_MODEL_ID, "selected": True}
+                    ]
+                },
+                "attempts": [
+                    {"provider": "Xiaomi", "model": CANONICAL_MODEL_ID, "status": 200}
+                ],
+                "pipeline": [],
+            },
             "choices": [
                 {
                     "finish_reason": "tool_calls",
@@ -474,6 +508,31 @@ class OpenRouterTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "wrong candidate Tool"):
                 client.complete(evidence={"safe": 1}, current_components=default_a0().components.to_dict(), seed=1)
+
+            for metadata in (
+                None,
+                {**base["openrouter_metadata"], "attempt": 2},
+                {**base["openrouter_metadata"], "pipeline": [{"type": "plugin", "name": "web-search"}]},
+                {
+                    **base["openrouter_metadata"],
+                    "endpoints": {
+                        "available": [
+                            {"provider": "Other", "model": CANONICAL_MODEL_ID, "selected": True}
+                        ]
+                    },
+                },
+            ):
+                with self.subTest(router_metadata=metadata):
+                    response = {**base, "openrouter_metadata": metadata}
+                    client = OpenRouterStructuredClient(
+                        transport=lambda *_args, response=response: json.dumps(response).encode()
+                    )
+                    with self.assertRaisesRegex(ValueError, "router metadata|materially altered|selected endpoint"):
+                        client.complete(
+                            evidence={"safe": 1},
+                            current_components=default_a0().components.to_dict(),
+                            seed=1,
+                        )
         finally:
             if previous is None:
                 os.environ.pop("OPENROUTER_API_KEY", None)

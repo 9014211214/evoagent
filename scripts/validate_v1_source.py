@@ -321,6 +321,13 @@ if model_route != {
     "request_model": "xiaomi/mimo-v2.5",
     "route_contract": expected_route_contract,
     "provider_rollout_sampling_determinism_claimed": False,
+    "router_audit": {
+        "accepted_strategies": ["alias", "direct"],
+        "cache_enabled": False,
+        "material_pipeline_stages_allowed": False,
+        "metadata_required": True,
+        "successful_attempt": 1,
+    },
     "same_model_for_update_and_rollout": True,
 }:
     raise SystemExit("SEAGym pilot model route changed")

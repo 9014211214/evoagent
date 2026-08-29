@@ -38,6 +38,9 @@ The same model route is frozen for update and rollout:
 - provider fallbacks: disabled
 - required parameter support: enabled
 - reasoning.enabled: false
+- response cache: disabled
+- router metadata: required; one alias/direct Xiaomi attempt and no material
+  plugin, guardrail, compression, healing, or server-tool pipeline stage
 - host credential source: OPENROUTER_API_KEY environment variable only
 
 The host starts a route-locked guard proxy. Task containers receive only a

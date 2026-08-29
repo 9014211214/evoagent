@@ -298,6 +298,14 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol model route drifted")
     if route.get("route_contract") != EXPECTED_ROUTE_CONTRACT:
         raise VerificationError("protocol strict route contract drifted")
+    if route.get("router_audit") != {
+        "accepted_strategies": ["alias", "direct"],
+        "cache_enabled": False,
+        "material_pipeline_stages_allowed": False,
+        "metadata_required": True,
+        "successful_attempt": 1,
+    }:
+        raise VerificationError("protocol router-audit contract drifted")
     claim = protocol.get("claim_boundary")
     if not isinstance(claim, dict) or any(
         claim.get(key) is not False
@@ -1174,8 +1182,11 @@ def _usage_cost(before_path: Path, after_path: Path) -> dict[str, Any]:
         raise VerificationError("OpenRouter cumulative usage is invalid") from exc
     if not before_usage.is_finite() or not after_usage.is_finite() or before_usage < 0 or after_usage < before_usage:
         raise VerificationError("OpenRouter cumulative usage moved backwards or is non-finite")
+    delta = after_usage - before_usage
+    if delta > Decimal("1.20"):
+        raise VerificationError("observed OpenRouter usage exceeded the authorized USD 1.20 maximum")
     return {
-        "observed_key_usage_delta_usd": float(after_usage - before_usage),
+        "observed_key_usage_delta_usd": float(delta),
         "before_checked_at": before.get("checked_at"),
         "after_checked_at": after.get("checked_at"),
         "accounting_scope": "entire_key_between_two_timestamps",

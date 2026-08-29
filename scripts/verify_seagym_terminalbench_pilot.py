@@ -35,11 +35,15 @@ EXPECTED_ENDPOINT = "xiaomi/fp8"
 EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2"
 EXPECTED_AMENDMENT = {
     "amended_at": "2026-08-29T06:03:09Z",
+    "diagnostic_artifact_id": 9710284320,
+    "diagnostic_controller_run_id": 33237155533,
     "prior_benchmark_trials": 0,
+    "prior_controller_attempts": 4,
     "prior_model_inference_completed": False,
     "prior_observed_usage_delta_usd": 0.0,
     "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
     "prior_score_produced": False,
+    "preflight_artifact_digest_kind": "github_actions_artifact_zip_sha256",
     "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
     "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
     "score_blind": True,

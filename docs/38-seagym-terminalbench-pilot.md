@@ -104,15 +104,16 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v2, a score-blind amendment to v1. The only prior
-v2-triggering attempt stopped in OpenRouter routing before provider inference:
-zero official Task trials, no benchmark score, and USD 0 observed usage delta.
-The endpoint capability record showed that Xiaomi supports the required Tool
-parameters but not the API `seed` parameter. The amendment therefore changes
-only that transport field and the corresponding determinism claim; it does not
-change the 12 Tasks, split, order, model, provider, Tool contract, budget,
-metrics, or interpretation rule.
-The sanitized preflight artifact is bound by SHA-256
+This is protocol v2, a score-blind amendment to v1. Four controller
+infrastructure/preflight attempts occurred after v1; all stopped before
+provider inference, official Task trials, or any benchmark score. The final
+diagnostic run `33237155533` recorded zero observed usage delta and exposed the
+safe `openrouter_http_404` category. The endpoint capability record showed that
+Xiaomi supports the required Tool parameters but not the API `seed` parameter.
+The amendment therefore changes only that transport field and the corresponding
+determinism claim; it does not change the 12 Tasks, split, order, model,
+provider, Tool contract, budget, metrics, or interpretation rule. GitHub
+Actions artifact ZIP `9710284320` is bound by SHA-256
 `caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb`.
 
 | Stage | Task trials |

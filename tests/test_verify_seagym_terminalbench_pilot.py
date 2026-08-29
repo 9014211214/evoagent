@@ -425,7 +425,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     attempt_error_classes = {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES}
     attempt_error_classes["http_4xx"] = 1
     status_buckets = {name: 0 for name in pilot_verifier.PROXY_HTTP_STATUS_BUCKETS}
-    status_buckets["429"] = 1
+    status_buckets["404"] = 1
     _write_json(
         run / "evidence" / "guard-proxy-health.json",
         {
@@ -648,6 +648,19 @@ def test_rejects_retry_policy_drift(
         pilot_verifier._validate_protocol(path)
 
 
+def test_rejects_score_blind_v4_diagnostic_evidence_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["amendment"]["diagnostic_artifact_sha256"] = "0" * 64
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="score-blind protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -677,6 +690,17 @@ def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
     health["guard_proxy_source_sha256"] = "0" * 64
     _write_json(health_path, health)
     with pytest.raises(VerificationError, match="runtime identity or retry policy drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_final_upstream_404(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    health["upstream_errors"] = 1
+    health["upstream_error_classes"]["http_4xx"] = 1
+    _write_json(health_path, health)
+    with pytest.raises(VerificationError, match="completed-run counters are inconsistent"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 

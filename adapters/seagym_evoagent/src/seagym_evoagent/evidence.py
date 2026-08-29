@@ -85,6 +85,7 @@ def project_train_batch(
     cost_usd = 0.0
     error_count = 0
     atif_digests: list[str] = []
+    missing_error_atif = 0
     tool_categories: Counter[str] = Counter()
     tool_statuses: Counter[str] = Counter()
     atif_steps = 0
@@ -112,6 +113,9 @@ def project_train_batch(
         cost_usd += _finite_number(cost.get("cost_usd", 0), "cost_usd", minimum=0, maximum=100_000)
 
         atif_path = _resolve_atif_path(trajectory, root)
+        if atif_path is None:
+            missing_error_atif += 1
+            continue
         digest = sha256_file(atif_path, max_bytes=MAX_ATIF_BYTES)
         atif_digests.append(digest)
         structural = _read_atif_structure(atif_path)
@@ -120,8 +124,10 @@ def project_train_batch(
         tool_statuses.update(structural["tool_statuses"])
 
     count = len(trajectories)
+    if not atif_digests:
+        raise ValueError("train batch contains no usable Harbor ATIF evidence")
     summary = {
-        "schema_version": "evoagent-observable-train-evidence-v1",
+        "schema_version": "evoagent-observable-train-evidence-v2",
         "num_trajectories": count,
         "success_count": successes,
         "failure_count": count - successes,
@@ -137,6 +143,7 @@ def project_train_batch(
         },
         "atif": {
             "documents": len(atif_digests),
+            "missing_error_documents": missing_error_atif,
             "steps": atif_steps,
             "set_sha256": sha256_json(sorted(atif_digests)),
             "tool_categories": dict(sorted(tool_categories.items())),
@@ -155,28 +162,54 @@ def _require_train_trajectory(trajectory: Any) -> None:
         raise ValueError("every trajectory in an update must be train-only")
     if not isinstance(getattr(trajectory, "success", None), bool):
         raise ValueError("trajectory.success must be boolean")
+    error = getattr(trajectory, "error", None)
+    if error is not None and not isinstance(error, str):
+        raise ValueError("trajectory.error must be text or null")
+    if isinstance(error, str) and not error.strip():
+        raise ValueError("trajectory.error cannot be blank")
+    if getattr(trajectory, "success", False) is True and error not in (None, ""):
+        raise ValueError("a successful trajectory cannot contain an error")
 
 
-def _resolve_atif_path(trajectory: Any, root: Path) -> Path:
+def _resolve_atif_path(trajectory: Any, root: Path) -> Path | None:
     refs = getattr(trajectory, "refs", None)
     if not isinstance(refs, dict):
         raise ValueError("trajectory.refs must be an object")
-    explicit = refs.get("atif_path") or refs.get("trajectory_path")
     candidates: list[Path] = []
-    if isinstance(explicit, str) and explicit:
-        candidates.append(Path(explicit))
+    for key in ("atif_path", "trajectory_path"):
+        if key not in refs:
+            continue
+        explicit = refs[key]
+        if not isinstance(explicit, str) or not explicit:
+            raise ValueError("trajectory ATIF reference must be non-empty text")
+        candidates.append(_root_relative_path(root, explicit))
     result_path = refs.get("result_path")
-    if isinstance(result_path, str) and result_path:
-        trial_dir = Path(result_path).parent
+    if result_path is not None:
+        if not isinstance(result_path, str) or not result_path:
+            raise ValueError("trajectory result_path must be non-empty text")
+        trial_dir = _root_relative_path(root, result_path).parent
         candidates.extend((trial_dir / "agent" / "trajectory.json", trial_dir / "agent" / "atif.json"))
     for candidate in candidates:
-        try:
-            resolved = contained_path(root, candidate, must_exist=True)
-        except (FileNotFoundError, ValueError):
+        resolved = contained_path(root, candidate, must_exist=False)
+        if not resolved.exists():
             continue
+        resolved = contained_path(root, candidate, must_exist=True)
         if resolved.is_file() and not resolved.is_symlink():
             return resolved
+        raise ValueError("train trajectory ATIF reference is not a regular file")
+    error = getattr(trajectory, "error", None)
+    if getattr(trajectory, "success", None) is False and isinstance(error, str) and error:
+        # SEAGym creates zero-score results for errored/cancelled Harbor trials
+        # that never produced result.json or an agent directory. Preserve the
+        # observable failure count, but never invent an ATIF document or relax
+        # containment for a declared reference.
+        return None
     raise ValueError("train trajectory does not reference a contained Harbor ATIF file")
+
+
+def _root_relative_path(root: Path, raw: str) -> Path:
+    candidate = Path(raw)
+    return candidate if candidate.is_absolute() else root / candidate
 
 
 def _read_atif_structure(path: Path) -> dict[str, Any]:

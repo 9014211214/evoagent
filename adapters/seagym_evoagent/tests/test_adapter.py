@@ -137,6 +137,23 @@ def train_batch(root: Path) -> SimpleNamespace:
     )
 
 
+def failed_train_trajectory(*, refs: dict[str, object] | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        task_id="failed-task",
+        attempt_id="failed-attempt",
+        view_name="train",
+        mode="train",
+        success=False,
+        reward=0.0,
+        score=0.0,
+        rewards={},
+        cost={},
+        runtime_seconds=None,
+        error=f"Harbor trial failed {SECRET}",
+        refs={} if refs is None else refs,
+    )
+
+
 class BaselineTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -226,6 +243,188 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(client.calls, [])
         self.assertEqual(baseline.update_index, 0)
+
+    def test_mixed_batch_counts_errored_harbor_trial_without_fabricating_atif(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"job_dir": str(self.root / "harbor" / "job")})
+        batch.trajectories.append(failed)
+        batch.task_ids.append(failed.task_id)
+
+        result = baseline.update(batch, state)
+
+        self.assertTrue(result.changed)
+        evidence = client.calls[0]["evidence"]
+        self.assertEqual(evidence["schema_version"], "evoagent-observable-train-evidence-v2")
+        self.assertEqual(evidence["num_trajectories"], 2)
+        self.assertEqual(evidence["error_count"], 2)
+        self.assertEqual(evidence["atif"]["documents"], 1)
+        self.assertEqual(evidence["atif"]["missing_error_documents"], 1)
+        self.assertEqual(evidence["atif"]["steps"], 2)
+        self.assertNotIn(SECRET, json.dumps(client.calls[0], sort_keys=True))
+        persisted = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (self.root / "state").rglob("*")
+            if path.is_file()
+        )
+        self.assertNotIn(SECRET, persisted)
+
+    def test_all_missing_error_atif_batch_stops_before_model_call(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        (self.root / "harbor").mkdir()
+        state = baseline.initialize(self.root / "run")
+        failed = failed_train_trajectory()
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
+
+    def test_completed_unsuccessful_trial_still_requires_atif(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        (self.root / "harbor").mkdir()
+        state = baseline.initialize(self.root / "run")
+        trajectory = failed_train_trajectory()
+        trajectory.error = None
+        batch = SimpleNamespace(
+            trajectories=[trajectory],
+            task_ids=[trajectory.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
+
+    def test_errored_trial_cannot_hide_an_atif_path_escape(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        (self.root / "harbor").mkdir()
+        outside = self.root / "outside" / "trajectory.json"
+        outside.parent.mkdir()
+        outside.write_text("{}", encoding="utf-8")
+        state = baseline.initialize(self.root / "run")
+        trajectory = failed_train_trajectory(refs={"atif_path": str(outside)})
+        batch = SimpleNamespace(
+            trajectories=[trajectory],
+            task_ids=[trajectory.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
+
+    def test_errored_trial_cannot_hide_a_nonexistent_external_atif_path(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        (self.root / "harbor").mkdir()
+        state = baseline.initialize(self.root / "run")
+        trajectory = failed_train_trajectory(
+            refs={"atif_path": str(self.root / "outside" / "missing-trajectory.json")}
+        )
+        batch = SimpleNamespace(
+            trajectories=[trajectory],
+            task_ids=[trajectory.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
+
+    def test_success_with_error_is_rejected_before_atif_or_model_processing(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        (self.root / "harbor").mkdir()
+        state = baseline.initialize(self.root / "run")
+        trajectory = failed_train_trajectory()
+        trajectory.success = True
+        batch = SimpleNamespace(
+            trajectories=[trajectory],
+            task_ids=[trajectory.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
+
+    def test_errored_trial_with_existing_malformed_atif_is_not_downgraded_to_missing(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        atif = self.root / "harbor" / "trial" / "agent" / "trajectory.json"
+        atif.parent.mkdir(parents=True)
+        atif.write_text("{}", encoding="utf-8")
+        state = baseline.initialize(self.root / "run")
+        trajectory = failed_train_trajectory(refs={"atif_path": str(atif)})
+        batch = SimpleNamespace(
+            trajectories=[trajectory],
+            task_ids=[trajectory.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(client.calls, [])
 
     def test_fail_on_update_error_stops_before_later_paid_rollouts(self) -> None:
         class FailingClient:

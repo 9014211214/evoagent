@@ -32,27 +32,30 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4"
 EXPECTED_AMENDMENT = {
-    "amended_at": "2026-08-29T16:08:35Z",
+    "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
+    "amended_at": "2026-08-29T17:41:19Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9716899456,
-    "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
-    "diagnostic_controller_run_id": 33259140059,
+    "diagnostic_artifact_id": 9718565501,
+    "diagnostic_artifact_sha256": "25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec",
+    "diagnostic_controller_run_id": 33265128690,
     "diagnostic_observation": {
-        "completed_requests": 101,
-        "forwarded_requests": 101,
+        "completed_requests": 102,
+        "forwarded_requests": 102,
+        "missing_atif_error_trajectories_in_failing_train_batch": 1,
         "rejected_requests": 0,
-        "upstream_http_4xx": 4,
+        "upstream_http_404": 6,
         "upstream_other_errors": 0,
     },
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 8,
+    "prior_controller_attempts_total": 9,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
+    "prior_v3_controller_attempts": 1,
     "prior_model_inference_completed": True,
-    "prior_observed_usage_delta_usd": 0.090477099,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2",
+    "prior_observed_usage_delta_usd": 0.131973138,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3",
     "prior_v2_run_evidence": [
         {
             "artifact_id": 9710915384,
@@ -87,10 +90,21 @@ EXPECTED_AMENDMENT = {
             "score_produced": False,
         },
     ],
+    "prior_v3_run_evidence": [
+        {
+            "artifact_id": 9718565501,
+            "artifact_sha256": "25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec",
+            "blocker_code": "seagym_execution_failed",
+            "controller_commit": "9524dfbf786492d3fbeed27791bff4cbac280112",
+            "observed_usage_delta_usd": 0.041496039,
+            "run_id": 33265128690,
+            "score_produced": False,
+        }
+    ],
     "prior_score_produced": False,
-    "reason_code": "intermittent_upstream_http_failures_without_bounded_same_route_retry",
+    "reason_code": "errored_trial_missing_atif_and_intermittent_upstream_404_on_verified_route",
     "score_blind": True,
-    "transport_only_change": True,
+    "transport_only_change": False,
 }
 EXPECTED_RETRY_POLICY = {
     "ambiguous_transport_failures_retried": False,
@@ -98,7 +112,7 @@ EXPECTED_RETRY_POLICY = {
     "fallbacks_enabled": False,
     "max_retries_per_client_request": 2,
     "request_body_changed_between_attempts": False,
-    "retryable_http_statuses": [408, 409, 425, 429, 500, 502, 503, 504, 524, 529],
+    "retryable_http_statuses": [404, 408, 409, 425, 429, 500, 502, 503, 504, 524, 529],
     "same_model_provider_endpoint": True,
 }
 EXPECTED_GUARD_PROXY_RUNTIME = {
@@ -112,7 +126,7 @@ EXPECTED_GUARD_PROXY_RUNTIME = {
         "max_response_bytes": 16 * 1024 * 1024,
         "upstream_timeout_seconds": 300.0,
     },
-    "source_sha256": "86a0308661d2cdff285815313e01549b3a52100fce22ee583cd2703ef3eaf665",
+    "source_sha256": "83afa0faf842ad91a72936da63b1b66b6c0d02f817520969dbe9fa68ac7c0804",
 }
 EXPECTED_CLAIM_BOUNDARY = {
     "automatic_promotion": False,
@@ -1397,7 +1411,7 @@ def _validate_guard_proxy_health(
     retryable_statuses = {str(value) for value in EXPECTED_RETRY_POLICY["retryable_http_statuses"]}
     if any(count for name, count in safe_statuses.items() if name not in retryable_statuses):
         raise VerificationError("guard-proxy retried or completed with a non-retryable HTTP status")
-    four_xx = sum(safe_statuses[str(value)] for value in (408, 409, 425, 429))
+    four_xx = sum(safe_statuses[str(value)] for value in (404, 408, 409, 425, 429))
     five_xx = sum(safe_statuses[str(value)] for value in (500, 502, 503, 504, 524, 529))
     expected_attempt_classes = {name: 0 for name in PROXY_ERROR_CLASSES}
     expected_attempt_classes["http_4xx"] = four_xx

@@ -32,22 +32,127 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3"
 EXPECTED_AMENDMENT = {
-    "amended_at": "2026-08-29T06:03:09Z",
-    "diagnostic_artifact_id": 9710284320,
-    "diagnostic_controller_run_id": 33237155533,
-    "prior_benchmark_trials": 0,
-    "prior_controller_attempts": 4,
-    "prior_model_inference_completed": False,
-    "prior_observed_usage_delta_usd": 0.0,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+    "amended_at": "2026-08-29T16:08:35Z",
+    "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
+    "diagnostic_artifact_id": 9716899456,
+    "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
+    "diagnostic_controller_run_id": 33259140059,
+    "diagnostic_observation": {
+        "completed_requests": 101,
+        "forwarded_requests": 101,
+        "rejected_requests": 0,
+        "upstream_http_4xx": 4,
+        "upstream_other_errors": 0,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 8,
+    "prior_pre_v2_controller_attempts": 4,
+    "prior_v2_controller_attempts": 4,
+    "prior_model_inference_completed": True,
+    "prior_observed_usage_delta_usd": 0.090477099,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2",
+    "prior_v2_run_evidence": [
+        {
+            "artifact_id": 9710915384,
+            "artifact_sha256": "911253517539b6bfb0d851c0362d8de070eef21655e3d09e4da96991295f157c",
+            "controller_commit": "c79bc1eae30c30c462cf034a8b355199ddb5f31f",
+            "observed_usage_delta_usd": 0.000395987,
+            "run_id": 33239134974,
+            "score_produced": False,
+        },
+        {
+            "artifact_id": 9715191473,
+            "artifact_sha256": "a251cbde6595868e94e113d9bf1a3867ec0b3251e07806cc3a37bfefffebeb15",
+            "controller_commit": "7f0088cfea552cbd09fc0c124b1d3d01acf36feb",
+            "observed_usage_delta_usd": 0.002472451,
+            "run_id": 33253565374,
+            "score_produced": False,
+        },
+        {
+            "artifact_id": 9716114523,
+            "artifact_sha256": "47545121eacca279e25ff890a6dfc3d33832490955abb1ac0853daddddd93e9f",
+            "controller_commit": "a6039f08e8931ee6e51b56e21e1146a623e834df",
+            "observed_usage_delta_usd": 0.043002461,
+            "run_id": 33256278875,
+            "score_produced": False,
+        },
+        {
+            "artifact_id": 9716899456,
+            "artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
+            "controller_commit": "d896cae72135b43ff204b2fb29914deede8b9d0b",
+            "observed_usage_delta_usd": 0.0446062,
+            "run_id": 33259140059,
+            "score_produced": False,
+        },
+    ],
     "prior_score_produced": False,
-    "preflight_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
-    "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
+    "reason_code": "intermittent_upstream_http_failures_without_bounded_same_route_retry",
     "score_blind": True,
+    "transport_only_change": True,
 }
+EXPECTED_RETRY_POLICY = {
+    "ambiguous_transport_failures_retried": False,
+    "backoff_seconds": [1.0, 2.0],
+    "fallbacks_enabled": False,
+    "max_retries_per_client_request": 2,
+    "request_body_changed_between_attempts": False,
+    "retryable_http_statuses": [408, 409, 425, 429, 500, 502, 503, 504, 524, 529],
+    "same_model_provider_endpoint": True,
+}
+EXPECTED_GUARD_PROXY_RUNTIME = {
+    "health_schema_version": "openrouter-guard-proxy-health-v3",
+    "limits": {
+        "client_timeout_seconds": 30.0,
+        "max_concurrency": 4,
+        "max_output_tokens": 16_000,
+        "max_request_bytes": 2 * 1024 * 1024,
+        "max_requests": 768,
+        "max_response_bytes": 16 * 1024 * 1024,
+        "upstream_timeout_seconds": 300.0,
+    },
+    "source_sha256": "86a0308661d2cdff285815313e01549b3a52100fce22ee583cd2703ef3eaf665",
+}
+EXPECTED_CLAIM_BOUNDARY = {
+    "automatic_promotion": False,
+    "causal_attribution_claimed": False,
+    "leaderboard_submission": False,
+    "paper_scale_reproduction": False,
+    "pilot_kind": "real_external_scientific_pilot",
+    "results_status": "preregistered_incomplete_attempts_no_score",
+}
+PROXY_ERROR_CLASSES = (
+    "http_4xx",
+    "http_5xx",
+    "timeout",
+    "unavailable",
+    "response_too_large",
+    "identity_invalid",
+    "other",
+)
+PROXY_HTTP_STATUS_BUCKETS = (
+    "400",
+    "401",
+    "402",
+    "403",
+    "404",
+    "408",
+    "409",
+    "413",
+    "422",
+    "425",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "524",
+    "529",
+    "other_4xx",
+    "other_5xx",
+    "other",
+)
 EXPECTED_ROUTE_CONTRACT = {
     "provider": {
         "only": [EXPECTED_ENDPOINT],
@@ -325,10 +430,7 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     }:
         raise VerificationError("protocol router-audit contract drifted")
     claim = protocol.get("claim_boundary")
-    if not isinstance(claim, dict) or any(
-        claim.get(key) is not False
-        for key in ("automatic_promotion", "causal_attribution_claimed", "leaderboard_submission", "paper_scale_reproduction")
-    ):
+    if claim != EXPECTED_CLAIM_BOUNDARY:
         raise VerificationError("protocol claim boundary drifted")
     runtime = protocol.get("runtime") or {}
     mimocode = runtime.get("mimocode") or {}
@@ -342,6 +444,10 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     }
     if runtime.get("credential_transport") != expected_credential_transport:
         raise VerificationError("runtime credential transport drifted")
+    if runtime.get("guard_proxy") != EXPECTED_GUARD_PROXY_RUNTIME:
+        raise VerificationError("runtime guard-proxy identity drifted")
+    if runtime.get("openrouter_retry_policy") != EXPECTED_RETRY_POLICY:
+        raise VerificationError("runtime retry policy drifted")
     expected_privacy_sanitizer = {
         "raw_jsonl_max_bytes": 64 * 1024 * 1024,
         "raw_persisted": False,
@@ -620,7 +726,7 @@ def _validate_atif(
     expected_snapshot: str,
     expected_component_hashes: dict[str, str],
     root: Path,
-) -> dict[str, Any]:
+) -> int:
     _scan_secret_bytes(path)
     atif = _load_json(path, root=root, max_bytes=8 * 1024 * 1024)
     _reject_nonempty_reasoning(atif)
@@ -672,6 +778,7 @@ def _validate_atif(
         "cost_usd": 0.0,
     }
     seen_metrics: set[str] = set()
+    llm_call_count = 0
     for expected, step in enumerate(steps, start=1):
         if not isinstance(step, dict) or step.get("step_id") != expected or step.get("message") != "":
             raise VerificationError("sanitized ATIF step is invalid")
@@ -713,6 +820,7 @@ def _validate_atif(
                 raise VerificationError("ATIF step cached tokens exceed prompt tokens")
             if step.get("llm_call_count") != 1:
                 raise VerificationError("sanitized ATIF metric step must represent one model call")
+            llm_call_count += 1
         elif "llm_call_count" in step:
             raise VerificationError("sanitized ATIF llm_call_count requires metrics")
         calls = step.get("tool_calls")
@@ -780,14 +888,14 @@ def _validate_atif(
             raise VerificationError("Harbor attestation tokens differ from ATIF")
     if _sha256(path, max_bytes=8 * 1024 * 1024) != attestation.get("atif_sha256"):
         raise VerificationError("ATIF hash does not match its attestation")
-    return atif
+    return llm_call_count
 
 
 def _validate_attestation(
     result_path: Path,
     expected_snapshot: str,
     expected_component_hashes: dict[str, str],
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, int]:
     trial_dir = result_path.parent
     agent_dir = (trial_dir / "agent").resolve(strict=True)
     if agent_dir.is_symlink() or agent_dir.parent != trial_dir.resolve(strict=True):
@@ -855,14 +963,14 @@ def _validate_attestation(
     for key in ("raw_prompt_persisted", "raw_response_persisted", "reasoning_persisted", "causal_attribution_claimed", "promotion_claimed", "activation_claimed"):
         if attestation.get(key) is not False:
             raise VerificationError(f"Harbor attestation violates boundary: {key}")
-    _validate_atif(
+    llm_call_count = _validate_atif(
         agent_dir / "trajectory.json",
         attestation,
         expected_snapshot=expected_snapshot,
         expected_component_hashes=expected_component_hashes,
         root=trial_dir,
     )
-    return attestation, claimed_hash
+    return attestation, claimed_hash, llm_call_count
 
 
 def _row_expected_snapshot(row: dict[str, Any], snapshots: dict[str, str]) -> str:
@@ -894,7 +1002,7 @@ def _validate_rows(
     task_index: dict[str, Any],
     snapshots: dict[str, str],
     component_hashes_by_snapshot: dict[str, dict[str, str]],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
     source = run_dir / "records" / "task_results.jsonl"
     _scan_secret_bytes(source)
     rows = _load_jsonl(source, root=run_dir, expected=24)
@@ -906,6 +1014,7 @@ def _validate_rows(
     phase_tasks: dict[str, list[str]] = defaultdict(list)
     safe_rows: list[dict[str, Any]] = []
     attestation_hashes: list[str] = []
+    rollout_llm_call_count = 0
     for row in rows:
         _reject_nonempty_reasoning(row)
         task_id = row.get("task_id")
@@ -952,12 +1061,13 @@ def _validate_rows(
         expected_component_hashes = component_hashes_by_snapshot.get(expected_snapshot)
         if expected_component_hashes is None:
             raise VerificationError("trial snapshot lacks independently verified component hashes")
-        attestation, attestation_hash = _validate_attestation(
+        attestation, attestation_hash, llm_call_count = _validate_attestation(
             result_path,
             expected_snapshot,
             expected_component_hashes,
         )
         attestation_hashes.append(attestation_hash)
+        rollout_llm_call_count += llm_call_count
         usage = attestation["usage"]
         cost = row.get("cost") or {}
         if not isinstance(cost, dict):
@@ -988,6 +1098,7 @@ def _validate_rows(
                 "output_tokens": usage["completion_tokens"],
                 "cached_tokens": usage["cached_tokens"],
                 "cost_usd": usage["cost_usd"],
+                "llm_call_count": llm_call_count,
                 "snapshot_sha256": expected_snapshot,
                 "attestation_sha256": attestation_hash,
                 "harbor_result_sha256": _sha256(result_path),
@@ -1006,7 +1117,7 @@ def _validate_rows(
     if len(attestation_hashes) != 24:
         raise VerificationError("trial attestation coverage is incomplete")
     summary = _recompute_summary(safe_rows)
-    return safe_rows, summary
+    return safe_rows, summary, rollout_llm_call_count
 
 
 def _mean(rows: Iterable[dict[str, Any]]) -> float:
@@ -1189,6 +1300,117 @@ def _validate_evaluation_points(run_dir: Path, summary: dict[str, Any]) -> None:
             raise VerificationError(f"final evaluation point differs: {key}")
 
 
+def _proxy_counter(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise VerificationError(f"guard-proxy {label} is not a non-negative integer")
+    return value
+
+
+def _validate_guard_proxy_health(
+    run_dir: Path,
+    *,
+    expected_logical_requests: int,
+) -> dict[str, Any]:
+    health = _load_json(
+        run_dir / "evidence" / "guard-proxy-health.json",
+        root=run_dir,
+    )
+    expected_keys = {
+        "active_requests",
+        "completed_requests",
+        "credential_persisted",
+        "forwarded_requests",
+        "guard_proxy_source_sha256",
+        "limits",
+        "max_upstream_retries",
+        "ready",
+        "rejected_requests",
+        "rejection_classes",
+        "remaining_requests",
+        "request_limit",
+        "retry_policy",
+        "schema_version",
+        "upstream_attempt_error_classes",
+        "upstream_attempts",
+        "upstream_error_classes",
+        "upstream_errors",
+        "upstream_http_statuses",
+        "upstream_retries",
+    }
+    if not isinstance(health, dict) or set(health) != expected_keys:
+        raise VerificationError("guard-proxy health schema drifted")
+    if (
+        health.get("schema_version") != EXPECTED_GUARD_PROXY_RUNTIME["health_schema_version"]
+        or health.get("guard_proxy_source_sha256") != EXPECTED_GUARD_PROXY_RUNTIME["source_sha256"]
+        or health.get("limits") != EXPECTED_GUARD_PROXY_RUNTIME["limits"]
+        or health.get("retry_policy") != EXPECTED_RETRY_POLICY
+        or health.get("max_upstream_retries") != EXPECTED_RETRY_POLICY["max_retries_per_client_request"]
+    ):
+        raise VerificationError("guard-proxy runtime identity or retry policy drifted")
+    if health.get("ready") is not True or health.get("credential_persisted") is not False:
+        raise VerificationError("guard-proxy readiness or credential boundary failed")
+
+    active = _proxy_counter(health.get("active_requests"), "active_requests")
+    forwarded = _proxy_counter(health.get("forwarded_requests"), "forwarded_requests")
+    completed = _proxy_counter(health.get("completed_requests"), "completed_requests")
+    rejected = _proxy_counter(health.get("rejected_requests"), "rejected_requests")
+    upstream_errors = _proxy_counter(health.get("upstream_errors"), "upstream_errors")
+    upstream_attempts = _proxy_counter(health.get("upstream_attempts"), "upstream_attempts")
+    upstream_retries = _proxy_counter(health.get("upstream_retries"), "upstream_retries")
+    request_limit = _proxy_counter(health.get("request_limit"), "request_limit")
+    remaining_requests = _proxy_counter(health.get("remaining_requests"), "remaining_requests")
+    if (
+        active != 0
+        or forwarded <= 0
+        or forwarded != expected_logical_requests
+        or completed != forwarded
+        or rejected != 0
+        or upstream_errors != 0
+        or request_limit != EXPECTED_GUARD_PROXY_RUNTIME["limits"]["max_requests"]
+        or remaining_requests != request_limit - forwarded
+        or upstream_attempts != forwarded + upstream_retries
+        or upstream_retries > forwarded * EXPECTED_RETRY_POLICY["max_retries_per_client_request"]
+    ):
+        raise VerificationError("guard-proxy completed-run counters are inconsistent")
+
+    rejection_classes = health.get("rejection_classes")
+    if rejection_classes != {"concurrency_limit": 0, "request_limit": 0, "other": 0}:
+        raise VerificationError("guard-proxy recorded a rejected logical request")
+    final_error_classes = health.get("upstream_error_classes")
+    if final_error_classes != {name: 0 for name in PROXY_ERROR_CLASSES}:
+        raise VerificationError("guard-proxy recorded a final upstream request error")
+
+    attempt_error_classes = health.get("upstream_attempt_error_classes")
+    statuses = health.get("upstream_http_statuses")
+    if not isinstance(attempt_error_classes, dict) or set(attempt_error_classes) != set(PROXY_ERROR_CLASSES):
+        raise VerificationError("guard-proxy attempt-error classes drifted")
+    if not isinstance(statuses, dict) or set(statuses) != set(PROXY_HTTP_STATUS_BUCKETS):
+        raise VerificationError("guard-proxy HTTP status buckets drifted")
+    safe_attempt_errors = {
+        name: _proxy_counter(attempt_error_classes[name], f"upstream_attempt_error_classes.{name}")
+        for name in PROXY_ERROR_CLASSES
+    }
+    safe_statuses = {
+        name: _proxy_counter(statuses[name], f"upstream_http_statuses.{name}")
+        for name in PROXY_HTTP_STATUS_BUCKETS
+    }
+    retryable_statuses = {str(value) for value in EXPECTED_RETRY_POLICY["retryable_http_statuses"]}
+    if any(count for name, count in safe_statuses.items() if name not in retryable_statuses):
+        raise VerificationError("guard-proxy retried or completed with a non-retryable HTTP status")
+    four_xx = sum(safe_statuses[str(value)] for value in (408, 409, 425, 429))
+    five_xx = sum(safe_statuses[str(value)] for value in (500, 502, 503, 504, 524, 529))
+    expected_attempt_classes = {name: 0 for name in PROXY_ERROR_CLASSES}
+    expected_attempt_classes["http_4xx"] = four_xx
+    expected_attempt_classes["http_5xx"] = five_xx
+    if (
+        safe_attempt_errors != expected_attempt_classes
+        or sum(safe_statuses.values()) != upstream_retries
+        or sum(safe_attempt_errors.values()) != upstream_retries
+    ):
+        raise VerificationError("guard-proxy retry attempt counters are inconsistent")
+    return health
+
+
 def _usage_cost(before_path: Path, after_path: Path) -> dict[str, Any]:
     before = _load_json(before_path)
     after = _load_json(after_path)
@@ -1257,7 +1479,7 @@ def verify_pilot(
     if candidate_by_update.get(1, e1) != e1 or candidate_by_update.get(2, final_candidate) != final_candidate:
         raise VerificationError("update candidate hashes differ from checkpoints")
     snapshots = {"A0": initial_a0, "E1": e1, "AT": final_candidate}
-    safe_rows, summary = _validate_rows(
+    safe_rows, summary, rollout_llm_call_count = _validate_rows(
         run_dir,
         split,
         plan,
@@ -1267,6 +1489,12 @@ def verify_pilot(
     )
     metric_usage = _validate_metrics(run_dir, summary)
     _validate_evaluation_points(run_dir, summary)
+    update_llm_call_count = len(updates)
+    verified_total_logical_requests = rollout_llm_call_count + update_llm_call_count
+    proxy_health = _validate_guard_proxy_health(
+        run_dir,
+        expected_logical_requests=rollout_llm_call_count,
+    )
     cost = _usage_cost(usage_before, usage_after)
     result = {
         "schema_version": FORMAT_VERSION,
@@ -1301,9 +1529,14 @@ def verify_pilot(
             "planned_task_trials": 24,
             "verified_task_trials": len(safe_rows),
             "verified_update_attempts": len(updates),
+            "verified_rollout_model_calls": rollout_llm_call_count,
+            "verified_update_model_calls": update_llm_call_count,
+            "verified_guard_proxy_logical_requests": rollout_llm_call_count,
+            "verified_total_logical_model_requests": verified_total_logical_requests,
             "privacy_projection_verified": True,
             "credential_exposure_observed": False,
             "hidden_reasoning_persisted": False,
+            "guard_proxy_health": proxy_health,
         },
         "claim_boundary": {
             "causal_attribution_claimed": False,

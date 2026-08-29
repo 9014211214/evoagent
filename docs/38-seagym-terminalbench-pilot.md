@@ -104,30 +104,37 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v3, a score-blind amendment. Four pre-v2 controller attempts
-were infrastructure/preflight diagnostics. Protocol v2 then removed the
-unsupported update `seed` request field without changing the frozen task
-schedule. Four real v2 controller attempts reached progressively deeper parts
-of the pinned external pipeline, but none completed the A_0/A_T comparison and
-none produced a score. Those four v2 runs had a total observed key-usage delta
-of USD 0.090477099.
+This is protocol v4, a score-blind amendment. Four pre-v2 controller attempts
+were infrastructure/preflight diagnostics. Four real v2 attempts and one real
+v3 attempt reached progressively deeper parts of the pinned external pipeline,
+but none completed the A_0/A_T comparison and none produced a score. The nine
+controller attempts had a cumulative observed key-usage delta of USD
+0.131973138 across their separately bounded observation windows.
 
-The latest diagnostic run `33259140059` forwarded and completed 101 requests,
-rejected none, and observed four intermittent upstream HTTP 4xx failures. Its
-artifact `9716899456` is bound by the GitHub Actions artifact-ZIP SHA-256
-`512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145`.
+The latest diagnostic run `33265128690` forwarded and completed 102 requests,
+rejected none, and observed six intermittent upstream HTTP 404 responses on an
+otherwise preverified Xiaomi route. Its second train batch also included one
+legitimate SEAGym zero-score error trajectory without `result_path` or ATIF;
+the old adapter incorrectly aborted on that representation. Artifact
+`9718565501` is bound by the GitHub Actions artifact-ZIP SHA-256
+`25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec`.
 The evidence contains no complete comparison or reportable effect score.
 
-Protocol v3 changes only failure handling at the locked OpenRouter transport.
-For HTTP 408, 409, 425, 429, 500, 502, 503, 504, 524, or 529, the guard may
-retry the identical request at most twice after one and two seconds. The model,
-Xiaomi-only provider endpoint, request body, Tool contract, and no-fallback
-policy remain unchanged. Ambiguous transport failures are not retried because
-the upstream may already have accepted the POST. The 12 Tasks, split, order,
-model, budget, metrics, and interpretation rule are unchanged.
+Protocol v4 adds two bounded failure-handling corrections before any score was
+available. First, an errored zero-score trajectory may contribute to aggregate
+failure evidence without a fabricated ATIF, provided the batch contains at
+least one real valid ATIF; completed unsuccessful and successful trajectories
+still require ATIF. Second, HTTP 404 joins 408, 409, 425, 429, 500, 502, 503,
+504, 524, and 529 in the exact same-route retry set. The guard may retry the
+identical request at most twice after one and two seconds. The existing evidence
+does not expose private router metadata, so it does not claim a more specific
+404 cause. The model, Xiaomi-only provider endpoint, request body, Tool
+contract, no-fallback policy, 12 Tasks, split, order, budget, metrics, and
+interpretation rule remain unchanged. Ambiguous transport failures are not
+retried because the upstream may already have accepted the POST.
 
 The public protocol also pins guard-proxy source SHA-256
-`86a0308661d2cdff285815313e01549b3a52100fce22ee583cd2703ef3eaf665`,
+`83afa0faf842ad91a72936da63b1b66b6c0d02f817520969dbe9fa68ac7c0804`,
 health schema v3, and all request, response, concurrency, token and timeout
 limits. A completed result is accepted only if its safe runtime health evidence
 matches that identity and proves the logical-request, attempt and retry counts.

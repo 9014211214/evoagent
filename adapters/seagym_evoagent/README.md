@@ -65,6 +65,15 @@ bounded tool-name/status counts from privacy-preserving ATIF. Task IDs,
 instructions, model text, reasoning, tool arguments, tool output, canaries,
 secrets, and raw trajectories are neither sent nor persisted.
 
+SEAGym represents a Harbor trial that never produced `result.json` as a real
+zero-score trajectory with a non-empty error and no ATIF reference. Such a
+trajectory contributes to the failure/error and `missing_error_documents`
+counts but never receives a fabricated ATIF digest, step, or Tool summary. A
+completed unsuccessful or successful trajectory still requires a contained,
+regular, valid ATIF file, and every update batch must contain at least one real
+ATIF document. Path escapes, links, malformed files, and all-missing batches
+fail before the update-model call.
+
 The generated snapshot is not an activation or promotion. The adapter records
 `causal_attribution_claimed=false` and `promotion_claimed=false`; a later frozen
 evaluation and governance decision must establish any improvement claim.

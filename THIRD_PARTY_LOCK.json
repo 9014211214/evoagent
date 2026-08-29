@@ -1,6 +1,6 @@
 {
   "format_version": "evoagent-third-party-lock-v1",
-  "reviewed_at": "2026-08-10T00:00:00Z",
+  "reviewed_at": "2026-08-29T00:00:00Z",
   "components": [
     {
       "name": "Harbor",
@@ -81,7 +81,71 @@
       "modifications_summary": null,
       "required_attribution": "Record Terminal-Bench 2.1, its repository, reviewed commit, Apache-2.0 license, and dataset-reference boundary.",
       "purpose": "Optional external terminal-agent benchmark dataset."
+    },
+    {
+      "name": "SEAGym",
+      "repository": "https://github.com/antropy-research/SEAGym",
+      "reviewed_commit": "9e61e14db1f1355de944cd7c5b10c244fc74e82d",
+      "license_spdx": "Apache-2.0",
+      "license_path": "LICENSE",
+      "license_git_blob_sha": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "notice_path": null,
+      "notice_git_blob_sha": null,
+      "integration_method": "external_checkout",
+      "source_copied": false,
+      "modified": true,
+      "modifications_summary": "The external checkout receives one hash-pinned workflow patch that preserves numeric token-count telemetry while retaining credential redaction; no SEAGym source is vendored in this repository.",
+      "required_attribution": "Record SEAGym, its repository, reviewed commit, Apache-2.0 license, external-checkout boundary, and the controlled token-redaction patch hash.",
+      "purpose": "Optional outer training and frozen-evaluation lifecycle for the Terminal-Bench 2.0 scientific pilot."
+    },
+    {
+      "name": "Harbor (SEAGym runtime)",
+      "repository": "https://github.com/harbor-framework/harbor",
+      "reviewed_commit": "f7110f1a240c6a50589b90c4d69714763946d088",
+      "license_spdx": "Apache-2.0",
+      "license_path": "LICENSE",
+      "license_git_blob_sha": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "notice_path": null,
+      "notice_git_blob_sha": null,
+      "integration_method": "external_checkout",
+      "source_copied": false,
+      "modified": false,
+      "modifications_summary": null,
+      "required_attribution": "Record the Harbor SEAGym runtime, its repository, reviewed gitlink commit, Apache-2.0 license, and external-checkout boundary.",
+      "purpose": "Exact Harbor runtime selected by the pinned SEAGym gitlink for the scientific pilot."
+    },
+    {
+      "name": "Terminal-Bench 2.0",
+      "repository": "https://github.com/harbor-framework/terminal-bench-2",
+      "reviewed_commit": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+      "license_spdx": "Apache-2.0",
+      "license_path": "LICENSE",
+      "license_git_blob_sha": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "notice_path": null,
+      "notice_git_blob_sha": null,
+      "integration_method": "dataset_reference",
+      "source_copied": false,
+      "modified": false,
+      "modifications_summary": null,
+      "required_attribution": "Record Terminal-Bench 2.0, its repository, reviewed commit, Apache-2.0 license, and data-reference-only boundary.",
+      "purpose": "Pinned external task environments and verifiers for the score-blind 6/3/3 SEAGym pilot."
+    },
+    {
+      "name": "MiMoCode",
+      "repository": "https://github.com/XiaomiMiMo/MiMo-Code",
+      "reviewed_commit": "67c9cf1e26288d03c65fb844be71f39581ffc1de",
+      "license_spdx": "MIT",
+      "license_path": "LICENSE",
+      "license_git_blob_sha": "83621ff267c81af7d7ac26254c4ec81d917f4a82",
+      "notice_path": null,
+      "notice_git_blob_sha": null,
+      "integration_method": "subprocess_adapter",
+      "source_copied": false,
+      "modified": false,
+      "modifications_summary": null,
+      "required_attribution": "Record MiMoCode, Xiaomi Corporation and opencode copyright, repository, v0.1.13 commit, MIT license, and subprocess-only boundary.",
+      "purpose": "Hash-pinned terminal Agent runtime used by the optional SEAGym scientific pilot."
     }
   ],
-  "lock_hash": "38d9b1efad86df11a45c201d23299a819ec2494592e93da6b660b03dd24f33bb"
+  "lock_hash": "ec92454da839390ec656765730f575b88984f71682a1c05ed111cae9fb57227f"
 }

@@ -1,0 +1,1356 @@
+from __future__ import annotations
+
+"""Verify and publish a privacy-bounded SEAGym + Terminal-Bench pilot bundle.
+
+The verifier consumes the exact preregistered protocol and a completed SEAGym
+run.  It recomputes the A0/AT comparison from trial-level records, checks the
+underlying Harbor result and EvoAgent attestations, and emits only bounded
+observable evidence.  Raw prompts, model text, trajectories, errors, and logs
+never enter the publishable bundle.
+"""
+
+import argparse
+from collections import Counter, defaultdict
+from decimal import Decimal, InvalidOperation
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import tempfile
+from typing import Any, Iterable
+
+
+FORMAT_VERSION = "evoagent-seagym-terminalbench-result-v1"
+CLAIM = "real_seagym_terminalbench_subset_pilot_not_leaderboard"
+MAX_JSON_BYTES = 16 * 1024 * 1024
+MAX_JSONL_BYTES = 32 * 1024 * 1024
+MAX_RECORDS = 10_000
+EXPECTED_MODEL_API = "xiaomi/mimo-v2.5"
+EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
+EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
+EXPECTED_PROVIDER = "Xiaomi"
+EXPECTED_ENDPOINT = "xiaomi/fp8"
+EXPECTED_ROUTE_CONTRACT = {
+    "provider": {
+        "only": [EXPECTED_ENDPOINT],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+    },
+    "reasoning": {"enabled": False},
+    "accepted_response_models": [EXPECTED_MODEL_API, EXPECTED_CANONICAL_MODEL],
+    "response_provider": EXPECTED_PROVIDER,
+}
+EXPECTED_ROUTE_CONTRACT_SHA256 = hashlib.sha256(
+    json.dumps(
+        EXPECTED_ROUTE_CONTRACT,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
+EXPECTED_ADAPTER_VERSION = "0.1.0"
+EXPECTED_UPSTREAM = {
+    "seagym": "9e61e14db1f1355de944cd7c5b10c244fc74e82d",
+    "harbor_seagym_gitlink": "f7110f1a240c6a50589b90c4d69714763946d088",
+    "terminal_bench_2": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+}
+EXPECTED_MIMOCODE = {
+    "version": "0.1.13",
+    "commit": "67c9cf1e26288d03c65fb844be71f39581ffc1de",
+    "asset_sha256": "0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada",
+}
+SECRET_PATTERNS = (
+    re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}", re.IGNORECASE),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+)
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+SAFE_TOOL_NAMES = {
+    "apply_patch",
+    "bash",
+    "browser",
+    "edit",
+    "edit_file",
+    "exec",
+    "exec_command",
+    "execute",
+    "execute_command",
+    "glob",
+    "grep",
+    "python",
+    "read",
+    "read_file",
+    "search",
+    "shell",
+    "web_search",
+    "websearch",
+    "webfetch",
+    "codesearch",
+    "actor",
+    "skill",
+    "write",
+    "write_file",
+}
+
+
+class VerificationError(ValueError):
+    pass
+
+
+def _reject_constant(value: str) -> None:
+    raise VerificationError(f"non-finite JSON number is forbidden: {value}")
+
+
+def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise VerificationError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _strict_loads(data: str | bytes) -> Any:
+    try:
+        return json.loads(
+            data,
+            parse_constant=_reject_constant,
+            object_pairs_hook=_no_duplicates,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
+        raise VerificationError("invalid bounded UTF-8 JSON") from exc
+
+
+def _regular_file(path: Path, *, root: Path | None = None, max_bytes: int = MAX_JSON_BYTES) -> Path:
+    lexical = path.absolute()
+    for part in (lexical, *lexical.parents):
+        if part.exists() and part.is_symlink():
+            raise VerificationError(f"symlinked evidence path is forbidden: {path}")
+        if root is not None and part == root.absolute():
+            break
+    if root is not None:
+        root = root.resolve(strict=True)
+        candidate = path if path.is_absolute() else root / path
+        resolved = candidate.resolve(strict=True)
+        if resolved != root and root not in resolved.parents:
+            raise VerificationError(f"path escapes controlled root: {path}")
+    else:
+        resolved = path.resolve(strict=True)
+    if resolved.is_symlink() or not resolved.is_file():
+        raise VerificationError(f"expected regular non-symlink file: {path}")
+    if resolved.stat().st_size > max_bytes:
+        raise VerificationError(f"file exceeds size limit: {path}")
+    return resolved
+
+
+def _load_json(path: Path, *, root: Path | None = None, max_bytes: int = MAX_JSON_BYTES) -> Any:
+    controlled = _regular_file(path, root=root, max_bytes=max_bytes)
+    return _strict_loads(controlled.read_bytes())
+
+
+def _load_jsonl(path: Path, *, root: Path, expected: int | None = None) -> list[dict[str, Any]]:
+    controlled = _regular_file(path, root=root, max_bytes=MAX_JSONL_BYTES)
+    records: list[dict[str, Any]] = []
+    with controlled.open("rb") as handle:
+        for line in handle:
+            if not line.strip():
+                raise VerificationError(f"blank JSONL record in {path.name}")
+            if len(line) > MAX_JSON_BYTES:
+                raise VerificationError(f"oversized JSONL record in {path.name}")
+            value = _strict_loads(line)
+            if not isinstance(value, dict):
+                raise VerificationError(f"JSONL record is not an object in {path.name}")
+            records.append(value)
+            if len(records) > MAX_RECORDS:
+                raise VerificationError(f"too many JSONL records in {path.name}")
+    if expected is not None and len(records) != expected:
+        raise VerificationError(f"{path.name} expected {expected} records, found {len(records)}")
+    return records
+
+
+def _sha256(path: Path, *, max_bytes: int = MAX_JSONL_BYTES) -> str:
+    controlled = _regular_file(path, max_bytes=max_bytes)
+    digest = hashlib.sha256()
+    with controlled.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _sha256_git_text(path: Path) -> str:
+    """Hash text with Git's repository LF normalization on every host."""
+
+    raw = _regular_file(path, max_bytes=MAX_JSONL_BYTES).read_bytes()
+    if b"\x00" in raw:
+        raise VerificationError("expected text artifact contains NUL bytes")
+    normalized = raw.replace(b"\r\n", b"\n")
+    if b"\r" in normalized:
+        raise VerificationError("text artifact contains a bare carriage return")
+    return hashlib.sha256(normalized).hexdigest()
+
+
+def _canonical_sha(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _finite_number(value: Any, label: str, *, minimum: float = 0.0, maximum: float = 1e15) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise VerificationError(f"{label} must be numeric")
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise VerificationError(f"{label} is outside its bounded range")
+    return number
+
+
+def _bounded_int(value: Any, label: str, *, minimum: int = 0, maximum: int = 10**12) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise VerificationError(f"{label} must be a bounded integer")
+    return value
+
+
+def _scan_secret_bytes(path: Path) -> None:
+    raw = _regular_file(path, max_bytes=MAX_JSONL_BYTES).read_text(encoding="utf-8")
+    if any(pattern.search(raw) for pattern in SECRET_PATTERNS):
+        raise VerificationError(f"credential-like material detected in {path.name}")
+
+
+def _reject_nonempty_reasoning(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = key.lower().replace("-", "_")
+            if normalized in {"reasoning", "reasoning_content", "reasoning_details", "chain_of_thought", "scratchpad"}:
+                if item not in (None, "", [], {}):
+                    raise VerificationError("non-empty hidden reasoning was persisted")
+            _reject_nonempty_reasoning(item)
+    elif isinstance(value, list):
+        for item in value:
+            _reject_nonempty_reasoning(item)
+
+
+def _repo_root(protocol_path: Path) -> Path:
+    resolved = protocol_path.resolve(strict=True)
+    if resolved.parent.name != "seagym_terminalbench" or resolved.parent.parent.name != "experiments":
+        raise VerificationError("protocol must be inside experiments/seagym_terminalbench")
+    return resolved.parents[2]
+
+
+def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
+    protocol = _load_json(protocol_path)
+    if not isinstance(protocol, dict) or protocol.get("format_version") != "evoagent-seagym-terminalbench-pilot-v1":
+        raise VerificationError("protocol identity is invalid")
+    repo_root = _repo_root(protocol_path)
+    if protocol.get("upstream") != EXPECTED_UPSTREAM:
+        raise VerificationError("upstream commit lock drifted")
+    schedule = protocol.get("schedule")
+    expected_schedule = {
+        "seed": 42,
+        "train_size": 6,
+        "val_size": 3,
+        "test_size": 3,
+        "batch_size": 3,
+        "num_epochs": 1,
+        "num_train_batches": 2,
+        "num_updates": 2,
+        "num_updates_per_batch": 1,
+        "shuffle_train": False,
+        "frozen_manifest_order": True,
+    }
+    if not isinstance(schedule, dict) or any(schedule.get(key) != value for key, value in expected_schedule.items()):
+        raise VerificationError("protocol schedule drifted")
+    planned = schedule.get("expected_task_trials")
+    if not isinstance(planned, dict) or planned.get("total") != 24:
+        raise VerificationError("protocol task-trial count drifted")
+    resources = protocol.get("resources")
+    expected_budget_guard = {
+        "accounting_scope": "entire_openrouter_key_between_before_and_after_checks",
+        "poll_seconds": 10,
+        "stop_threshold_usd": 0.9,
+        "usage_check_failures_before_stop": 3,
+    }
+    if (
+        not isinstance(resources, dict)
+        or resources.get("authorized_max_observed_key_usage_delta_usd") != 1.2
+        or resources.get("budget_guard") != expected_budget_guard
+    ):
+        raise VerificationError("protocol budget guard drifted")
+    route = protocol.get("model_route")
+    if not isinstance(route, dict):
+        raise VerificationError("protocol route is missing")
+    expected_route_fields = {
+        "request_model": EXPECTED_MODEL_API,
+        "harbor_model": EXPECTED_MODEL_HARBOR,
+        "same_model_for_update_and_rollout": True,
+        "provider_rollout_sampling_determinism_claimed": False,
+    }
+    if any(route.get(key) != value for key, value in expected_route_fields.items()):
+        raise VerificationError("protocol model route drifted")
+    if route.get("route_contract") != EXPECTED_ROUTE_CONTRACT:
+        raise VerificationError("protocol strict route contract drifted")
+    claim = protocol.get("claim_boundary")
+    if not isinstance(claim, dict) or any(
+        claim.get(key) is not False
+        for key in ("automatic_promotion", "causal_attribution_claimed", "leaderboard_submission", "paper_scale_reproduction")
+    ):
+        raise VerificationError("protocol claim boundary drifted")
+    runtime = protocol.get("runtime") or {}
+    mimocode = runtime.get("mimocode") or {}
+    if any(mimocode.get(key) != value for key, value in EXPECTED_MIMOCODE.items()):
+        raise VerificationError("MiMoCode runtime identity drifted")
+    expected_credential_transport = {
+        "account_key_in_task_container": False,
+        "container_credential_kind": "ephemeral_proxy_capability",
+        "kind": "host_guard_proxy",
+        "proxy_base_url": "http://evoagent-openrouter-proxy:18765/api/v1",
+    }
+    if runtime.get("credential_transport") != expected_credential_transport:
+        raise VerificationError("runtime credential transport drifted")
+    expected_privacy_sanitizer = {
+        "raw_jsonl_max_bytes": 64 * 1024 * 1024,
+        "raw_persisted": False,
+        "raw_record_max_bytes": 16 * 1024 * 1024,
+        "raw_string_max_chars": 16 * 1024 * 1024,
+    }
+    if runtime.get("privacy_sanitizer") != expected_privacy_sanitizer:
+        raise VerificationError("runtime privacy sanitizer bounds drifted")
+    expected_token_semantics = {
+        "harbor_cached_tokens": "cache_read_subset_of_harbor_input_tokens",
+        "harbor_input_tokens": "non_cached_input_plus_cache_read",
+        "reported_attested_total_tokens": "harbor_input_tokens_plus_output_tokens",
+        "seagym_total_tokens": "harbor_input_tokens_plus_harbor_cached_tokens_plus_output_tokens",
+    }
+    if runtime.get("token_semantics") != expected_token_semantics:
+        raise VerificationError("runtime token semantics drifted")
+    expected_seed_semantics = {
+        "controls": [
+            "task_split",
+            "frozen_batch_order",
+            "update_request",
+            "checkpoint_and_trial_attestation",
+        ],
+        "provider_rollout_sampling_determinism_claimed": False,
+    }
+    if schedule.get("seed_semantics") != expected_seed_semantics:
+        raise VerificationError("protocol seed semantics drifted")
+    artifacts = protocol.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise VerificationError("protocol artifact lock is missing")
+    for name in ("config", "split", "task_index", "seagym_redaction_patch"):
+        item = artifacts.get(name)
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not HEX64.fullmatch(str(item.get("sha256", ""))):
+            raise VerificationError(f"invalid protocol artifact lock: {name}")
+        actual = _sha256(_regular_file(repo_root / item["path"], root=repo_root))
+        if actual != item["sha256"]:
+            raise VerificationError(f"protocol artifact hash mismatch: {name}")
+    lock_hash = artifacts.get("third_party_lock_sha256")
+    if not isinstance(lock_hash, str) or _sha256_git_text(repo_root / "THIRD_PARTY_LOCK.json") != lock_hash:
+        raise VerificationError("THIRD_PARTY_LOCK hash mismatch")
+    return protocol, repo_root
+
+
+def _validate_frozen_inputs(protocol: dict[str, Any], repo_root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    artifacts = protocol["artifacts"]
+    config = _load_json(repo_root / artifacts["config"]["path"], root=repo_root)
+    split = _load_json(repo_root / artifacts["split"]["path"], root=repo_root)
+    task_index = _load_json(repo_root / artifacts["task_index"]["path"], root=repo_root)
+    actual_config = _load_json(run_dir / "inputs" / "experiment_config.json", root=run_dir)
+    actual_split = _load_json(run_dir / "inputs" / "split_manifest.json", root=run_dir)
+    if actual_config != config:
+        raise VerificationError("executed experiment config differs from the frozen config")
+    if actual_split != split:
+        raise VerificationError("executed split differs from the frozen split")
+    if not isinstance(config, dict) or config.get("seed") != 42:
+        raise VerificationError("frozen config seed drifted")
+    baseline_config = ((config.get("baseline") or {}).get("config") or {})
+    rollout_kwargs = (((config.get("rollout_agent") or {}).get("config") or {}).get("kwargs") or {})
+    for value in (baseline_config, rollout_kwargs):
+        if value.get("route_contract") != EXPECTED_ROUTE_CONTRACT:
+            raise VerificationError("config route contract drifted")
+        if value.get("seed") != 42:
+            raise VerificationError("nested baseline or rollout seed drifted")
+    if baseline_config.get("automatic_promotion") is not False or baseline_config.get("causal_attribution_claimed") is not False:
+        raise VerificationError("baseline claim boundary drifted")
+    if baseline_config.get("fail_on_update_error") is not True:
+        raise VerificationError("paid pilot is not configured to fail closed on an update error")
+    rollout_model = ((config.get("rollout_agent") or {}).get("models") or {}).get("rollout_model") or {}
+    if (
+        rollout_model.get("api_base") != "http://evoagent-openrouter-proxy:18765/api/v1"
+        or rollout_model.get("api_key_env") != "EVOAGENT_MIMOCODE_PROXY_TOKEN"
+        or (rollout_model.get("exports") or {}).get("OPENROUTER_API_KEY") != "{api_key}"
+    ):
+        raise VerificationError("rollout credential proxy binding drifted")
+    tasks = task_index.get("tasks") if isinstance(task_index, dict) else None
+    if not isinstance(tasks, list) or len(tasks) != 12:
+        raise VerificationError("frozen task index must contain exactly 12 tasks")
+    task_ids = [item.get("task_id") for item in tasks if isinstance(item, dict)]
+    splits = split.get("splits") if isinstance(split, dict) else None
+    if not isinstance(splits, dict) or task_ids != splits.get("train", []) + splits.get("val", []) + splits.get("test", []):
+        raise VerificationError("task-index order differs from the frozen split")
+    return config, split, task_index
+
+
+def _validate_batch_plan(run_dir: Path, split: dict[str, Any]) -> dict[str, Any]:
+    plan = _load_json(run_dir / "inputs" / "batch_plan.json", root=run_dir)
+    if not isinstance(plan, dict) or plan.get("seed") != 42 or plan.get("split_id") != split.get("split_id"):
+        raise VerificationError("executed batch plan identity drifted")
+    splits = split["splits"]
+    batches = plan.get("train_batches")
+    if not isinstance(batches, list) or batches != [splits["train"][:3], splits["train"][3:]]:
+        raise VerificationError("executed train batch order drifted")
+    views = plan.get("views")
+    if not isinstance(views, dict):
+        raise VerificationError("batch-plan views are missing")
+    if views.get("update_validation") != splits["val"]:
+        raise VerificationError("update-validation task set drifted")
+    final = views.get("final")
+    if not isinstance(final, dict) or final != {"id_test": splits["test"]}:
+        raise VerificationError("final held-out task set drifted")
+    replay = views.get("replay")
+    if not isinstance(replay, list) or len(replay) != 3 or len(set(replay)) != 3 or not set(replay) <= set(splits["train"]):
+        raise VerificationError("replay task set violates the frozen contract")
+    return plan
+
+
+def _checkpoint_snapshot(
+    run_dir: Path,
+    checkpoint_id: str,
+) -> tuple[str, str, dict[str, dict[str, str]]]:
+    checkpoints_root = (run_dir / "checkpoints").resolve(strict=True)
+    checkpoint_dir = _regular_file(
+        checkpoints_root / checkpoint_id / "checkpoint.json",
+        root=checkpoints_root,
+    ).parent
+    manifest = _load_json(checkpoint_dir / "checkpoint.json", root=checkpoints_root)
+    baseline = manifest.get("baseline") if isinstance(manifest, dict) else None
+    if not isinstance(baseline, dict) or baseline.get("schema_version") != "evoagent-seagym-checkpoint-v1":
+        raise VerificationError(f"invalid EvoAgent checkpoint: {checkpoint_id}")
+    state_ref = baseline.get("state_ref")
+    if not isinstance(state_ref, str):
+        raise VerificationError(f"checkpoint state_ref missing: {checkpoint_id}")
+    state_dir = (checkpoint_dir / state_ref).resolve(strict=True)
+    if state_dir != checkpoints_root and checkpoints_root not in state_dir.parents:
+        raise VerificationError("checkpoint state escapes controlled root")
+    if state_dir.is_symlink() or not state_dir.is_dir():
+        raise VerificationError("checkpoint state is not a regular directory")
+    inventory: dict[str, str] = {}
+    for item in sorted(state_dir.rglob("*")):
+        if item.is_symlink():
+            raise VerificationError("checkpoint state contains a symlink")
+        if item.is_dir():
+            continue
+        relative = item.relative_to(state_dir).as_posix()
+        if not (
+            relative == "state.json"
+            or (relative.startswith("snapshots/") and relative.endswith(".json"))
+            or (relative.startswith("attempts/") and relative.endswith(".json"))
+            or (relative.startswith("prompts/") and relative.endswith(".md"))
+        ):
+            raise VerificationError("checkpoint state contains an unexpected file")
+        inventory[relative] = _sha256(item, max_bytes=2 * 1024 * 1024)
+    if baseline.get("state_inventory") != inventory or baseline.get("state_inventory_sha256") != _canonical_sha(inventory):
+        raise VerificationError("checkpoint state inventory is invalid")
+    state = _load_json(state_dir / "state.json", root=state_dir)
+    if not isinstance(state, dict) or state.get("schema_version") != "evoagent-seagym-state-v1":
+        raise VerificationError("checkpoint state manifest is invalid")
+    if state.get("seed") != 42 or state.get("model_id") != EXPECTED_MODEL_API:
+        raise VerificationError("checkpoint state model or seed drifted")
+    if state.get("causal_attribution_claimed") is not False or state.get("promotion_claimed") is not False:
+        raise VerificationError("checkpoint state claims causality or promotion")
+    a0 = state.get("a0_sha256")
+    candidate = state.get("evaluation_candidate_sha256")
+    if not isinstance(a0, str) or not HEX64.fullmatch(a0) or not isinstance(candidate, str) or not HEX64.fullmatch(candidate):
+        raise VerificationError("checkpoint snapshot hashes are invalid")
+    component_hashes_by_snapshot: dict[str, dict[str, str]] = {}
+    for digest in (a0, candidate):
+        snapshot = _load_json(state_dir / "snapshots" / f"{digest}.json", root=state_dir)
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != "evoagent-seagym-harness-v1":
+            raise VerificationError("harness snapshot schema is invalid")
+        if snapshot.get("snapshot_sha256") != digest:
+            raise VerificationError("harness snapshot content address is invalid")
+        if snapshot.get("evaluation_only") is not True:
+            raise VerificationError("harness snapshot is not evaluation-only")
+        if snapshot.get("causal_attribution_claimed") is not False or snapshot.get("promotion_claimed") is not False:
+            raise VerificationError("harness snapshot exceeds the claim boundary")
+        components = snapshot.get("components")
+        component_hashes = snapshot.get("component_sha256")
+        if not isinstance(components, dict) or set(components) != {"skills", "memory", "router", "policy"}:
+            raise VerificationError("harness components are invalid")
+        expected_components = {name: _canonical_sha(components[name]) for name in sorted(components)}
+        if component_hashes != expected_components:
+            raise VerificationError("harness component hashes are invalid")
+        previous_components = component_hashes_by_snapshot.get(digest)
+        if previous_components is not None and previous_components != expected_components:
+            raise VerificationError("duplicate snapshot digest has conflicting component hashes")
+        component_hashes_by_snapshot[digest] = expected_components
+        unsigned = dict(snapshot)
+        unsigned.pop("snapshot_sha256")
+        if _canonical_sha(unsigned) != digest:
+            raise VerificationError("harness snapshot hash is invalid")
+    for relative in sorted(key for key in inventory if key.startswith("attempts/")):
+        attempt = _load_json(state_dir / relative, root=state_dir)
+        if (
+            not isinstance(attempt, dict)
+            or attempt.get("schema_version") != "evoagent-seagym-update-attempt-v1"
+            or attempt.get("seed") != 42
+            or attempt.get("model_id") != EXPECTED_MODEL_API
+        ):
+            raise VerificationError("update attempt model or seed drifted")
+    return a0, candidate, component_hashes_by_snapshot
+
+
+def _validate_updates(run_dir: Path) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    source = run_dir / "records" / "agent_updates.jsonl"
+    _scan_secret_bytes(source)
+    rows = _load_jsonl(source, root=run_dir, expected=2)
+    safe: list[dict[str, Any]] = []
+    candidate_by_update: dict[int, str] = {}
+    for expected_index, row in enumerate(rows, start=1):
+        _reject_nonempty_reasoning(row)
+        if row.get("global_update_index") != expected_index or row.get("train_batch_index") != expected_index:
+            raise VerificationError("agent update sequence drifted")
+        summary = row.get("summary")
+        if not isinstance(summary, dict):
+            raise VerificationError("agent update summary is missing")
+        if summary.get("update_index") != expected_index or summary.get("type") != "baseline_update":
+            raise VerificationError("agent update identity drifted")
+        logs = summary.get("logs") or {}
+        if not isinstance(logs, dict):
+            raise VerificationError("agent update logs are invalid")
+        if logs.get("causal_attribution_claimed", False) is not False or logs.get("promotion_claimed", False) is not False:
+            raise VerificationError("agent update claims causality or promotion")
+        candidate = logs.get("candidate_sha256")
+        if candidate is not None:
+            if not isinstance(candidate, str) or not HEX64.fullmatch(candidate):
+                raise VerificationError("agent update candidate hash is invalid")
+            candidate_by_update[expected_index] = candidate
+        metrics = summary.get("metrics") or {}
+        if not isinstance(metrics, dict):
+            raise VerificationError("agent update metrics are invalid")
+        safe.append(
+            {
+                "update_index": expected_index,
+                "changed": summary.get("changed") is True,
+                "status": str(summary.get("status", "unknown"))[:40],
+                "candidate_sha256": candidate,
+                "evidence_sha256": logs.get("evidence_sha256") if isinstance(logs.get("evidence_sha256"), str) else None,
+                "input_tokens": _optional_number(metrics.get("input_tokens")),
+                "output_tokens": _optional_number(metrics.get("output_tokens")),
+                "cost_usd": _optional_number(metrics.get("cost_usd")),
+                "causal_attribution_claimed": False,
+                "promotion_claimed": False,
+            }
+        )
+    return safe, candidate_by_update
+
+
+def _optional_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    return _finite_number(value, "optional metric")
+
+
+def _trial_payload(row: dict[str, Any], run_dir: Path) -> tuple[dict[str, Any], Path]:
+    refs = row.get("refs")
+    raw_path = refs.get("result_path") if isinstance(refs, dict) else None
+    if not isinstance(raw_path, str) or not raw_path:
+        raise VerificationError("task row lacks a Harbor result_path")
+    jobs_root = (run_dir / "harbor" / "jobs").resolve(strict=True)
+    result_path = Path(raw_path)
+    if not result_path.is_absolute():
+        result_path = jobs_root / result_path
+    result_path = _regular_file(result_path, root=jobs_root)
+    _scan_secret_bytes(result_path)
+    payload = _load_json(result_path, root=jobs_root)
+    if not isinstance(payload, dict):
+        raise VerificationError("Harbor trial result is not an object")
+    # TrialConfig legitimately persists the locked control
+    # `route_contract.reasoning={"enabled": false}`.  Hidden model material can
+    # only enter the normalized result through agent_result; the raw runtime is
+    # deleted inside the task container and the ATIF is checked separately.
+    _reject_nonempty_reasoning(payload.get("agent_result"))
+    return payload, result_path
+
+
+def _validate_atif(
+    path: Path,
+    attestation: dict[str, Any],
+    *,
+    expected_snapshot: str,
+    expected_component_hashes: dict[str, str],
+    root: Path,
+) -> dict[str, Any]:
+    _scan_secret_bytes(path)
+    atif = _load_json(path, root=root, max_bytes=8 * 1024 * 1024)
+    _reject_nonempty_reasoning(atif)
+    if (
+        not isinstance(atif, dict)
+        or set(atif) != {"schema_version", "agent", "steps", "final_metrics", "extra"}
+        or atif.get("schema_version") != "ATIF-v1.7"
+    ):
+        raise VerificationError("sanitized ATIF schema is invalid")
+    forbidden = {"session_id", "trajectory_id", "notes", "subagent_trajectories"}
+    if forbidden & set(atif):
+        raise VerificationError("sanitized ATIF contains forbidden identity/transcript fields")
+    extra = atif.get("extra")
+    expected_extra = {
+        "api_model_id": EXPECTED_MODEL_API,
+        "seed": 42,
+        "snapshot_hash": expected_snapshot,
+        "component_hashes": expected_component_hashes,
+        "runtime_identity": {"name": "mimocode", "version": EXPECTED_MIMOCODE["version"]},
+        "route_contract_sha256": EXPECTED_ROUTE_CONTRACT_SHA256,
+    }
+    if extra != expected_extra:
+        raise VerificationError("ATIF snapshot, component, runtime, or route identity drifted")
+    agent = atif.get("agent")
+    expected_agent = {
+        "name": "seagym-evoagent-mimocode",
+        "version": EXPECTED_ADAPTER_VERSION,
+        "model_name": EXPECTED_MODEL_HARBOR,
+        "extra": expected_extra,
+    }
+    if agent != expected_agent:
+        raise VerificationError("sanitized ATIF agent identity drifted")
+    steps = atif.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise VerificationError("sanitized ATIF has no steps")
+    allowed_status = {
+        "status:pending",
+        "status:running",
+        "status:success",
+        "status:error",
+        "status:timeout",
+        "status:cancelled",
+        "status:unknown",
+    }
+    aggregate: dict[str, int | float] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cached_tokens": 0,
+        "cost_usd": 0.0,
+    }
+    seen_metrics: set[str] = set()
+    for expected, step in enumerate(steps, start=1):
+        if not isinstance(step, dict) or step.get("step_id") != expected or step.get("message") != "":
+            raise VerificationError("sanitized ATIF step is invalid")
+        if expected == 1:
+            if step != {"step_id": 1, "source": "system", "message": "", "extra": {"status": "sanitized"}}:
+                raise VerificationError("sanitized ATIF system boundary step is invalid")
+            continue
+        allowed_step_keys = {
+            "step_id",
+            "source",
+            "message",
+            "model_name",
+            "timestamp",
+            "metrics",
+            "llm_call_count",
+            "tool_calls",
+            "observation",
+            "extra",
+        }
+        if set(step) - allowed_step_keys or step.get("source") != "agent" or step.get("model_name") != EXPECTED_MODEL_HARBOR:
+            raise VerificationError("sanitized ATIF agent step identity is invalid")
+        if "timestamp" in step and (
+            not isinstance(step["timestamp"], str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", step["timestamp"])
+        ):
+            raise VerificationError("sanitized ATIF timestamp is invalid")
+        metrics = step.get("metrics")
+        if metrics is not None:
+            if not isinstance(metrics, dict) or not metrics or set(metrics) - set(aggregate):
+                raise VerificationError("sanitized ATIF metrics shape is invalid")
+            for key, value in metrics.items():
+                if key == "cost_usd":
+                    parsed: int | float = _finite_number(value, "ATIF step cost")
+                else:
+                    parsed = _bounded_int(value, f"ATIF step {key}")
+                aggregate[key] += parsed
+                seen_metrics.add(key)
+            if metrics.get("cached_tokens", 0) > metrics.get("prompt_tokens", 0):
+                raise VerificationError("ATIF step cached tokens exceed prompt tokens")
+            if step.get("llm_call_count") != 1:
+                raise VerificationError("sanitized ATIF metric step must represent one model call")
+        elif "llm_call_count" in step:
+            raise VerificationError("sanitized ATIF llm_call_count requires metrics")
+        calls = step.get("tool_calls")
+        if calls is not None:
+            if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
+                raise VerificationError("sanitized ATIF tool call shape is invalid")
+            call = calls[0]
+            if (
+                set(call) != {"tool_call_id", "function_name", "arguments"}
+                or not isinstance(call.get("tool_call_id"), str)
+                or not re.fullmatch(r"tool-\d{6}", call["tool_call_id"])
+                or call.get("function_name") not in SAFE_TOOL_NAMES
+                or call.get("arguments") != {}
+            ):
+                raise VerificationError("sanitized ATIF retained or invented tool material")
+            observation = step.get("observation")
+            results = observation.get("results") if isinstance(observation, dict) and set(observation) == {"results"} else None
+            if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+                raise VerificationError("sanitized ATIF observation is invalid")
+            result = results[0]
+            if (
+                set(result) != {"source_call_id", "content"}
+                or result.get("source_call_id") != call["tool_call_id"]
+                or result.get("content") not in allowed_status
+            ):
+                raise VerificationError("sanitized ATIF retained tool output or mismatched its call")
+            status = result["content"].split(":", 1)[1]
+            if step.get("extra") != {"status": status}:
+                raise VerificationError("sanitized ATIF tool status is inconsistent")
+        elif any(key in step for key in ("observation", "extra")):
+            raise VerificationError("sanitized ATIF observation metadata requires a tool call")
+        if metrics is None and calls is None:
+            raise VerificationError("sanitized ATIF agent step has no structural evidence")
+    final_metrics = atif.get("final_metrics")
+    expected_metric_keys = {"total_steps"} | {
+        ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
+        for name in seen_metrics
+    }
+    if not isinstance(final_metrics, dict) or set(final_metrics) != expected_metric_keys or final_metrics.get("total_steps") != len(steps):
+        raise VerificationError("sanitized ATIF final metrics shape is invalid")
+    for name in seen_metrics:
+        total_name = "total_cost_usd" if name == "cost_usd" else f"total_{name}"
+        actual = final_metrics.get(total_name)
+        expected_total = aggregate[name]
+        if name == "cost_usd":
+            if not math.isclose(_finite_number(actual, "ATIF total cost"), float(expected_total), abs_tol=1e-12):
+                raise VerificationError("sanitized ATIF final cost does not match its steps")
+        elif _bounded_int(actual, f"ATIF {total_name}") != expected_total:
+            raise VerificationError("sanitized ATIF final tokens do not match its steps")
+    atif_usage = {
+        "prompt_tokens": int(aggregate["prompt_tokens"]),
+        "completion_tokens": int(aggregate["completion_tokens"]),
+        "cached_tokens": int(aggregate["cached_tokens"]),
+        "cost_usd": float(aggregate["cost_usd"]),
+    }
+    attested_usage = attestation.get("usage")
+    if not isinstance(attested_usage, dict) or set(attested_usage) != set(atif_usage):
+        raise VerificationError("Harbor attestation usage shape is invalid")
+    for key, expected_value in atif_usage.items():
+        actual = attested_usage.get(key)
+        if key == "cost_usd":
+            if not math.isclose(_finite_number(actual, "attestation cost_usd"), expected_value, abs_tol=1e-12):
+                raise VerificationError("Harbor attestation cost differs from ATIF")
+        elif _bounded_int(actual, f"attestation {key}") != expected_value:
+            raise VerificationError("Harbor attestation tokens differ from ATIF")
+    if _sha256(path, max_bytes=8 * 1024 * 1024) != attestation.get("atif_sha256"):
+        raise VerificationError("ATIF hash does not match its attestation")
+    return atif
+
+
+def _validate_attestation(
+    result_path: Path,
+    expected_snapshot: str,
+    expected_component_hashes: dict[str, str],
+) -> tuple[dict[str, Any], str]:
+    trial_dir = result_path.parent
+    agent_dir = (trial_dir / "agent").resolve(strict=True)
+    if agent_dir.is_symlink() or agent_dir.parent != trial_dir.resolve(strict=True):
+        raise VerificationError("Harbor agent evidence directory is invalid")
+    attestation_path = _regular_file(agent_dir / "evoagent-attestation.json", root=trial_dir)
+    _scan_secret_bytes(attestation_path)
+    attestation = _load_json(attestation_path, root=trial_dir)
+    expected_attestation_keys = {
+        "schema_version",
+        "snapshot_sha256",
+        "component_sha256",
+        "atif_sha256",
+        "route_contract_sha256",
+        "model",
+        "seed",
+        "runtime",
+        "usage",
+        "raw_prompt_persisted",
+        "raw_response_persisted",
+        "reasoning_persisted",
+        "causal_attribution_claimed",
+        "promotion_claimed",
+        "activation_claimed",
+        "attestation_sha256",
+    }
+    if (
+        not isinstance(attestation, dict)
+        or set(attestation) != expected_attestation_keys
+        or attestation.get("schema_version") != "evoagent-harbor-attestation-v1"
+    ):
+        raise VerificationError("EvoAgent Harbor attestation schema is invalid")
+    unsigned = dict(attestation)
+    claimed_hash = unsigned.pop("attestation_sha256", None)
+    if not isinstance(claimed_hash, str) or not HEX64.fullmatch(claimed_hash) or _canonical_sha(unsigned) != claimed_hash:
+        raise VerificationError("EvoAgent Harbor attestation hash is invalid")
+    if attestation.get("snapshot_sha256") != expected_snapshot:
+        raise VerificationError("Harbor trial used the wrong EvoAgent snapshot")
+    if attestation.get("component_sha256") != expected_component_hashes:
+        raise VerificationError("Harbor trial component hashes differ from the verified snapshot")
+    if attestation.get("route_contract_sha256") != EXPECTED_ROUTE_CONTRACT_SHA256:
+        raise VerificationError("Harbor trial route-contract hash drifted")
+    if attestation.get("seed") != 42:
+        raise VerificationError("Harbor trial seed drifted")
+    model = attestation.get("model")
+    expected_model = {
+        "api_id": EXPECTED_MODEL_API,
+        "harbor_id": EXPECTED_MODEL_HARBOR,
+        "openrouter_provider": EXPECTED_ENDPOINT,
+        "fallbacks_allowed": False,
+        "reasoning_enabled": False,
+        "credential_transport": "local_guard_proxy_v1",
+    }
+    if model != expected_model:
+        raise VerificationError("Harbor trial model route attestation drifted")
+    runtime = attestation.get("runtime")
+    expected_runtime = {
+        "adapter_version": EXPECTED_ADAPTER_VERSION,
+        "mimocode_version": EXPECTED_MIMOCODE["version"],
+        "mimocode_archive_sha256": EXPECTED_MIMOCODE["asset_sha256"],
+        "seagym_commit": EXPECTED_UPSTREAM["seagym"],
+        "harbor_commit": EXPECTED_UPSTREAM["harbor_seagym_gitlink"],
+    }
+    if runtime != expected_runtime:
+        raise VerificationError("Harbor trial runtime identity drifted")
+    for key in ("raw_prompt_persisted", "raw_response_persisted", "reasoning_persisted", "causal_attribution_claimed", "promotion_claimed", "activation_claimed"):
+        if attestation.get(key) is not False:
+            raise VerificationError(f"Harbor attestation violates boundary: {key}")
+    _validate_atif(
+        agent_dir / "trajectory.json",
+        attestation,
+        expected_snapshot=expected_snapshot,
+        expected_component_hashes=expected_component_hashes,
+        root=trial_dir,
+    )
+    return attestation, claimed_hash
+
+
+def _row_expected_snapshot(row: dict[str, Any], snapshots: dict[str, str]) -> str:
+    mode = row.get("mode")
+    batch = row.get("train_batch_index")
+    role = row.get("baseline_role")
+    point = row.get("evaluation_point_id")
+    if role == "A_0":
+        return snapshots["A0"]
+    if role == "A_T":
+        return snapshots["AT"]
+    if mode == "validation" and point == "E_0":
+        return snapshots["A0"]
+    if mode == "train" and batch == 1:
+        return snapshots["A0"]
+    if mode == "replay" and batch == 1:
+        return snapshots["E1"]
+    if mode == "train" and batch == 2:
+        return snapshots["E1"]
+    if mode in {"replay", "validation"} and batch == 2:
+        return snapshots["AT"]
+    raise VerificationError("task row does not map to a frozen snapshot phase")
+
+
+def _validate_rows(
+    run_dir: Path,
+    split: dict[str, Any],
+    plan: dict[str, Any],
+    task_index: dict[str, Any],
+    snapshots: dict[str, str],
+    component_hashes_by_snapshot: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    source = run_dir / "records" / "task_results.jsonl"
+    _scan_secret_bytes(source)
+    rows = _load_jsonl(source, root=run_dir, expected=24)
+    known_tasks = {item["task_id"]: item for item in task_index["tasks"]}
+    splits = split["splits"]
+    replay = plan["views"]["replay"]
+    expected_counts = Counter({"validation": 6, "train": 6, "replay": 6, "final": 3, "final_baseline": 3})
+    actual_counts: Counter[str] = Counter()
+    phase_tasks: dict[str, list[str]] = defaultdict(list)
+    safe_rows: list[dict[str, Any]] = []
+    attestation_hashes: list[str] = []
+    for row in rows:
+        _reject_nonempty_reasoning(row)
+        task_id = row.get("task_id")
+        if task_id not in known_tasks:
+            raise VerificationError("task result contains an unknown task")
+        if row.get("run_id") != plan.get("run_id") or row.get("experiment_id") != plan.get("experiment_id") or row.get("split_id") != split.get("split_id"):
+            raise VerificationError("task result run identity drifted")
+        score = _finite_number(row.get("score"), "task score", maximum=1.0)
+        if score not in (0.0, 1.0):
+            raise VerificationError("Terminal-Bench pilot score must be binary")
+        success = row.get("success") is True
+        error_present = row.get("error") not in (None, "")
+        effective_score = 0.0 if error_present else score
+        if success != (effective_score >= 1.0):
+            raise VerificationError("task success and effective score disagree")
+        role = row.get("baseline_role")
+        mode = row.get("mode")
+        if role == "A_0":
+            phase = "final_baseline"
+        elif role == "A_T":
+            phase = "final"
+        elif mode in {"validation", "train", "replay"}:
+            phase = str(mode)
+        else:
+            raise VerificationError("task result phase is invalid")
+        actual_counts[phase] += 1
+        phase_tasks[phase].append(task_id)
+        payload, result_path = _trial_payload(row, run_dir)
+        harbor_name = payload.get("task_name")
+        if harbor_name not in {task_id, task_id.rsplit("/", 1)[-1]}:
+            raise VerificationError("Harbor trial task identity drifted")
+        refs = row.get("refs") or {}
+        if refs.get("task_checksum") != payload.get("task_checksum"):
+            raise VerificationError("Harbor task checksum does not match the normalized row")
+        rewards = ((payload.get("verifier_result") or {}).get("rewards") or {})
+        reward = rewards.get("reward", 0.0) if isinstance(rewards, dict) else 0.0
+        normalized_reward = _finite_number(reward, "Harbor reward", maximum=1.0)
+        row_reward = ((row.get("rewards") or {}).get("reward", 0.0))
+        if _finite_number(row_reward, "normalized reward", maximum=1.0) != normalized_reward:
+            raise VerificationError("Harbor reward differs from the normalized row")
+        if (payload.get("exception_info") is not None) != error_present:
+            raise VerificationError("Harbor exception state differs from the normalized row")
+        expected_snapshot = _row_expected_snapshot(row, snapshots)
+        expected_component_hashes = component_hashes_by_snapshot.get(expected_snapshot)
+        if expected_component_hashes is None:
+            raise VerificationError("trial snapshot lacks independently verified component hashes")
+        attestation, attestation_hash = _validate_attestation(
+            result_path,
+            expected_snapshot,
+            expected_component_hashes,
+        )
+        attestation_hashes.append(attestation_hash)
+        usage = attestation["usage"]
+        cost = row.get("cost") or {}
+        if not isinstance(cost, dict):
+            raise VerificationError("normalized task cost is invalid")
+        expected_cost_map = {
+            "n_input_tokens": usage["prompt_tokens"],
+            "n_cache_tokens": usage["cached_tokens"],
+            "n_output_tokens": usage["completion_tokens"],
+            "cost_usd": usage["cost_usd"],
+        }
+        for key, value in expected_cost_map.items():
+            if key not in cost or not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
+                raise VerificationError(f"normalized task cost differs from attestation: {key}")
+        safe_rows.append(
+            {
+                "task_id": task_id,
+                "domain": known_tasks[task_id]["attributes"]["domain"],
+                "mode": mode,
+                "view_name": row.get("view_name"),
+                "evaluation_point_id": row.get("evaluation_point_id"),
+                "baseline_role": role,
+                "train_batch_index": row.get("train_batch_index"),
+                "score": effective_score,
+                "success": success,
+                "error_present": error_present,
+                "runtime_seconds": _optional_number(row.get("runtime_seconds")),
+                "input_tokens": usage["prompt_tokens"],
+                "output_tokens": usage["completion_tokens"],
+                "cached_tokens": usage["cached_tokens"],
+                "cost_usd": usage["cost_usd"],
+                "snapshot_sha256": expected_snapshot,
+                "attestation_sha256": attestation_hash,
+                "harbor_result_sha256": _sha256(result_path),
+            }
+        )
+    if actual_counts != expected_counts:
+        raise VerificationError(f"task phase counts drifted: {dict(actual_counts)}")
+    if phase_tasks["train"] != splits["train"]:
+        raise VerificationError("train task execution order drifted")
+    if phase_tasks["validation"] != splits["val"] + splits["val"]:
+        raise VerificationError("frozen-validation execution order drifted")
+    if phase_tasks["replay"] != replay + replay:
+        raise VerificationError("replay execution order drifted")
+    if phase_tasks["final"] != splits["test"] or phase_tasks["final_baseline"] != splits["test"]:
+        raise VerificationError("final A0/AT held-out task order drifted")
+    if len(attestation_hashes) != 24:
+        raise VerificationError("trial attestation coverage is incomplete")
+    summary = _recompute_summary(safe_rows)
+    return safe_rows, summary
+
+
+def _mean(rows: Iterable[dict[str, Any]]) -> float:
+    values = [float(row["score"]) for row in rows]
+    if not values:
+        raise VerificationError("cannot compute a mean from an empty phase")
+    return sum(values) / len(values)
+
+
+def _recompute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    initial_val = [row for row in rows if row["mode"] == "validation" and row["evaluation_point_id"] == "E_0"]
+    final_val = [row for row in rows if row["mode"] == "validation" and row["evaluation_point_id"] != "E_0"]
+    at = [row for row in rows if row["baseline_role"] == "A_T"]
+    a0 = [row for row in rows if row["baseline_role"] == "A_0"]
+    if len(initial_val) != 3 or len(final_val) != 3 or len(at) != 3 or len(a0) != 3:
+        raise VerificationError("comparison phases are incomplete")
+    a0_by_task = {row["task_id"]: row for row in a0}
+    at_by_task = {row["task_id"]: row for row in at}
+    if set(a0_by_task) != set(at_by_task):
+        raise VerificationError("A0 and AT held-out task sets differ")
+    transitions = {
+        "0_to_0": 0,
+        "0_to_1": 0,
+        "1_to_0": 0,
+        "1_to_1": 0,
+    }
+    per_task = []
+    for task_id in sorted(a0_by_task):
+        before = int(a0_by_task[task_id]["score"])
+        after = int(at_by_task[task_id]["score"])
+        transitions[f"{before}_to_{after}"] += 1
+        per_task.append({"task_id": task_id, "A_0": before, "A_T": after, "delta": after - before})
+    a0_mean = _mean(a0)
+    at_mean = _mean(at)
+    initial_val_mean = _mean(initial_val)
+    final_val_mean = _mean(final_val)
+    return {
+        "held_out": {
+            "n_tasks": 3,
+            "A_0_mean_score": a0_mean,
+            "A_T_mean_score": at_mean,
+            "gain_vs_A_0": at_mean - a0_mean,
+            "A_0_domain_macro_success_rate": _domain_macro(a0),
+            "A_T_domain_macro_success_rate": _domain_macro(at),
+            "transitions": transitions,
+            "per_task": per_task,
+        },
+        "frozen_validation": {
+            "n_tasks": 3,
+            "initial_mean_score": initial_val_mean,
+            "final_mean_score": final_val_mean,
+            "delta": final_val_mean - initial_val_mean,
+        },
+        "train_mean_score": _mean(row for row in rows if row["mode"] == "train"),
+        "replay_mean_score": _mean(row for row in rows if row["mode"] == "replay"),
+        "errors": sum(1 for row in rows if row["error_present"]),
+        "rollout_input_tokens": sum(int(row["input_tokens"]) for row in rows),
+        "rollout_output_tokens": sum(int(row["output_tokens"]) for row in rows),
+        "rollout_cache_tokens": sum(int(row["cached_tokens"]) for row in rows),
+        "rollout_attested_total_tokens": sum(
+            int(row["input_tokens"]) + int(row["output_tokens"]) for row in rows
+        ),
+        "seagym_rollout_total_tokens": sum(
+            int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
+            for row in rows
+        ),
+        "rollout_cost_usd": sum(float(row["cost_usd"]) for row in rows),
+    }
+
+
+def _domain_macro(rows: Iterable[dict[str, Any]]) -> float:
+    grouped: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        domain = row.get("domain")
+        if not isinstance(domain, str) or not domain:
+            raise VerificationError("task domain is missing")
+        grouped[domain].append(float(row["score"]))
+    if not grouped:
+        raise VerificationError("cannot compute domain macro from an empty phase")
+    return sum(sum(values) / len(values) for values in grouped.values()) / len(grouped)
+
+
+def _validate_metrics(run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    metrics = _load_json(run_dir / "metrics.json", root=run_dir)
+    if not isinstance(metrics, dict):
+        raise VerificationError("SEAGym metrics are invalid")
+    expected = summary["held_out"]
+    for section in ("success_rate", "mean_score"):
+        values = metrics.get(section)
+        if not isinstance(values, dict):
+            raise VerificationError(f"SEAGym metric section missing: {section}")
+        if not math.isclose(_finite_number(values.get("id_test.A_0"), section), expected["A_0_mean_score"], abs_tol=1e-12):
+            raise VerificationError(f"SEAGym {section} A0 differs from trial evidence")
+        if not math.isclose(_finite_number(values.get("id_test.A_T"), section), expected["A_T_mean_score"], abs_tol=1e-12):
+            raise VerificationError(f"SEAGym {section} AT differs from trial evidence")
+    domain_macro = metrics.get("domain_macro_success_rate")
+    if not isinstance(domain_macro, dict):
+        raise VerificationError("SEAGym domain-macro metric section is missing")
+    if not math.isclose(
+        _finite_number(domain_macro.get("id_test.A_0"), "domain macro A0"),
+        expected["A_0_domain_macro_success_rate"],
+        abs_tol=1e-12,
+    ):
+        raise VerificationError("SEAGym domain-macro A0 differs from trial evidence")
+    if not math.isclose(
+        _finite_number(domain_macro.get("id_test.A_T"), "domain macro AT"),
+        expected["A_T_domain_macro_success_rate"],
+        abs_tol=1e-12,
+    ):
+        raise VerificationError("SEAGym domain-macro AT differs from trial evidence")
+    final_gain = metrics.get("final_gain")
+    if not isinstance(final_gain, dict) or not math.isclose(_finite_number(final_gain.get("id_test"), "final gain", minimum=-1.0, maximum=1.0), expected["gain_vs_A_0"], abs_tol=1e-12):
+        raise VerificationError("SEAGym final gain differs from trial evidence")
+    tokens = metrics.get("tokens")
+    if not isinstance(tokens, dict):
+        raise VerificationError("SEAGym token metrics are missing")
+    rollout = tokens.get("rollout")
+    update = tokens.get("update")
+    overall = tokens.get("overall")
+    if not isinstance(rollout, dict) or rollout.get("num_records") != 24:
+        raise VerificationError("SEAGym rollout token record count drifted")
+    if not isinstance(update, dict) or update.get("num_records") != 2:
+        raise VerificationError("SEAGym update token record count drifted")
+    if not isinstance(overall, dict) or overall.get("num_records") != 26:
+        raise VerificationError("SEAGym overall token record count drifted")
+    for group in (rollout, update, overall):
+        for key in ("input_tokens", "output_tokens", "total_tokens", "cost_usd"):
+            if key in group:
+                _finite_number(group[key], f"SEAGym tokens.{key}")
+    if not math.isclose(
+        _finite_number(rollout.get("total_tokens"), "rollout total tokens"),
+        summary["seagym_rollout_total_tokens"],
+        abs_tol=1e-6,
+    ):
+        raise VerificationError("SEAGym rollout token total differs from trial attestations")
+    token_field_expectations = {
+        "input_tokens": summary["rollout_input_tokens"],
+        "cache_tokens": summary["rollout_cache_tokens"],
+        "output_tokens": summary["rollout_output_tokens"],
+    }
+    for field, expected_total in token_field_expectations.items():
+        if not math.isclose(_finite_number(rollout.get(field), f"rollout {field}"), expected_total, abs_tol=1e-6):
+            raise VerificationError(f"SEAGym rollout {field} differs from trial attestations")
+    if not math.isclose(_finite_number(rollout.get("cost_usd"), "rollout cost"), summary["rollout_cost_usd"], abs_tol=1e-8):
+        raise VerificationError("SEAGym rollout cost differs from trial attestations")
+    return {
+        "rollout_attested_total_tokens": summary["rollout_attested_total_tokens"],
+        "seagym_rollout_total_tokens": rollout["total_tokens"],
+        "seagym_update_total_tokens": update.get("total_tokens", 0),
+        "seagym_overall_total_tokens": overall["total_tokens"],
+        "token_accounting_note": "SEAGym total_tokens adds cache_tokens to input_tokens even though Harbor defines input_tokens as cache-inclusive; both values are retained.",
+        "rollout_cost_usd": rollout["cost_usd"],
+        "update_cost_usd": update.get("cost_usd", 0),
+        "overall_cost_usd": overall["cost_usd"],
+    }
+
+
+def _validate_evaluation_points(run_dir: Path, summary: dict[str, Any]) -> None:
+    points = _load_jsonl(run_dir / "records" / "evaluation_points.jsonl", root=run_dir, expected=4)
+    if [point.get("evaluation_point_id") for point in points] != ["E_0", "E_1", "E_2", "E_T"]:
+        raise VerificationError("SEAGym evaluation-point sequence drifted")
+    final = points[-1]
+    evaluations = final.get("evaluations")
+    view = evaluations.get("id_test") if isinstance(evaluations, dict) else None
+    if not isinstance(view, dict) or view.get("agent_checkpoint_id") != "A_T" or view.get("baseline_checkpoint_id") != "A_0":
+        raise VerificationError("SEAGym final checkpoint comparison is invalid")
+    held_out = summary["held_out"]
+    expected = {
+        "num_tasks": 3,
+        "num_baseline_tasks": 3,
+        "score": held_out["A_T_mean_score"],
+        "baseline_score": held_out["A_0_mean_score"],
+        "gain_vs_A_0": held_out["gain_vs_A_0"],
+    }
+    for key, value in expected.items():
+        if isinstance(value, int):
+            if view.get(key) != value:
+                raise VerificationError(f"final evaluation point differs: {key}")
+        elif not math.isclose(_finite_number(view.get(key), f"final point {key}", minimum=-1.0, maximum=1.0), value, abs_tol=1e-12):
+            raise VerificationError(f"final evaluation point differs: {key}")
+
+
+def _usage_cost(before_path: Path, after_path: Path) -> dict[str, Any]:
+    before = _load_json(before_path)
+    after = _load_json(after_path)
+    for label, value in (("before", before), ("after", after)):
+        if not isinstance(value, dict) or value.get("schema_version") != "openrouter-safe-key-usage-v1" or value.get("authenticated") is not True:
+            raise VerificationError(f"OpenRouter {label} usage evidence is invalid")
+        numeric = value.get("numeric")
+        if not isinstance(numeric, dict):
+            raise VerificationError(f"OpenRouter {label} numeric usage is missing")
+    try:
+        before_usage = Decimal(str(before["numeric"]["usage"]))
+        after_usage = Decimal(str(after["numeric"]["usage"]))
+    except (InvalidOperation, KeyError, TypeError) as exc:
+        raise VerificationError("OpenRouter cumulative usage is invalid") from exc
+    if not before_usage.is_finite() or not after_usage.is_finite() or before_usage < 0 or after_usage < before_usage:
+        raise VerificationError("OpenRouter cumulative usage moved backwards or is non-finite")
+    return {
+        "observed_key_usage_delta_usd": float(after_usage - before_usage),
+        "before_checked_at": before.get("checked_at"),
+        "after_checked_at": after.get("checked_at"),
+        "accounting_scope": "entire_key_between_two_timestamps",
+    }
+
+
+def _classification(summary: dict[str, Any]) -> str:
+    gain = summary["held_out"]["gain_vs_A_0"]
+    validation_delta = summary["frozen_validation"]["delta"]
+    if summary["errors"] or gain < 0 or validation_delta < 0:
+        return "negative_pilot_signal"
+    if gain > 0:
+        return "positive_pilot_signal"
+    return "no_detectable_pilot_signal"
+
+
+def verify_pilot(
+    *,
+    run_dir: Path,
+    protocol_path: Path,
+    usage_before: Path,
+    usage_after: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    run_dir = run_dir.resolve(strict=True)
+    if run_dir.is_symlink() or not run_dir.is_dir():
+        raise VerificationError("run_dir must be a regular directory")
+    protocol, repo_root = _validate_protocol(protocol_path)
+    _config, split, task_index = _validate_frozen_inputs(protocol, repo_root, run_dir)
+    plan = _validate_batch_plan(run_dir, split)
+    initial_a0, initial_candidate, initial_components = _checkpoint_snapshot(run_dir, "initial")
+    if initial_a0 != initial_candidate:
+        raise VerificationError("initial A0 checkpoint is not the unevolved snapshot")
+    e1_a0, e1, e1_components = _checkpoint_snapshot(run_dir, "E_1")
+    final_a0, final_candidate, final_components = _checkpoint_snapshot(run_dir, "final")
+    if not (initial_a0 == e1_a0 == final_a0):
+        raise VerificationError("A0 snapshot changed across checkpoints")
+    component_hashes_by_snapshot: dict[str, dict[str, str]] = {}
+    for source in (initial_components, e1_components, final_components):
+        for digest, component_hashes in source.items():
+            previous = component_hashes_by_snapshot.get(digest)
+            if previous is not None and previous != component_hashes:
+                raise VerificationError("snapshot component hashes conflict across checkpoints")
+            component_hashes_by_snapshot[digest] = component_hashes
+    updates, candidate_by_update = _validate_updates(run_dir)
+    if candidate_by_update.get(1, e1) != e1 or candidate_by_update.get(2, final_candidate) != final_candidate:
+        raise VerificationError("update candidate hashes differ from checkpoints")
+    snapshots = {"A0": initial_a0, "E1": e1, "AT": final_candidate}
+    safe_rows, summary = _validate_rows(
+        run_dir,
+        split,
+        plan,
+        task_index,
+        snapshots,
+        component_hashes_by_snapshot,
+    )
+    metric_usage = _validate_metrics(run_dir, summary)
+    _validate_evaluation_points(run_dir, summary)
+    cost = _usage_cost(usage_before, usage_after)
+    result = {
+        "schema_version": FORMAT_VERSION,
+        "claim": CLAIM,
+        "protocol_id": protocol["protocol_id"],
+        "run_id": plan["run_id"],
+        "experiment_id": plan["experiment_id"],
+        "results_status": "verified_completed_real_pilot",
+        "pilot_kind": "real_external_scientific_pilot",
+        "leaderboard_submission": False,
+        "paper_scale_reproduction": False,
+        "directional_only": True,
+        "held_out_n": 3,
+        "seed": 42,
+        "model": {
+            "request_id": EXPECTED_MODEL_API,
+            "canonical_id": EXPECTED_CANONICAL_MODEL,
+            "harbor_id": EXPECTED_MODEL_HARBOR,
+            "provider_endpoint": EXPECTED_ENDPOINT,
+            "fallbacks_allowed": False,
+            "reasoning_enabled": False,
+        },
+        "upstream": EXPECTED_UPSTREAM,
+        "snapshots": snapshots,
+        "comparison": summary,
+        "classification": _classification(summary),
+        "usage": {**metric_usage, **cost},
+        "evidence": {
+            "planned_task_trials": 24,
+            "verified_task_trials": len(safe_rows),
+            "verified_update_attempts": len(updates),
+            "privacy_projection_verified": True,
+            "credential_exposure_observed": False,
+            "hidden_reasoning_persisted": False,
+        },
+        "claim_boundary": {
+            "causal_attribution_claimed": False,
+            "automatic_promotion": False,
+            "promotion_effect": "none",
+            "official_terminal_bench_leaderboard_result": False,
+        },
+    }
+    return result, safe_rows, updates
+
+
+def _atomic_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_temp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp = Path(raw_temp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(value, handle, indent=2, sort_keys=True, allow_nan=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def _atomic_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_temp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp = Path(raw_temp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def write_bundle(output_dir: Path, result: dict[str, Any], rows: list[dict[str, Any]], updates: list[dict[str, Any]]) -> None:
+    output_dir = output_dir.resolve(strict=False)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir.is_symlink():
+        raise VerificationError("output_dir cannot be a symlink")
+    allowed_existing = {"comparison.json", "task-results.jsonl", "update-summary.json", "SHA256SUMS"}
+    unexpected = {path.name for path in output_dir.iterdir()} - allowed_existing
+    if unexpected:
+        raise VerificationError("output_dir contains unexpected files")
+    _atomic_json(output_dir / "comparison.json", result)
+    _atomic_jsonl(output_dir / "task-results.jsonl", rows)
+    _atomic_json(output_dir / "update-summary.json", {"schema_version": FORMAT_VERSION, "updates": updates})
+    names = ["comparison.json", "task-results.jsonl", "update-summary.json"]
+    lines = [f"{_sha256(output_dir / name)}  {name}" for name in names]
+    (output_dir / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    for name in names:
+        _scan_secret_bytes(output_dir / name)
+        value = _load_json(output_dir / name) if name.endswith(".json") else None
+        if value is not None:
+            _reject_nonempty_reasoning(value)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--protocol", type=Path, required=True)
+    parser.add_argument("--openrouter-usage-before", type=Path, required=True)
+    parser.add_argument("--openrouter-usage-after", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        result, rows, updates = verify_pilot(
+            run_dir=args.run_dir,
+            protocol_path=args.protocol,
+            usage_before=args.openrouter_usage_before,
+            usage_after=args.openrouter_usage_after,
+        )
+        write_bundle(args.output_dir, result, rows, updates)
+    except (OSError, VerificationError) as exc:
+        raise SystemExit(f"SEAGym pilot verification failed: {type(exc).__name__}: {exc}") from None
+    print(f"Verified {len(rows)} real Terminal-Bench task trials; classification={result['classification']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

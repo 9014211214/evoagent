@@ -60,7 +60,7 @@ from evoagent.traces import JsonlTraceStore, TraceTrustLevel
 
 
 DEFAULT_THIRD_PARTY_LOCK_HASH = (
-    "38d9b1efad86df11a45c201d23299a819ec2494592e93da6b660b03dd24f33bb"
+    "ec92454da839390ec656765730f575b88984f71682a1c05ed111cae9fb57227f"
 )
 
 

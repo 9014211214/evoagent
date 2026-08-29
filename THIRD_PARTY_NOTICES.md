@@ -2,7 +2,7 @@
 
 The independently authored core does not include copied third-party source code. The machine-readable source of truth is `THIRD_PARTY_LOCK.json`; this document provides the corresponding human-readable attribution and integration boundaries.
 
-License metadata below was reviewed against the pinned upstream commits on 2026-08-09. A later upstream commit is not automatically covered by this review.
+License metadata below was reviewed against the pinned upstream commits on 2026-08-29. A later upstream commit is not automatically covered by this review.
 
 ## Harbor
 
@@ -116,14 +116,118 @@ Integration boundary:
 - Leaderboard mode requires explicit opt-in and at least five trials per task.
 - This repository does not claim a benchmark result until a real external run is completed and independently validated.
 
-## External model service used only by optional calibration
+## SEAGym
 
-The optional Full-Agent integration calibration can call Xiaomi MiMo-V2.5
-through OpenRouter. Neither OpenRouter source nor Xiaomi model weights are
-copied, vendored, downloaded, redistributed or included as a package
-dependency. The independently authored adapter uses OpenRouter's public HTTPS
-API contract and an owner-supplied credential. Model access, pricing, data
-handling and use remain subject to the providers' current terms:
+- Repository: https://github.com/antropy-research/SEAGym
+- Reviewed commit: 9e61e14db1f1355de944cd7c5b10c244fc74e82d
+- License: Apache-2.0
+- License path: LICENSE
+- License Git blob SHA: 261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64
+- Upstream NOTICE at reviewed commit: none found
+- Integration method: external_checkout
+- Source copied: false
+- Modified: true, only in the transient workflow checkout
+- Purpose: Optional outer training and frozen-evaluation lifecycle for the Terminal-Bench 2.0 scientific pilot.
+- Required attribution: Record SEAGym, its repository, reviewed commit, Apache-2.0 license, external-checkout boundary, and the controlled token-redaction patch hash.
+
+Integration boundary:
+
+- Modifications summary: The external checkout receives one hash-pinned workflow patch that preserves numeric token-count telemetry while retaining credential redaction; no SEAGym source is vendored in this repository.
+- No SEAGym source file is copied into the EvoAgent source tree.
+- The workflow must verify the exact checkout commit and the original
+  seagym/logging/redaction.py Git blob
+  daa4fe84a28c63b68aaaffa6318e82a54b7be2df before patching.
+- The only allowed modification is
+  experiments/seagym_terminalbench/patches/seagym-token-count-redaction.patch,
+  SHA-256
+  0c5302339bdcbeec076796b38f6ffd81803ce7f40cec1922c410294e8472018c.
+  It preserves numeric token-count telemetry while retaining redaction for
+  credential-shaped values.
+- Applying that patch to a transient checkout is not an upstream contribution,
+  fork, or claim that upstream accepted the change.
+
+## Harbor (SEAGym runtime)
+
+- Repository: https://github.com/harbor-framework/harbor
+- Reviewed commit: f7110f1a240c6a50589b90c4d69714763946d088
+- License: Apache-2.0
+- License path: LICENSE
+- License Git blob SHA: 261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64
+- Upstream NOTICE at reviewed commit: none found
+- Integration method: external_checkout
+- Source copied: false
+- Modified: false
+- Purpose: Exact Harbor runtime selected by the pinned SEAGym gitlink for the scientific pilot.
+- Required attribution: Record the Harbor SEAGym runtime, its repository, reviewed gitlink commit, Apache-2.0 license, and external-checkout boundary.
+
+Integration boundary:
+
+- This is a second, purpose-specific pin of the same official Harbor
+  repository; it does not replace the existing stable CLI-adapter review pin.
+- SEAGym commit 9e61e14db1f1355de944cd7c5b10c244fc74e82d
+  records this exact commit as the reference/harbor gitlink.
+- No Harbor source file is copied or modified in this repository.
+
+## Terminal-Bench 2.0
+
+- Repository: https://github.com/harbor-framework/terminal-bench-2
+- Reviewed commit: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+- License: Apache-2.0
+- License path: LICENSE
+- License Git blob SHA: 261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64
+- Upstream NOTICE at reviewed commit: none found
+- Integration method: dataset_reference
+- Source copied: false
+- Modified: false
+- Purpose: Pinned external task environments and verifiers for the score-blind 6/3/3 SEAGym pilot.
+- Required attribution: Record Terminal-Bench 2.0, its repository, reviewed commit, Apache-2.0 license, and data-reference-only boundary.
+
+Integration boundary:
+
+- The committed task index contains identifiers, public attributes, scoring
+  metadata, and data://terminal-bench-2 references only.
+- No task instruction, image, environment, solution, verifier, or raw run
+  artifact is copied into this repository.
+- The pilot is not a Terminal-Bench leaderboard submission.
+
+## MiMoCode
+
+- Repository: https://github.com/XiaomiMiMo/MiMo-Code
+- Reviewed tag: v0.1.13
+- Reviewed commit: 67c9cf1e26288d03c65fb844be71f39581ffc1de
+- License: MIT
+- Copyright: 2026 MiMo Code, Xiaomi Corporation; 2025 opencode
+- License path: LICENSE
+- License Git blob SHA: 83621ff267c81af7d7ac26254c4ec81d917f4a82
+- Upstream NOTICE at reviewed commit: none found
+- Integration method: subprocess_adapter
+- Source copied: false
+- Modified: false
+- Purpose: Hash-pinned terminal Agent runtime used by the optional SEAGym scientific pilot.
+- Required attribution: Record MiMoCode, Xiaomi Corporation and opencode copyright, repository, v0.1.13 commit, MIT license, and subprocess-only boundary.
+
+Integration boundary:
+
+- The workflow may download only mimocode-linux-x64.tar.gz from the official
+  v0.1.13 GitHub release.
+- The expected archive SHA-256 is
+  0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada;
+  execution must fail closed before extraction if it differs.
+- No MiMoCode source or binary is committed, redistributed, or installed as a
+  core dependency.
+
+## External model service used only by optional calibration and pilot
+
+The optional Full-Agent integration calibration and SEAGym pilot can call
+Xiaomi MiMo-V2.5 through OpenRouter. Neither OpenRouter source nor Xiaomi model
+weights are copied, vendored, downloaded, redistributed or included as a
+package dependency. The independently authored adapter uses OpenRouter's
+public HTTPS API contract and an owner-supplied credential. The pilot freezes
+the request model xiaomi/mimo-v2.5, accepted response model identities
+xiaomi/mimo-v2.5 and xiaomi/mimo-v2.5-20260422, Xiaomi FP8-only routing,
+required Xiaomi response-provider identity, no fallback, required parameter
+support, and reasoning disabled. Model access, pricing, data handling and use
+remain subject to the providers' current terms:
 
 - OpenRouter: https://openrouter.ai/
 - Xiaomi MiMo-V2.5 model page: https://openrouter.ai/xiaomi/mimo-v2.5

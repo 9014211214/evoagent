@@ -1,0 +1,305 @@
+{
+  "tasks": [
+    {
+      "attributes": {
+        "difficulty": "easy",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "software-engineering"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/fix-git",
+        "registry_task_name": "terminal-bench/fix-git",
+        "task_name": "fix-git",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/fix-git",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "data_workflow",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "data-processing"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/log-summary-date-ranges",
+        "registry_task_name": "terminal-bench/log-summary-date-ranges",
+        "task_name": "log-summary-date-ranges",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/log-summary-date-ranges",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "security"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/vulnerable-secret",
+        "registry_task_name": "terminal-bench/vulnerable-secret",
+        "task_name": "vulnerable-secret",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/vulnerable-secret",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "model-training"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/pytorch-model-recovery",
+        "registry_task_name": "terminal-bench/pytorch-model-recovery",
+        "task_name": "pytorch-model-recovery",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/pytorch-model-recovery",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "software-engineering"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/polyglot-c-py",
+        "registry_task_name": "terminal-bench/polyglot-c-py",
+        "task_name": "polyglot-c-py",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/polyglot-c-py",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "hard",
+        "domain": "tool_use",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "system-administration"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/configure-git-webserver",
+        "registry_task_name": "terminal-bench/configure-git-webserver",
+        "task_name": "configure-git-webserver",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/configure-git-webserver",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "hard",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "software-engineering"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/cancel-async-tasks",
+        "registry_task_name": "terminal-bench/cancel-async-tasks",
+        "task_name": "cancel-async-tasks",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/cancel-async-tasks",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "security"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/openssl-selfsigned-cert",
+        "registry_task_name": "terminal-bench/openssl-selfsigned-cert",
+        "task_name": "openssl-selfsigned-cert",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/openssl-selfsigned-cert",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "data_workflow",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "data-processing"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/multi-source-data-merger",
+        "registry_task_name": "terminal-bench/multi-source-data-merger",
+        "task_name": "multi-source-data-merger",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/multi-source-data-merger",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "data_workflow",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "data-processing"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/regex-log",
+        "registry_task_name": "terminal-bench/regex-log",
+        "task_name": "regex-log",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/regex-log",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "security"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/sanitize-git-repo",
+        "registry_task_name": "terminal-bench/sanitize-git-repo",
+        "task_name": "sanitize-git-repo",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/sanitize-git-repo",
+      "visibility": {}
+    },
+    {
+      "attributes": {
+        "difficulty": "medium",
+        "domain": "code",
+        "source_benchmark": "terminal-bench-2",
+        "task_type": "debugging"
+      },
+      "fixtures": {},
+      "scoring": {
+        "main_reward_key": "reward",
+        "score_transform": "identity",
+        "success_threshold": 1.0
+      },
+      "source": {
+        "dataset": "terminal-bench-2",
+        "dataset_path": "data://terminal-bench-2",
+        "dataset_version": "2fd12b88aafdd04a52c298e3940bcb189f9766d6",
+        "local_path": "data://terminal-bench-2/build-cython-ext",
+        "registry_task_name": "terminal-bench/build-cython-ext",
+        "task_name": "build-cython-ext",
+        "type": "harbor"
+      },
+      "task_id": "terminal-bench/build-cython-ext",
+      "visibility": {}
+    }
+  ],
+  "version": "terminal-bench-2@2fd12b88aafdd04a52c298e3940bcb189f9766d6:score-blind-6-3-3-v1"
+}

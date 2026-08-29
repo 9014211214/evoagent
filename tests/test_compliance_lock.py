@@ -33,7 +33,7 @@ def test_repository_third_party_lock_and_notices_verify():
         notices_path=ROOT / "THIRD_PARTY_NOTICES.md",
     )
     assert result.verified is True
-    assert result.components_verified == 5
+    assert result.components_verified == 9
 
 
 def test_lock_hash_and_notice_omission_are_rejected(tmp_path):
@@ -92,6 +92,33 @@ def test_duplicate_components_and_unsafe_copy_metadata_are_rejected():
     )
     with pytest.raises(ValidationError, match="modifications summary"):
         ThirdPartyComponent.model_validate(component)
+
+
+def test_same_repository_supports_distinct_reviewed_runtime_pins():
+    payload = json.loads((ROOT / "THIRD_PARTY_LOCK.json").read_text(encoding="utf-8"))
+    harbor = next(item for item in payload["components"] if item["name"] == "Harbor")
+    second_pin = dict(harbor)
+    second_pin.update(
+        name="Harbor distinct runtime",
+        reviewed_commit="f" * 40,
+        integration_method=IntegrationMethod.EXTERNAL_CHECKOUT,
+    )
+    payload["components"].append(second_pin)
+
+    lock = ThirdPartyLock.model_validate(rehash(payload))
+
+    assert lock.components[-1].repository == lock.components[0].repository
+    assert lock.components[-1].reviewed_commit == "f" * 40
+
+
+def test_exact_duplicate_integration_pin_is_rejected_even_with_an_alias():
+    payload = json.loads((ROOT / "THIRD_PARTY_LOCK.json").read_text(encoding="utf-8"))
+    duplicate = dict(payload["components"][0])
+    duplicate["name"] = "Ambiguous Harbor alias"
+    payload["components"].append(duplicate)
+
+    with pytest.raises(ValidationError, match="integration pins must be unique"):
+        ThirdPartyLock.model_validate(rehash(payload))
 
 
 def test_rehashed_lock_still_requires_valid_component_schema(tmp_path):

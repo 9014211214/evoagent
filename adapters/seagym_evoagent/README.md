@@ -37,6 +37,12 @@ non-empty reasoning fails closed. MiMoCode's `agent.build.steps` is bound to the
 validated snapshot policy (`max_iterations`, 1--32) so a task has a real
 agentic-step limit in addition to the wall-clock timeout.
 
+The Xiaomi endpoint does not advertise the API `seed` parameter, so the
+host-side update request omits it instead of weakening `require_parameters`.
+Seed 42 still binds the Task split/order and host-side attempt, checkpoint, and
+trial evidence. Neither update nor rollout provider sampling is claimed to be
+bit-for-bit deterministic.
+
 ## Verifier-facing files
 
 - Snapshot: `baseline_state/snapshots/<snapshot_sha256>.json`, schema

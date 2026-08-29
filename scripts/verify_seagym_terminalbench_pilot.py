@@ -32,6 +32,18 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2"
+EXPECTED_AMENDMENT = {
+    "amended_at": "2026-08-29T06:03:09Z",
+    "prior_benchmark_trials": 0,
+    "prior_model_inference_completed": False,
+    "prior_observed_usage_delta_usd": 0.0,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+    "prior_score_produced": False,
+    "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
+    "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
+    "score_blind": True,
+}
 EXPECTED_ROUTE_CONTRACT = {
     "provider": {
         "only": [EXPECTED_ENDPOINT],
@@ -250,6 +262,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     protocol = _load_json(protocol_path)
     if not isinstance(protocol, dict) or protocol.get("format_version") != "evoagent-seagym-terminalbench-pilot-v1":
         raise VerificationError("protocol identity is invalid")
+    if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
+        raise VerificationError("score-blind protocol amendment drifted")
     repo_root = _repo_root(protocol_path)
     if protocol.get("upstream") != EXPECTED_UPSTREAM:
         raise VerificationError("upstream commit lock drifted")
@@ -344,13 +358,18 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         "controls": [
             "task_split",
             "frozen_batch_order",
-            "update_request",
+            "update_attempt_record",
             "checkpoint_and_trial_attestation",
         ],
+        "provider_update_sampling_determinism_claimed": False,
         "provider_rollout_sampling_determinism_claimed": False,
     }
     if schedule.get("seed_semantics") != expected_seed_semantics:
         raise VerificationError("protocol seed semantics drifted")
+    if route.get("provider_update_sampling_determinism_claimed") is not False:
+        raise VerificationError("provider update sampling claim drifted")
+    if route.get("update_model_seed_parameter_sent") is not False:
+        raise VerificationError("update model seed-parameter contract drifted")
     artifacts = protocol.get("artifacts")
     if not isinstance(artifacts, dict):
         raise VerificationError("protocol artifact lock is missing")
@@ -1265,6 +1284,9 @@ def verify_pilot(
             "provider_endpoint": EXPECTED_ENDPOINT,
             "fallbacks_allowed": False,
             "reasoning_enabled": False,
+            "update_model_seed_parameter_sent": False,
+            "provider_update_sampling_determinism_claimed": False,
+            "provider_rollout_sampling_determinism_claimed": False,
         },
         "upstream": EXPECTED_UPSTREAM,
         "snapshots": snapshots,

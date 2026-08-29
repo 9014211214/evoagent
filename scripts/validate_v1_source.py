@@ -321,6 +321,7 @@ if model_route != {
     "request_model": "xiaomi/mimo-v2.5",
     "route_contract": expected_route_contract,
     "provider_rollout_sampling_determinism_claimed": False,
+    "provider_update_sampling_determinism_claimed": False,
     "router_audit": {
         "accepted_strategies": ["alias", "direct"],
         "cache_enabled": False,
@@ -329,8 +330,23 @@ if model_route != {
         "successful_attempt": 1,
     },
     "same_model_for_update_and_rollout": True,
+    "update_model_seed_parameter_sent": False,
 }:
     raise SystemExit("SEAGym pilot model route changed")
+if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v2" or protocol.get(
+    "amendment"
+) != {
+    "amended_at": "2026-08-29T06:03:09Z",
+    "prior_benchmark_trials": 0,
+    "prior_model_inference_completed": False,
+    "prior_observed_usage_delta_usd": 0.0,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v1",
+    "prior_score_produced": False,
+    "preflight_artifact_sha256": "caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb",
+    "reason_code": "unsupported_update_seed_filtered_xiaomi_endpoint",
+    "score_blind": True,
+}:
+    raise SystemExit("SEAGym pilot score-blind amendment changed")
 if protocol["runtime"]["mimocode"] != {
     "asset": "mimocode-linux-x64.tar.gz",
     "asset_bytes": 46489490,
@@ -370,9 +386,10 @@ if protocol["schedule"]["seed_semantics"] != {
     "controls": [
         "task_split",
         "frozen_batch_order",
-        "update_request",
+        "update_attempt_record",
         "checkpoint_and_trial_attestation",
     ],
+    "provider_update_sampling_determinism_claimed": False,
     "provider_rollout_sampling_determinism_claimed": False,
 }:
     raise SystemExit("SEAGym pilot seed semantics changed")

@@ -73,6 +73,12 @@ Historical entries below describe research-framework milestones. They do not imp
   checked; duplicate keys and raw prompt/response/reasoning fields are rejected.
   Direct paid execution from the public helper is disabled in favor of an
   expiring, exact-head, transactional one-use private controller.
+- Amended the real SEAGym + Terminal-Bench pilot protocol from v1 to v2 before
+  any provider inference, official Task trial, or score was observed. Xiaomi's
+  endpoint does not support the OpenRouter `seed` parameter, so the update call
+  omits only that unsupported field while retaining the frozen host seed,
+  Xiaomi-only required-parameter route, no fallback, and explicit update and
+  rollout sampling non-determinism claims.
 
 ## 2.0.0 release candidate
 

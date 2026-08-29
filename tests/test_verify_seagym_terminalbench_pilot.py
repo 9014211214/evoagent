@@ -7,6 +7,7 @@ import shutil
 
 import pytest
 
+import scripts.verify_seagym_terminalbench_pilot as pilot_verifier
 from scripts.verify_seagym_terminalbench_pilot import (
     VerificationError,
     _canonical_sha,
@@ -576,3 +577,25 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
 
     with pytest.raises(VerificationError, match="authorized USD 1.20 maximum"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        ("model_route", "provider_update_sampling_determinism_claimed"),
+        ("model_route", "update_model_seed_parameter_sent"),
+    ],
+)
+def test_rejects_seed_claim_amendment_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    section: str,
+    field: str,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol[section][field] = True
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError):
+        pilot_verifier._validate_protocol(path)

@@ -146,7 +146,12 @@ class OpenRouterStructuredClient:
             "provider": self.route_contract["provider"],
             "reasoning": self.route_contract["reasoning"],
             "temperature": 0,
-            "seed": seed,
+            # The frozen Xiaomi endpoint does not advertise the OpenRouter
+            # ``seed`` parameter.  With require_parameters=True, forwarding it
+            # removes the only permitted endpoint before inference.  The host
+            # seed still binds split/order and host-side attempt/evidence
+            # records; provider sampling determinism is deliberately not
+            # claimed.
             "max_tokens": 3000,
             "usage": {"include": True},
         }

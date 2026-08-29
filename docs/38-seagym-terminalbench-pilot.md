@@ -96,10 +96,24 @@ Validation uses one fixed three-task view. Replay uses one fixed three-task
 view after each batch. Final evaluation loads both A_T and the saved A_0
 checkpoint on the same three held-out tasks.
 
-Seed 42 freezes the task split, batch order, update request, checkpoints, and
-trial attestations. It does not claim that OpenRouter's rollout provider offers
-bit-for-bit deterministic sampling; the exact route and provider are frozen,
-and all observed outputs remain part of the evidence.
+Seed 42 freezes the task split and batch order and binds every update-attempt,
+checkpoint, and trial attestation. The Xiaomi endpoint does not advertise the
+OpenRouter `seed` parameter, so the update client does not send it while
+`require_parameters=true`; otherwise OpenRouter filters the only allowed
+endpoint before inference. We claim bit-for-bit determinism for neither update
+nor rollout sampling. The exact model/provider route is frozen, and every
+observed output remains part of the evidence.
+
+This is protocol v2, a score-blind amendment to v1. The only prior
+v2-triggering attempt stopped in OpenRouter routing before provider inference:
+zero official Task trials, no benchmark score, and USD 0 observed usage delta.
+The endpoint capability record showed that Xiaomi supports the required Tool
+parameters but not the API `seed` parameter. The amendment therefore changes
+only that transport field and the corresponding determinism claim; it does not
+change the 12 Tasks, split, order, model, provider, Tool contract, budget,
+metrics, or interpretation rule.
+The sanitized preflight artifact is bound by SHA-256
+`caa249dea1ff5ac015780b673c4fc4f2ab81ed55ec221b6ba13143213eb568eb`.
 
 | Stage | Task trials |
 | --- | ---: |

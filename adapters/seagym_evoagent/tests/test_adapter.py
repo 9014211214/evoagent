@@ -461,6 +461,7 @@ class OpenRouterTests(unittest.TestCase):
         self.assertEqual(body["tool_choice"], "required")
         self.assertEqual(len(body["tools"]), 1)
         self.assertEqual(body["tools"][0]["function"]["name"], "evoagent_harness_components")
+        self.assertNotIn("seed", body)
         self.assertNotIn("response_format", body)
         self.assertEqual(captured["headers"]["X-OpenRouter-Cache"], "false")
         self.assertEqual(captured["headers"]["X-OpenRouter-Metadata"], "enabled")

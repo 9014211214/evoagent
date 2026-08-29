@@ -336,7 +336,7 @@ if model_route != {
 if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3" or protocol.get(
     "amendment"
 ) != {
-    "amended_at": "2026-08-29T16:02:31Z",
+    "amended_at": "2026-08-29T16:08:35Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
     "diagnostic_artifact_id": 9716899456,
     "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",

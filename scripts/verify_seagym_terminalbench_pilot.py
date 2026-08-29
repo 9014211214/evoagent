@@ -34,7 +34,7 @@ EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
 EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3"
 EXPECTED_AMENDMENT = {
-    "amended_at": "2026-08-29T16:02:31Z",
+    "amended_at": "2026-08-29T16:08:35Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
     "diagnostic_artifact_id": 9716899456,
     "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",
@@ -1490,10 +1490,10 @@ def verify_pilot(
     metric_usage = _validate_metrics(run_dir, summary)
     _validate_evaluation_points(run_dir, summary)
     update_llm_call_count = len(updates)
-    verified_logical_requests = rollout_llm_call_count + update_llm_call_count
+    verified_total_logical_requests = rollout_llm_call_count + update_llm_call_count
     proxy_health = _validate_guard_proxy_health(
         run_dir,
-        expected_logical_requests=verified_logical_requests,
+        expected_logical_requests=rollout_llm_call_count,
     )
     cost = _usage_cost(usage_before, usage_after)
     result = {
@@ -1531,7 +1531,8 @@ def verify_pilot(
             "verified_update_attempts": len(updates),
             "verified_rollout_model_calls": rollout_llm_call_count,
             "verified_update_model_calls": update_llm_call_count,
-            "verified_logical_model_requests": verified_logical_requests,
+            "verified_guard_proxy_logical_requests": rollout_llm_call_count,
+            "verified_total_logical_model_requests": verified_total_logical_requests,
             "privacy_projection_verified": True,
             "credential_exposure_observed": False,
             "hidden_reasoning_persisted": False,

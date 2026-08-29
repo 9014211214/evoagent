@@ -430,21 +430,21 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         run / "evidence" / "guard-proxy-health.json",
         {
             "active_requests": 0,
-            "completed_requests": 26,
+            "completed_requests": 24,
             "credential_persisted": False,
-            "forwarded_requests": 26,
+            "forwarded_requests": 24,
             "guard_proxy_source_sha256": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["source_sha256"],
             "limits": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["limits"],
             "max_upstream_retries": 2,
             "ready": True,
             "rejected_requests": 0,
             "rejection_classes": {"concurrency_limit": 0, "request_limit": 0, "other": 0},
-            "remaining_requests": 742,
+            "remaining_requests": 744,
             "request_limit": 768,
             "retry_policy": pilot_verifier.EXPECTED_RETRY_POLICY,
             "schema_version": "openrouter-guard-proxy-health-v3",
             "upstream_attempt_error_classes": attempt_error_classes,
-            "upstream_attempts": 27,
+            "upstream_attempts": 25,
             "upstream_error_classes": {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES},
             "upstream_errors": 0,
             "upstream_http_statuses": status_buckets,
@@ -500,7 +500,8 @@ def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -
     assert result["evidence"]["guard_proxy_health"]["upstream_retries"] == 1
     assert result["evidence"]["verified_rollout_model_calls"] == 24
     assert result["evidence"]["verified_update_model_calls"] == 2
-    assert result["evidence"]["verified_logical_model_requests"] == 26
+    assert result["evidence"]["verified_guard_proxy_logical_requests"] == 24
+    assert result["evidence"]["verified_total_logical_model_requests"] == 26
     output = tmp_path / "bundle"
     write_bundle(output, result, rows, updates)
     assert (output / "SHA256SUMS").is_file()
@@ -679,7 +680,7 @@ def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-@pytest.mark.parametrize("forwarded", [25, 27])
+@pytest.mark.parametrize("forwarded", [23, 25])
 def test_rejects_guard_proxy_logical_request_count_drift(
     tmp_path: Path,
     forwarded: int,

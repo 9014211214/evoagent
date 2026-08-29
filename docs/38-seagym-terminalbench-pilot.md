@@ -135,6 +135,10 @@ The controller repository remains private, so the digest binds the reviewed
 implementation used by this pilot but does not make that implementation
 publicly inspectable. This is an explicit controller trust boundary, not a
 claim of independent end-to-end reproduction from the public repository alone.
+The proxy counters bind only MiMoCode rollout requests from the 24 Harbor
+trajectories. The two host-side EvoAgent update requests are verified
+separately from the update records and usage evidence and are not added to the
+proxy count.
 
 | Stage | Task trials |
 | --- | ---: |

@@ -21,7 +21,7 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
-    "amended_at": "2026-08-29T16:02:31Z",
+    "amended_at": "2026-08-29T16:08:35Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
     "diagnostic_artifact_id": 9716899456,
     "diagnostic_artifact_sha256": "512cdedd6a0b4100e6fd2bf20bd1414c8cfeca451988e919d7149d2db28a5145",

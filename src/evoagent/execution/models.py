@@ -15,6 +15,7 @@ _ENV_NAME_PATTERN = r"^[A-Z_][A-Z0-9_]{0,127}$"
 class ExecutionAdapter(str, Enum):
     HARBOR = "harbor"
     ML_INTERN = "ml_intern"
+    OPENROUTER = "openrouter"
     RESOURCE2SKILL = "resource2skill"
 
 
@@ -57,7 +58,9 @@ class ExecutionInvocation(BaseModel):
     @classmethod
     def validate_argv(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value or any(not item.strip() or "\x00" in item for item in value):
-            raise ValueError("Execution argv must contain non-empty arguments without NUL bytes.")
+            raise ValueError(
+                "Execution argv must contain non-empty arguments without NUL bytes."
+            )
         return value
 
     @field_validator("workspace")
@@ -87,7 +90,9 @@ class ExecutionInvocation(BaseModel):
         import re
 
         if not value.strip() or len(value) > 256:
-            raise ValueError("Executable version pattern must be non-empty and bounded.")
+            raise ValueError(
+                "Executable version pattern must be non-empty and bounded."
+            )
         try:
             re.compile(value)
         except re.error as exc:
@@ -99,6 +104,7 @@ class ExecutionInvocation(BaseModel):
         approved_probes = {
             ExecutionAdapter.HARBOR: ("--version",),
             ExecutionAdapter.ML_INTERN: ("--help",),
+            ExecutionAdapter.OPENROUTER: ("--version",),
             ExecutionAdapter.RESOURCE2SKILL: ("--version",),
         }
         if self.version_arguments != approved_probes[self.adapter]:
@@ -192,6 +198,8 @@ class ExecutionPreflightResult(BaseModel):
     authorization_hash: str = Field(pattern=_SHA256_PATTERN)
     request_hash: str = Field(pattern=_SHA256_PATTERN)
     command_hash: str = Field(pattern=_SHA256_PATTERN)
+    checked_at: datetime
+    fresh_until: datetime
     adapter: ExecutionAdapter
     executable_path: str
     executable_version_output: str
@@ -205,6 +213,24 @@ class ExecutionPreflightResult(BaseModel):
     training: bool
     budget: ExecutionBudget
     ready: Literal[True] = True
+    preflight_hash: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("checked_at", "fresh_until")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Execution preflight times must include a timezone.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_freshness_window(self):
+        if self.fresh_until <= self.checked_at:
+            raise ValueError(
+                "Execution preflight freshness must follow its check time."
+            )
+        if self.fresh_until - self.checked_at > timedelta(minutes=15):
+            raise ValueError("Execution preflight freshness cannot exceed 15 minutes.")
+        return self
 
 
 class ExecutionUseStatus(str, Enum):
@@ -219,6 +245,9 @@ class ExecutionUseReceipt(BaseModel):
     authorization_hash: str = Field(pattern=_SHA256_PATTERN)
     request_id: str
     command_hash: str = Field(pattern=_SHA256_PATTERN)
+    # None is accepted only when reading receipts created before the v1 ledger
+    # migration added preflight binding.
+    preflight_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
     status: ExecutionUseStatus
     started_at: datetime
     completed_at: datetime | None = None

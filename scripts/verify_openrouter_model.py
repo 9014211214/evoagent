@@ -8,13 +8,14 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 MODEL_ENDPOINTS_URL = "https://openrouter.ai/api/v1/models/{model_id}/endpoints"
+API_KEY_URL = "https://openrouter.ai/api/v1/key"
 RESPONSES_URL = "https://openrouter.ai/api/v1/responses"
 
 
@@ -80,7 +81,11 @@ def verify_model(model_id: str) -> dict[str, Any]:
     if not isinstance(models, list):
         raise RuntimeError("OpenRouter model catalogue has an unexpected schema")
     model = next(
-        (item for item in models if isinstance(item, dict) and item.get("id") == model_id),
+        (
+            item
+            for item in models
+            if isinstance(item, dict) and item.get("id") == model_id
+        ),
         None,
     )
     if model is None:
@@ -108,6 +113,93 @@ def verify_model(model_id: str) -> dict[str, Any]:
     }
 
 
+def verify_api_key_capacity(
+    api_key: str,
+    *,
+    min_remaining_usd: Decimal | float | str = Decimal("0"),
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Perform one authenticated, non-inference key check and return only safe facts."""
+
+    if not api_key or "\x00" in api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is unavailable or invalid")
+    try:
+        minimum = Decimal(str(min_remaining_usd))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(
+            "Minimum remaining OpenRouter credit must be finite and non-negative"
+        ) from exc
+    if not minimum.is_finite() or minimum < 0:
+        raise ValueError(
+            "Minimum remaining OpenRouter credit must be finite and non-negative"
+        )
+    checked_at = now or datetime.now(timezone.utc)
+    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+        raise ValueError("OpenRouter key-preflight time must include a timezone")
+    payload = _request_json(
+        urllib.request.Request(
+            API_KEY_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+        ),
+        timeout=30,
+    )
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise RuntimeError("OpenRouter key endpoint has an unexpected schema")
+
+    expires_at_raw = data.get("expires_at")
+    expires_at: datetime | None = None
+    if expires_at_raw is not None:
+        if not isinstance(expires_at_raw, str):
+            raise RuntimeError("OpenRouter key expiry has an unexpected schema")
+        try:
+            expires_at = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise RuntimeError("OpenRouter key expiry is invalid") from exc
+        if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+            raise RuntimeError("OpenRouter key expiry lacks a timezone")
+        if checked_at >= expires_at:
+            raise RuntimeError("OpenRouter API key has expired")
+
+    limit_configured = data.get("limit") is not None
+    remaining_raw = data.get("limit_remaining")
+    if remaining_raw is None:
+        if limit_configured:
+            raise RuntimeError("OpenRouter key does not report usable remaining credit")
+        # Both fields being null means this key has no independent key-level
+        # limit. It does not establish the account's underlying credit balance.
+        remaining_sufficient = None
+        credit_status = "independent_limit_not_configured_credit_unknown"
+    else:
+        try:
+            remaining = Decimal(str(remaining_raw))
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError("OpenRouter key remaining credit is invalid") from exc
+        if not remaining.is_finite() or remaining < 0:
+            raise RuntimeError("OpenRouter key remaining credit is invalid")
+        remaining_sufficient = remaining >= minimum
+        if not remaining_sufficient:
+            raise RuntimeError(
+                "OpenRouter key remaining credit is below the required cap"
+            )
+        credit_status = "reported_remaining_credit_sufficient"
+
+    return {
+        "authenticated": True,
+        "is_free_tier": data.get("is_free_tier") is True,
+        "is_management_key": data.get("is_management_key") is True,
+        "limit_configured": limit_configured,
+        "remaining_credit_reported": remaining_raw is not None,
+        "remaining_sufficient": remaining_sufficient,
+        "credit_status": credit_status,
+        "minimum_remaining_usd": str(minimum),
+        "expiry_configured": expires_at is not None,
+        "expiry_valid": True,
+        "key_url": API_KEY_URL,
+        "verified_at": checked_at.isoformat(),
+    }
+
+
 def verify_preset(path: Path) -> dict[str, Any]:
     preset = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(preset, dict):
@@ -126,6 +218,25 @@ def verify_preset(path: Path) -> dict[str, Any]:
     missing_keys = required_keys - set(preset)
     if missing_keys:
         raise RuntimeError(f"OpenRouter preset lacks fields: {sorted(missing_keys)}")
+    tool_choice_mode = preset.get("tool_choice_mode")
+    tool_choice_verified_at = preset.get("tool_choice_verified_at")
+    endpoint_tag = preset.get("endpoint_tag")
+    if tool_choice_mode not in {None, "named_function", "required_single_tool"}:
+        raise RuntimeError("OpenRouter preset has an invalid Tool-choice mode")
+    if (tool_choice_mode is None) != (tool_choice_verified_at is None):
+        raise RuntimeError(
+            "Explicit Tool-choice mode lacks its capability verification time"
+        )
+    if (tool_choice_mode is None) != (endpoint_tag is None):
+        raise RuntimeError("Explicit Tool-choice mode lacks its exact endpoint tag")
+    if endpoint_tag == "":
+        raise RuntimeError("Explicit Tool-choice endpoint tag cannot be empty")
+    selected_endpoint_tag = endpoint_tag or preset["provider_slug"]
+    provider_slug = str(preset["provider_slug"])
+    if selected_endpoint_tag != provider_slug and not str(
+        selected_endpoint_tag
+    ).startswith(f"{provider_slug}/"):
+        raise RuntimeError("Pinned endpoint tag does not belong to the provider slug")
 
     catalogue = verify_model(str(preset["model_id"]))
     endpoint_url = MODEL_ENDPOINTS_URL.format(model_id=preset["model_id"])
@@ -139,13 +250,29 @@ def verify_preset(path: Path) -> dict[str, Any]:
             item
             for item in endpoints
             if isinstance(item, dict)
-            and item.get("tag") == preset["provider_slug"]
+            and item.get("tag") == selected_endpoint_tag
             and item.get("provider_name") == preset["provider_name"]
         ),
         None,
     )
     if endpoint is None:
         raise RuntimeError("Pinned OpenRouter provider endpoint is unavailable")
+    if endpoint.get("status") != 0:
+        raise RuntimeError("Pinned OpenRouter provider endpoint is not active")
+    active_provider_endpoints = [
+        item
+        for item in endpoints
+        if isinstance(item, dict)
+        and item.get("provider_name") == preset["provider_name"]
+        and item.get("status") == 0
+    ]
+    if endpoint_tag is not None and (
+        len(active_provider_endpoints) != 1
+        or active_provider_endpoints[0].get("tag") != selected_endpoint_tag
+    ):
+        raise RuntimeError(
+            "Pinned provider slug does not resolve to one exact active endpoint"
+        )
     supported = set(endpoint.get("supported_parameters") or [])
     required_parameters = {"max_tokens", "tools", "tool_choice"}
     if preset.get("reasoning_enabled") is not None:
@@ -167,12 +294,13 @@ def verify_preset(path: Path) -> dict[str, Any]:
         "context_length": endpoint.get("context_length"),
         "max_completion_tokens": endpoint.get("max_completion_tokens"),
         "provider_name": endpoint.get("provider_name"),
-        "provider_slug": endpoint.get("tag"),
+        "endpoint_tag": endpoint.get("tag"),
     }
     for key, actual in checks.items():
-        if actual != preset[key]:
+        expected = selected_endpoint_tag if key == "endpoint_tag" else preset[key]
+        if actual != expected:
             raise RuntimeError(
-                f"OpenRouter preset drift for {key}: expected {preset[key]!r}, "
+                f"OpenRouter preset drift for {key}: expected {expected!r}, "
                 f"catalogue returned {actual!r}"
             )
     endpoint_pricing = endpoint.get("pricing") or {}
@@ -193,7 +321,8 @@ def verify_preset(path: Path) -> dict[str, Any]:
         "catalogue": catalogue,
         "endpoint": {
             "provider_name": endpoint["provider_name"],
-            "provider_slug": endpoint["tag"],
+            "provider_slug": provider_slug,
+            "endpoint_tag": endpoint["tag"],
             "model_id": endpoint.get("model_id"),
             "context_length": endpoint["context_length"],
             "max_completion_tokens": endpoint["max_completion_tokens"],
@@ -204,6 +333,11 @@ def verify_preset(path: Path) -> dict[str, Any]:
         },
         "preset_id": preset.get("preset_id"),
         "reasoning_enabled": preset.get("reasoning_enabled"),
+        "tool_choice_mode": tool_choice_mode,
+        "tool_choice_verified_at": tool_choice_verified_at,
+        "required_tool_choice_route_probe_required": (
+            tool_choice_mode == "required_single_tool"
+        ),
     }
 
 
@@ -231,9 +365,7 @@ def probe_model(model_id: str) -> dict[str, Any]:
     response_model = payload.get("model") if isinstance(payload, dict) else None
     return {
         "status": "success",
-        "response_id_present": bool(
-            isinstance(payload, dict) and payload.get("id")
-        ),
+        "response_id_present": bool(isinstance(payload, dict) and payload.get("id")),
         "response_model": response_model,
         "probed_at": datetime.now(timezone.utc).isoformat(),
     }

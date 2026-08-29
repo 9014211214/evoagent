@@ -190,20 +190,23 @@ result boundary for a future SEAGym/Terminal-Bench runner. It does not itself
 execute those suites or turn a dry-run into external evidence; the runner must
 drive the complete snapshot and return one fully bound result per frozen Task.
 
-## 10. Next evidence plan
+## 10. Evidence status and next boundary
 
 1. Keep the zero-cost unified lab in Python 3.11/3.12 CI and clean-Wheel tests.
 2. Keep the implemented credential-free Full-Agent adapter dry-run in hosted CI.
-3. Run the bounded same-snapshot MiMo Tool-call calibration; report it
-   only as integration evidence.
-4. If the smoke proves every component binding and budget control, run a
-   preregistered minimal scientific validation set covering all four roles.
-5. Only after complete imported evidence exists, make an external performance
-   claim or consider a leaderboard run.
+3. The bounded MiMo Tool-call calibration is complete and remains integration
+   evidence only.
+4. One preregistered 12-Task, five-snapshot seed covering retention, transfer,
+   adversarial safety and composition completed and passed strict import. It is
+   controlled synthetic Full-Agent mechanism evidence, not an authoritative
+   benchmark or multi-seed generalization result.
+5. A broader external performance claim still requires an independently
+   selected authoritative suite, complete frozen comparisons and separately
+   authorized execution. No such claim is needed to publish the source.
 
-Until step 4, the honest project description is:
+The honest project description is now:
 
 > EvoAgent implements a governed, failure-attributed architecture for
 > continual adaptation of Tool Agents and demonstrates the complete mechanism
-> in a controlled local Environment; external effectiveness remains to be
-> validated.
+> in both a controlled local Environment and one frozen externally model-driven
+> synthetic seed; authoritative external effectiveness remains to be evaluated.

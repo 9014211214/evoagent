@@ -1,6 +1,6 @@
 # Full-Agent external adapter and low-cost calibration
 
-Updated: 2026-08-26
+Updated: 2026-08-28
 
 ## Claim boundary
 
@@ -147,7 +147,84 @@ This result proves the exact-model/provider route, complete-snapshot controller
 binding, bounded Tool-call loop, usage accounting and verifier path. It does
 not measure continual-learning effectiveness or generalization.
 
-## One-seed planning envelope
+## Capability-aware scientific preset
+
+Later scientific execution exposed a narrower routing constraint. The
+historical MiMo calibration used the named-function Tool-choice object and a
+first complete-seed attempt stopped with `model_tool_call_noncompliance`. A
+separate one-request Qwen3.8 Flash route probe reached OpenRouter but returned
+HTTP 404 before provider selection: provider attempt count 0, model requests 1,
+Token usage 0 and observed cost USD 0. Neither failure is a Task score.
+
+Current endpoint metadata and OpenRouter's per-provider feature table checked
+on 2026-08-28 identify the active Xiaomi route as exact endpoint tag
+`xiaomi/fp8`, with a 1,048,576-Token endpoint context, and indicate that
+`required` is the compatibility candidate rather than the stricter
+named-function form. This directory signal is not route-execution proof. The
+versioned preset
+`configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json` therefore sends
+`tool_choice="required"` while exposing exactly one Tool schema. This preserves
+the controller boundary: the model has no alternative Tool to choose, and the
+existing response verifier still requires one call with the exact frozen name
+and arguments. Provider/model fallback remains disabled, `auto` is not an
+allowed mode, and malformed, zero-call, multi-call or drifted responses fail
+closed.
+
+The historical preset and lock are unchanged. The new mode has a distinct
+preset ID, endpoint tag, capability-verification timestamp, disabled-reasoning
+setting, fingerprint and
+scientific lock at
+`configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json`.
+Its Task, manifest and snapshot hashes remain identical to the historical MiMo
+protocol; only the explicitly studied transport-compatibility contract changes.
+This implementation and its dry-run were zero-cost evidence. A real request
+required a separate one-use authorization. The request pinned the full
+`xiaomi/fp8` endpoint slug rather than the Xiaomi base slug, with fallbacks
+disabled. The generic catalogue still did not prove each strict `tool_choice`
+subtype.
+
+An initial gate exercise in private workflow run `33179418764` at source
+head `920e972b268b13f5f5cb6e333fefa1058b1edaac`. Fresh route-price and regular-key
+preflights passed. The sole inference request reached Xiaomi and returned HTTP
+200 for `xiaomi/mimo-v2.5`; canonical response metadata identified
+`xiaomi/mimo-v2.5-20260422`. It used 277 prompt plus 32 completion Tokens,
+reached its 32-Token completion cap, and reported complete cost USD 0.00004774.
+It did not contain the exact required frozen Tool call, so the strict verifier recorded
+`required_tool_call_verified=false` and failed closed with
+`successful_response_failed_closed_verification`. Sanitized artifact
+`9689044579` has digest
+`sha256:a38fb4dd9e818ab8cfc26883fa151654ea79d200bb8e0e4586788cdaa1a0bb1b`;
+its JSON has SHA-256
+`7dd79cab6df62ffa38209ee237100fd424651f0dac48025e8650e9150374664e`.
+No seed episode or score was produced by that run.
+
+The corrected, separately authorized probe disabled reasoning, raised only the
+probe output ceiling to 256 Tokens, and strengthened the success check. Private
+workflow run `33183563382` at exact source head
+`252344023c75152bf67be33aa0c9d51fa997f094` then completed the one allowed
+inference request. Xiaomi returned HTTP 200, exact model/provider routing,
+`finish_reason=tool_calls`, one typed Tool call with an ID, the exact frozen
+function name and arguments, no prose or reasoning fields, and complete usage
+of 279 prompt plus 22 completion Tokens. Observed cost was USD 0.00004522.
+Sanitized artifact `9690717555` has GitHub digest
+`sha256:1a219cb3f8fd035f25ee09ccb4f0852d7e5ed703aa4591633fc75c36a7fffabd`;
+its JSON has SHA-256
+`b8957ad45199457a0501cf4d92ec753ba14bcd4765c7253bac56ef1600e4946f`.
+This proves the exact required-Tool transport contract needed to make the
+frozen 60-episode seed eligible. That probe is still not a Task score or
+benchmark result.
+
+Subsequent full-seed attempts exposed two response-normalization bugs rather
+than model-performance failures. Public fixes first accepted an exact empty
+`content` placeholder, then accepted absent/null/exact-empty `reasoning` and
+`reasoning_content` plus absent/null/empty-list `reasoning_details`. Non-empty
+reasoning, prose, wrong types and any Tool/provider drift remain rejected.
+Governed run `33197785751` from exact public source
+`3f3e85b188ac6ecbb4734053ed5615da89d2e889` then completed all 60 frozen
+episodes and strict import. The authoritative attempt ledger and narrow claim
+boundary are in `docs/MINIMAL_SCIENTIFIC_VALIDATION.md`.
+
+## Historical pre-execution planning envelope
 
 The proposed minimal scientific seed is one complete A0 to A4 evolution path:
 
@@ -180,8 +257,11 @@ current USD 0.006/minute standard Linux rate. Standard runners in a public
 repository are free. Pricing source:
 https://docs.github.com/en/billing/reference/actions-runner-pricing.
 
-The recommended authorization cap for one minimal seed is therefore USD 1.20
+The recommended authorization cap for one minimal seed was therefore USD 1.20
 total: USD 0.60 model plus USD 0.60 hosted-runner reserve. A separate extreme
 32,000-input/4,000-output-token envelope would raise model cost to USD 1.68 to
-USD 2.10 after reserve and is not recommended for the minimum set. No complete
-seed has been authorized or executed by this calibration.
+USD 2.10 after reserve and is not recommended for the minimum set. The later
+frozen execution used 114 requests, 58,014 Tokens and USD 0.0086178344 model
+cost over 150.394 controller seconds. Those observed values replace this
+planning estimate for the exact successful seed, without turning the result
+into an authoritative benchmark.

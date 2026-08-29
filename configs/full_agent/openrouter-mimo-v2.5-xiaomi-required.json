@@ -1,0 +1,17 @@
+{
+  "canonical_model_id": "xiaomi/mimo-v2.5-20260422",
+  "catalogue_verified_at": "2026-08-28T15:07:22.948505+00:00",
+  "completion_cost_per_token_usd": "0.00000028",
+  "context_length": 1048576,
+  "endpoint_tag": "xiaomi/fp8",
+  "max_completion_tokens": 131072,
+  "model_id": "xiaomi/mimo-v2.5",
+  "preset_id": "openrouter-mimo-v2.5-xiaomi-required-single-tool-v3",
+  "prompt_cost_per_token_usd": "0.00000014",
+  "provider_name": "Xiaomi",
+  "provider_slug": "xiaomi",
+  "reasoning_enabled": false,
+  "supports_tools": true,
+  "tool_choice_mode": "required_single_tool",
+  "tool_choice_verified_at": "2026-08-28T15:07:28+00:00"
+}

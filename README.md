@@ -134,25 +134,37 @@ The concrete benchmark-neutral external evidence adapter and credential-free
 hosted dry-run are documented in
 [`docs/37-full-agent-external-calibration.md`](docs/37-full-agent-external-calibration.md).
 Its strict importer also binds each frozen Task payload hash, caller SHA-256 and
-resource usage. The included MiMo preset is only for a bounded Tool-call
-integration calibration; it is not a benchmark result.
+resource usage. The historical MiMo preset is only for a bounded Tool-call
+integration calibration; the separately versioned capability-aware preset is
+used by the minimal scientific protocol. Neither is a benchmark result.
 
 ### Frozen 12-Task minimal scientific seed
 
-The next low-cost Full-Agent gate is a controlled 12-Task set: three retention,
-three transfer, three adversarial and three composition cases. The current
-execution lock pins Qwen3.8 Flash to Alibaba, disables reasoning explicitly,
-and uses the same seed 43, Environment and verifier across all five A0→A4
-snapshots, for exactly 60 episodes. The earlier MiMo lock remains reproducible
-but is not interchangeable. A compact lock binds every Task, snapshot,
-component, model-preset, inference setting and budget hash. The public workflow
-is credential-free; real execution is private, one-use and capped at USD 1.20
-including runner reserve. See
+The completed low-cost Full-Agent gate is a controlled 12-Task set: three
+retention, three transfer, three adversarial and three composition cases. Its
+execution lock pins MiMo-V2.5 to the Xiaomi `xiaomi/fp8` provider endpoint and
+uses `tool_choice="required"`, disabled reasoning and exactly one available
+Tool. Exact Tool-name and argument verification, model/provider pinning and
+no-fallback routing remain unchanged. Schema-valid empty reasoning placeholders
+are normalized, while non-empty reasoning, prose, malformed calls and wrong
+types still fail closed.
+
+One governed seed-43 run evaluated all five A0→A4 snapshots for exactly 60
+external episodes. Strict import accepted 5 reports and 60 Task results. The
+overall sequence was `0, 0.5, 2/3, 0.75, 1.0`; the final snapshot passed all 12
+Tasks with zero regression, zero retention drop and zero final safety
+violations. All 114 model responses were accounted and validated with no retry,
+using 58,014 Tokens at observed model cost USD 0.0086178344. Historical MiMo
+named-function and Qwen locks remain reproducible but are not interchangeable.
+The public workflow is credential-free; this real execution was private,
+one-use and cumulatively capped at USD 1.20 including runner reserve. See
 [`docs/MINIMAL_SCIENTIFIC_VALIDATION.md`](docs/MINIMAL_SCIENTIFIC_VALIDATION.md).
 
-This is designed to test the causal mechanism and retention boundary at low
-cost. Even a passing seed is not an authoritative benchmark, a comparison with
-another Agent, or evidence of statistical significance across seeds.
+This passed seed supports only the preregistered synthetic mechanism and
+retention claim. It is not an authoritative benchmark, a comparison with
+another Agent, broad generalization evidence, or statistical significance
+across seeds. A sanitized aggregate summary is under
+[`evidence/minimal-scientific-seed/`](evidence/minimal-scientific-seed/).
 
 The repository includes a one-click GitHub Actions workflow at .github/workflows/skillevolbench-benchmark.yml. It pins SkillEvolBench, the benchmark-compatible Harbor v0.7.0 commit, and Claude Code 2.1.235 as Harbor's code-editing tool shell; the OpenRouter Qwen or GLM endpoint remains the inference model. Pull requests are hardwired to credential-free preflight. Authenticated smoke or compare execution requires an owner-supplied `OPENROUTER_API_KEY` repository Secret and an explicit manual dispatch; the public repository does not contain or inherit that Secret. The workflow reclaims hosted-runner disk, installs Python and the external runtime, validates the live OpenRouter catalogue, dry-runs both conditions, and supports three modes: preflight, bounded smoke, and explicitly acknowledged full compare. Real modes build from a temporary copy of the upstream runtime directory, retain Ubuntu base-image mirrors, apply bounded apt retries, verify the installed tool-shell version, and preserve before/after SHA-256 plus the exact preparation patch without modifying the pinned checkout. The release preset is configs/skillevolbench/openrouter-qwen3-coder-plus.yaml and uses the verified OpenRouter model ID qwen/qwen3-coder-plus; qwen/qwen3.7-plus and z-ai/glm-5.2:free remain optional smoke-only presets.
 
@@ -298,6 +310,11 @@ integration calibration only, not benchmark or generalization evidence. See
 `docs/37-full-agent-external-calibration.md` for the public sanitized evidence
 hash and the measured one-seed planning envelope.
 
+The later frozen minimal seed also completed the same four-component external
+mechanism across 12 synthetic Tasks and five snapshots. That is stronger than a
+single-Task transport calibration, but it remains controlled mechanism evidence
+rather than an external benchmark or broad continual-learning result.
+
 ## Publication and performance-claim gates
 
 The public source snapshot was authorized by the owner after Python 3.11/3.12 validation, license and third-party review, and secret/privacy scanning. Its Git history starts with one privacy-safe commit and does not inherit the private development history, pull requests, Actions logs, or artifacts.
@@ -306,13 +323,18 @@ Publishing source code does not create a benchmark claim. A complete
 same-model, same-seed SkillEvolBench result may be reported only as a
 Skill-component result after strict import. A whole-EvoAgent claim additionally
 requires Full-Agent evidence binding Skill, Router, Memory and Agent Policy on
-every external Task. Neither result currently exists.
+every external Task. No complete SkillEvolBench comparison or authoritative
+Full-Agent benchmark result currently exists; the passed 12-Task synthetic seed
+does not substitute for either one.
 
-The 12-Task Full-Agent mechanism set is frozen and its zero-cost local gate
-passes. The first complete MiMo attempt stopped on model Tool-call
-noncompliance and produced no score; the reasoning-disabled Qwen3.8 Flash retry
-has a separate lock. External seed evidence remains independent from the
-authoritative SkillEvolBench claim.
+The 12-Task Full-Agent mechanism set is frozen and its zero-cost local and
+hosted gates pass. Two early governed responses exposed overly strict handling
+of schema-valid empty `content` and reasoning placeholders; both validators were
+fixed without weakening exact Tool, provider, no-prose or no-fallback checks.
+One-use hosted run `33197785751` then completed all 60 episodes and reproduced
+the strict import receipt. Its model cost was USD 0.0086178344. This supports the
+narrow controlled A0→A4 claim only. External seed evidence remains independent
+from the authoritative SkillEvolBench claim.
 
 `OPEN_SOURCE_READINESS.md` records the current evidence and exact claim boundary.
 

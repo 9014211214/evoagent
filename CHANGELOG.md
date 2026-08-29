@@ -41,6 +41,38 @@ Historical entries below describe research-framework milestones. They do not imp
   reasoning disabled, required-parameter routing, exact live endpoint pricing,
   and a USD 0.1287936 mathematical model-cost ceiling. The prior MiMo external
   attempt stopped on Tool-call noncompliance and produced no score.
+- Recorded the zero-Token, zero-cost Qwen route rejection and added a
+  capability-aware MiMo-V2.5 preset using `tool_choice="required"` with exactly
+  one Tool schema. The new lock preserves the historical Task, snapshot and
+  budget hashes, pins the exact Xiaomi endpoint slug, disables provider
+  fallback, and keeps exact Tool-name/argument verification unchanged.
+- Recorded one exact-head, one-request MiMo required-Tool route probe. It
+  reached Xiaomi with HTTP 200, used 309 Tokens at observed cost USD 0.00004774,
+  but returned no required Tool call. The verifier failed closed, no scientific
+  seed episode ran, and no score was produced.
+- Corrected that probe by explicitly disabling reasoning and allowing a
+  256-Token probe-only response ceiling. Exact-head run `33183563382` returned
+  the exact typed Tool call from Xiaomi in 301 Tokens at observed cost USD
+  0.00004522. This verifies transport eligibility only; the 60-episode seed has
+  not yet produced a result or score at that stage.
+- Fixed two overly strict OpenRouter response guards exposed by governed seed
+  attempts. Exact empty `content` is accepted while whitespace, prose and wrong
+  types remain rejected. Empty `reasoning`/`reasoning_content` placeholders and
+  an empty `reasoning_details` list are normalized, while every non-empty or
+  wrong-typed value still fails closed. The stopped attempts produced no Task
+  report or score.
+- Completed one frozen MiMo seed from exact public source `3f3e85b`: 12 public
+  synthetic Tasks across five A0→A4 snapshots, 60 strictly imported Task
+  results, scores `0, 0.5, 2/3, 0.75, 1.0`, zero final regression/retention
+  drop/safety violations, 114 accounted and validated requests, 58,014 Tokens,
+  no retry and USD 0.0086178344 observed model cost. This is controlled external
+  mechanism evidence, not an authoritative benchmark or leaderboard result.
+- Added strict offline seed-result admission: exact source, authorization
+  identities, plan/lock/preset, all five snapshots and 60 per-Task episode
+  contracts, positive external usage, costs and hashes are independently
+  checked; duplicate keys and raw prompt/response/reasoning fields are rejected.
+  Direct paid execution from the public helper is disabled in favor of an
+  expiring, exact-head, transactional one-use private controller.
 
 ## 2.0.0 release candidate
 

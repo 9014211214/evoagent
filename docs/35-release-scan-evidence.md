@@ -1,6 +1,6 @@
 # Release scan evidence
 
-Updated: 2026-08-21
+Updated: 2026-08-29
 
 ## Publication candidate
 
@@ -11,7 +11,9 @@ Updated: 2026-08-21
 - license: Apache-2.0
 - tag or GitHub Release: not created
 - package publication: not performed
-- full benchmark or model spend: not performed
+- full authoritative benchmark: not performed
+- separately authorized minimal-seed model spend: USD 0.0086178344 for the
+  successful run, plus USD 0.0001009344 across three stopped attempts
 
 The candidate was exported from the reviewed `main` source tree of the private development repository. Only tracked source bytes were exported. Private branches, commits, PR conversations, Actions logs, artifacts, repository Secrets, and local audit directories were not copied.
 
@@ -33,4 +35,10 @@ The reviewed pre-publication source tree had already passed the complete 694-tes
 
 ## Benchmark and privacy boundary
 
-No raw prompt, tool argument, observation, trajectory, benchmark output, credential, or private execution log is part of the public snapshot. The repository retains only independently authored integration code and sanitized documentation of the bounded smoke. The smoke is partial and non-publishable; no complete SkillEvolBench comparison exists.
+No raw prompt, Tool argument, observation, trajectory, benchmark output,
+credential, or private execution log is part of the public snapshot. The
+repository retains independently authored integration code, sanitized
+documentation and one aggregate minimal-seed summary bound to the private
+artifact/result/import hashes. The 12-Task seed is controlled synthetic
+Full-Agent mechanism evidence. The SkillEvolBench smoke remains partial and
+non-publishable; no complete SkillEvolBench comparison exists.

@@ -5,8 +5,10 @@ on:
     paths:
       - ".github/workflows/minimal-scientific-seed-dry-run.yml"
       - "configs/full_agent/minimal-scientific-seed-A.lock.json"
+      - "configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json"
       - "configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json"
       - "configs/full_agent/openrouter-mimo-v2.5-xiaomi.json"
+      - "configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json"
       - "configs/full_agent/openrouter-qwen3.8-flash-alibaba.json"
       - "docs/MINIMAL_SCIENTIFIC_VALIDATION.md"
       - "scripts/run_minimal_scientific_dry_run.py"
@@ -40,6 +42,9 @@ jobs:
           - profile: mimo-v2.5
             preset: configs/full_agent/openrouter-mimo-v2.5-xiaomi.json
             lock: configs/full_agent/minimal-scientific-seed-A.lock.json
+          - profile: mimo-v2.5-required-single-tool
+            preset: configs/full_agent/openrouter-mimo-v2.5-xiaomi-required.json
+            lock: configs/full_agent/minimal-scientific-seed-A-mimo-v2.5-required.lock.json
           - profile: qwen3.8-flash-no-reasoning
             preset: configs/full_agent/openrouter-qwen3.8-flash-alibaba.json
             lock: configs/full_agent/minimal-scientific-seed-A-qwen3.8-flash.lock.json

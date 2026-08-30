@@ -339,9 +339,77 @@ if model_route != {
     "update_model_seed_parameter_sent": False,
 }:
     raise SystemExit("SEAGym pilot model route changed")
-if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7" or protocol.get(
+if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8" or protocol.get(
     "amendment"
 ) != {
+    "amended_at": "2026-08-30T10:04:18Z",
+    "benchmark_effect_claimed": False,
+    "change": "isolate_mimocode_root_session_model_call_surface",
+    "diagnostic": {
+        "artifact_id": 9730177730,
+        "artifact_zip_sha256": "819d535de948bc3a8d2ecda62af647901d4fa4f82b309ac130a250930126b0bb",
+        "controller_commit": "cc54328af922aed15093687f654383c2cf88f5e5",
+        "evoagent_public_commit": "25ee0721f7d206b6168a6d7d642bebb1700d9b41",
+        "job_id": 99239368341,
+        "job_log_sha256": "217028db03c83c93e90577aceea539825babeea93a18deb5c0ea28def13f7051",
+        "lifecycle_budget_guard_delta_usd": 0.004855739,
+        "observed_key_usage_delta_usd": 0.005334952,
+        "proxy": {
+            "completed_requests": 12,
+            "forwarded_requests": 12,
+            "inbound_tool_choice_absent": 1,
+            "inbound_tool_choice_auto": 11,
+            "rejected_requests": 0,
+            "upstream_attempts": 12,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+        },
+        "run_id": 33304816856,
+        "score_produced": False,
+        "status": "invalid_evidence",
+    },
+    "evidence_boundary": {
+        "exact_atif_model_call_count_available": False,
+        "inference": "one_unattested_auxiliary_title_request",
+        "inference_confidence": "high",
+        "raw_event_or_response_content_persisted": False,
+        "support": "one_absent_tool_choice_request_plus_eleven_auto_requests_and_mimocode_v0.1.13_title_source_contract",
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "seagym_config_sha256": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "generated_runtime_config_change": {
+        "actor_subsessions_enabled": False,
+        "automatic_checkpoint_enabled": False,
+        "automatic_cron_enabled": False,
+        "automatic_distill_enabled": False,
+        "automatic_dream_enabled": False,
+        "disposable_home_bound": True,
+        "fixed_session_title": "evoagent-seagym-trial",
+        "inherited_config_overlay_cleared": True,
+        "mcp_sampling_enabled": False,
+        "next_prompt_prediction_enabled": False,
+        "proxy_session_affinity_required": True,
+        "proxy_to_atif_model_call_equality_required": True,
+        "pure_mode_enabled": True,
+        "root_compaction_enabled": True,
+        "small_model_route_changed": False,
+        "task_scoped_rollout_requests_only": True,
+        "title_agent_enabled": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 13,
+    "prior_observed_usage_delta_usd": 0.272736272,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7",
+    "score_blind": True,
+}:
+    raise SystemExit("SEAGym pilot score-blind v8 amendment changed")
+if protocol.get("prior_amendment_v7") != {
     "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
     "amended_at": "2026-08-30T06:39:29Z",
     "compatibility_normalization": {
@@ -502,7 +570,7 @@ if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed
     "score_blind": True,
     "transport_only_change": False,
 }:
-    raise SystemExit("SEAGym pilot score-blind amendment changed")
+    raise SystemExit("SEAGym pilot preserved v7 amendment changed")
 if protocol["runtime"]["mimocode"] != {
     "asset": "mimocode-linux-x64.tar.gz",
     "asset_bytes": 46489490,
@@ -511,10 +579,64 @@ if protocol["runtime"]["mimocode"] != {
         "https://github.com/XiaomiMiMo/MiMo-Code/releases/download/"
         "v0.1.13/mimocode-linux-x64.tar.gz"
     ),
+    "auxiliary_model_calls": {
+        "actor_subsessions_enabled": False,
+        "automatic_checkpoint_enabled": False,
+        "automatic_cron_enabled": False,
+        "automatic_distill_enabled": False,
+        "automatic_dream_enabled": False,
+        "mcp_sampling_enabled": False,
+        "next_prompt_prediction_enabled": False,
+        "title_agent_enabled": False,
+        "unattested_model_calls_allowed": False,
+    },
     "commit": "67c9cf1e26288d03c65fb844be71f39581ffc1de",
+    "execution_isolation": {
+        "build_tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"],
+        "compaction_auto_enabled": True,
+        "config_content_overlay": "{}",
+        "disposable_home_environment": ["HOME", "MIMOCODE_HOME", "USERPROFILE"],
+        "fixed_session_title": "evoagent-seagym-trial",
+        "mcp_servers_configured": False,
+        "proxy_session_affinity_header": "x-session-affinity",
+        "proxy_session_affinity_required": True,
+        "pure_mode_enabled": True,
+        "root_session_only": True,
+    },
     "version": "0.1.13",
 }:
     raise SystemExit("SEAGym pilot MiMoCode runtime changed")
+mimocode_adapter_source = require_file(
+    "adapters/seagym_evoagent/src/seagym_evoagent/mimocode.py"
+).read_text(encoding="utf-8")
+for required_fragment in (
+    '"permission": {"actor": "deny"}',
+    '"title": {"disable": True}',
+    '"experimental": {"predict_next_prompt": False}',
+    '"tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"]',
+    '"compaction": {"auto": True, "prune": True}',
+    '"checkpoint-writer": {"disable": True}',
+    '"max": {"disable": True}',
+    '"mcp_sampling": "deny"',
+    '"MIMOCODE_CONFIG_CONTENT": "{}"',
+    '"MIMOCODE_EXPERIMENTAL_CRON": "0"',
+    '"MIMOCODE_DISABLE_CRON": "1"',
+    '"MIMOCODE_DISABLE_CHECKPOINT": "1"',
+    '"MIMOCODE_EXPERIMENTAL_ORCHESTRATOR": "0"',
+    '"MIMOCODE_EXPERIMENTAL_WORKFLOW_TOOL": "0"',
+    '"MIMOCODE_EXPERIMENTAL_MCP_TOOL_SEARCH": "0"',
+    '"MIMOCODE_ENABLE_EXEC_TOOL": "0"',
+    '"MIMOCODE_PURE": "1"',
+    '"HOME": home_path',
+    '"USERPROFILE": home_path',
+):
+    if required_fragment not in mimocode_adapter_source:
+        raise SystemExit("SEAGym pilot hidden MiMoCode model-call guard changed")
+harbor_adapter_source = require_file(
+    "adapters/seagym_evoagent/src/seagym_evoagent/harbor_agent.py"
+).read_text(encoding="utf-8")
+if 'f"--title {shlex.quote(MIMOCODE_SESSION_TITLE)} "' not in harbor_adapter_source:
+    raise SystemExit("SEAGym pilot fixed MiMoCode session-title guard changed")
 if protocol["runtime"]["secret_environment_variable"] != "OPENROUTER_API_KEY":
     raise SystemExit("SEAGym pilot credential boundary changed")
 if protocol["runtime"]["credential_transport"] != {
@@ -525,7 +647,7 @@ if protocol["runtime"]["credential_transport"] != {
 }:
     raise SystemExit("SEAGym pilot credential transport changed")
 if protocol["runtime"]["guard_proxy"] != {
-    "health_schema_version": "openrouter-guard-proxy-health-v4",
+    "health_schema_version": "openrouter-guard-proxy-health-v5",
     "limits": {
         "client_timeout_seconds": 30.0,
         "max_concurrency": 2,
@@ -535,7 +657,17 @@ if protocol["runtime"]["guard_proxy"] != {
         "max_response_bytes": 16 * 1024 * 1024,
         "upstream_timeout_seconds": 300.0,
     },
-    "source_sha256": "14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754",
+    "root_session_binding": {
+        "enabled": True,
+        "full_pilot_limit": 24,
+        "header": "x-session-affinity",
+        "health_schema_version": "openrouter-guard-proxy-health-v5",
+        "lifecycle_canary_limit": 1,
+        "parent_header_forbidden": "x-parent-session-id",
+        "payload_binding": "prompt_cache_key",
+        "route_canary_limit": 1,
+    },
+    "source_sha256": "e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29",
     "telemetry": {
         "normalization_counters": ["tool_choice_none_to_no_tools"],
         "raw_request_content_persisted": False,
@@ -774,6 +906,14 @@ require(
 require(
     "docs/38-seagym-terminalbench-pilot.md",
     "total | 24",
+)
+require(
+    "docs/38-seagym-terminalbench-pilot.md",
+    "e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29",
+)
+require(
+    "docs/38-seagym-terminalbench-pilot.md",
+    "health schema v5",
 )
 
 # Mergeable source contains no temporary probes, one-time gates, write-enabled

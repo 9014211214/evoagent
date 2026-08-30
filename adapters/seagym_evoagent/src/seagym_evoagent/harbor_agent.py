@@ -18,6 +18,7 @@ from .mimocode import (
     MIMOCODE_ARCHIVE_ENV,
     MIMOCODE_ARCHIVE_URL,
     MIMOCODE_ARCHIVE_SHA256,
+    MIMOCODE_SESSION_TITLE,
     MIMOCODE_VERSION,
     SEAGYM_COMMIT,
     install_command,
@@ -495,6 +496,7 @@ def _run_command(
         f"timeout --signal=TERM --kill-after={MIMOCODE_FORCE_KILL_GRACE_SECONDS}s "
         f"{mimocode_timeout}s "
         f"/usr/local/bin/mimo run --model {shlex.quote(HARBOR_MODEL_ID)} --agent build --format json "
+        f"--title {shlex.quote(MIMOCODE_SESSION_TITLE)} "
         f"--file {REMOTE_RUNTIME_DIR}/projected-task.md --dangerously-skip-permissions "
         "'Complete the attached task under its stated constraints.' "
         f"> {REMOTE_RUNTIME_DIR}/events.jsonl 2> {REMOTE_RUNTIME_DIR}/stderr.log; "

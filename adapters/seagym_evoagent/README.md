@@ -37,6 +37,26 @@ non-empty reasoning fails closed. MiMoCode's `agent.build.steps` is bound to the
 validated snapshot policy (`max_iterations`, 1--32) so a task has a real
 agentic-step limit in addition to the wall-clock timeout.
 
+The generated MiMoCode config disables the default title Agent, next-prompt
+prediction, automatic dream/distill, checkpoint writer, cron scheduling, MCP
+sampling, actor sub-sessions, orchestration, and workflow/exec surfaces. The
+build Agent receives only `bash`, `read`, `write`, `edit`, `glob`, and `grep`.
+The CLI also supplies the task-independent fixed title
+`evoagent-seagym-trial`. These controls prevent model calls that can pass
+through the proxy without appearing as root-session CLI `step_finish` events.
+
+Automatic compaction remains enabled because its calls stay in the root event
+stream and are therefore ATIF-accountable. Each trial binds `HOME`,
+`USERPROFILE`, and `MIMOCODE_HOME` to the disposable runtime directory and
+runs MiMoCode in pure mode. It also sets `MIMOCODE_CONFIG_CONTENT={}` so a
+host-inherited inline config cannot be merged after the locked config file. The
+controller guard proxy is required to enforce the root `x-session-affinity`
+value, reject `x-parent-session-id`, and bind the same value to the request's
+`prompt_cache_key`. Route/lifecycle checks permit one root session; the full
+pilot permits and requires exactly 24. Only task-scoped root-session calls are
+authorized; proxy logical-request counts must still equal the ATIF model-call
+count.
+
 The MiMoCode deadline reserves 120 seconds inside Harbor's outer Agent timeout.
 Its bounded 15-second forced-kill grace is part of that reserve, leaving at
 least 105 seconds at the command layer for the sanitizer to write valid ATIF or

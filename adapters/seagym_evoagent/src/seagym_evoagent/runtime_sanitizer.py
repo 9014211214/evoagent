@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -31,6 +32,8 @@ MAX_STRING_CHARS = 16 * 1024 * 1024
 MAX_METADATA_CHARS = 65_536
 MAX_TOKENS = 10**12
 MAX_COST_USD = 10**9
+FAILURE_RECEIPT_SCHEMA = "evoagent-runtime-failure-v1"
+FAILURE_RECEIPT_FILENAME = "evoagent-runtime-failure.json"
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,3}$")
@@ -43,6 +46,17 @@ _COMPONENT_NAMES = frozenset(
     }
 )
 _RUNTIME_NAMES = frozenset({"mimocode", "seagym-evoagent"})
+_FAILURE_CLASSES = frozenset(
+    {
+        "mimocode_process_failed",
+        "runtime_sanitization_failed",
+        "mimocode_and_sanitization_failed",
+    }
+)
+_FAILURE_STAGES = frozenset({"mimocode", "sanitize"})
+_MIMOCODE_EXIT_CLASSES = frozenset(
+    {"nonzero", "signal", "timeout", "spawn_failed", "success", "unknown"}
+)
 _TOOL_ALIASES = {
     "apply_patch": "apply_patch",
     "bash": "bash",
@@ -139,20 +153,52 @@ def _validate_json_shape(value: Any, depth: int = 0) -> None:
     raise SanitizationError("unsupported JSON value")
 
 
-def _reject_reasoning_payload(value: Any) -> None:
-    """Fail closed when the runtime emitted reasoning despite the hard lock."""
+def _reject_reasoning_payload(
+    value: Any,
+    *,
+    _path: tuple[str, ...] = (),
+    _root_event_type: str | None = None,
+) -> None:
+    """Reject reasoning content while allowing only numeric token telemetry.
+
+    MiMoCode reports an observable token count at the exact path
+    ``step_finish.part.tokens.reasoning``.  That bounded integer is usage
+    telemetry, not reasoning content.  No other non-empty reasoning-shaped
+    value is admitted.
+    """
 
     if isinstance(value, dict):
+        root_event_type = _root_event_type
+        if not _path:
+            candidate = value.get("type")
+            root_event_type = candidate.strip().lower() if isinstance(candidate, str) else None
         event_type = value.get("type")
         if isinstance(event_type, str) and event_type.strip().lower() == "reasoning":
             raise SanitizationError("reasoning event violates the runtime lock")
         for key, item in value.items():
-            if key in {"reasoning", "reasoning_content", "reasoning_details"} and not _empty_reasoning(item):
-                raise SanitizationError("reasoning content violates the runtime lock")
-            _reject_reasoning_payload(item)
+            if key in {"reasoning", "reasoning_content", "reasoning_details"}:
+                is_mimocode_token_telemetry = (
+                    key == "reasoning"
+                    and root_event_type == "step_finish"
+                    and _path == ("part", "tokens")
+                )
+                if is_mimocode_token_telemetry:
+                    _metric_number("reasoning_tokens", item)
+                    continue
+                if not _empty_reasoning(item):
+                    raise SanitizationError("reasoning content violates the runtime lock")
+            _reject_reasoning_payload(
+                item,
+                _path=(*_path, key),
+                _root_event_type=root_event_type,
+            )
     elif isinstance(value, list):
         for item in value:
-            _reject_reasoning_payload(item)
+            _reject_reasoning_payload(
+                item,
+                _path=_path,
+                _root_event_type=_root_event_type,
+            )
 
 
 def _empty_reasoning(value: Any) -> bool:
@@ -317,8 +363,9 @@ def _metric_number(name: str, value: Any) -> int | float:
     return value
 
 
-def _event_metrics(event: dict[str, Any]) -> dict[str, int | float]:
+def _event_metrics(event: dict[str, Any]) -> dict[str, Any]:
     containers: list[dict[str, Any]] = [event]
+    reasoning_tokens: int | None = None
     if event.get("type") == "step_finish":
         part = event.get("part")
         if not isinstance(part, dict) or part.get("type") != "step-finish":
@@ -327,9 +374,10 @@ def _event_metrics(event: dict[str, Any]) -> dict[str, int | float]:
         cache = tokens.get("cache") if isinstance(tokens, dict) else None
         if not isinstance(tokens, dict) or not isinstance(cache, dict):
             raise SanitizationError("MiMoCode step_finish tokens are invalid")
-        reasoning_tokens = _metric_number("reasoning_tokens", tokens.get("reasoning"))
-        if reasoning_tokens != 0:
-            raise SanitizationError("MiMoCode reported non-zero reasoning tokens")
+        parsed_reasoning_tokens = _metric_number("reasoning_tokens", tokens.get("reasoning"))
+        if not isinstance(parsed_reasoning_tokens, int):
+            raise SanitizationError("MiMoCode reasoning token accounting is invalid")
+        reasoning_tokens = parsed_reasoning_tokens
         cache_write = _metric_number("cache_write_tokens", cache.get("write"))
         if not isinstance(cache_write, int):
             raise SanitizationError("MiMoCode cache write tokens are invalid")
@@ -366,7 +414,7 @@ def _event_metrics(event: dict[str, Any]) -> dict[str, int | float]:
                     raise SanitizationError(f"response.{key} must be an object")
                 containers.append(nested)
 
-    result: dict[str, int | float] = {}
+    result: dict[str, Any] = {}
     for container in containers:
         for raw_name, safe_name in _METRIC_ALIASES.items():
             if raw_name not in container:
@@ -380,6 +428,8 @@ def _event_metrics(event: dict[str, Any]) -> dict[str, int | float]:
     prompt = result.get("prompt_tokens")
     if cached is not None and prompt is not None and cached > prompt:
         raise SanitizationError("cached_tokens cannot exceed prompt_tokens")
+    if reasoning_tokens is not None:
+        result["extra"] = {"reasoning_tokens": reasoning_tokens}
     return result
 
 
@@ -443,13 +493,22 @@ def _build_trajectory(
         "completion_tokens": 0,
         "cached_tokens": 0,
         "cost_usd": 0.0,
+        "reasoning_tokens": 0,
     }
     seen_metrics = set()
+    saw_reasoning_telemetry = False
     tool_count = 0
     for event in events:
         timestamp = _event_timestamp(event)
         metrics = _event_metrics(event)
         for name, value in metrics.items():
+            if name == "extra":
+                reasoning_tokens = value["reasoning_tokens"]
+                totals["reasoning_tokens"] += reasoning_tokens
+                if totals["reasoning_tokens"] > MAX_TOKENS:
+                    raise SanitizationError("aggregate metric exceeds the limit")
+                saw_reasoning_telemetry = True
+                continue
             totals[name] += value
             if totals[name] > (MAX_COST_USD if name == "cost_usd" else MAX_TOKENS):
                 raise SanitizationError("aggregate metric exceeds the limit")
@@ -486,6 +545,10 @@ def _build_trajectory(
     for name in sorted(seen_metrics):
         final_name = "total_cost_usd" if name == "cost_usd" else f"total_{name}"
         final_metrics[final_name] = totals[name]
+    if saw_reasoning_telemetry:
+        final_metrics["extra"] = {
+            "total_reasoning_tokens": totals["reasoning_tokens"],
+        }
     safe_extra = {
         "api_model_id": API_MODEL_ID,
         "seed": seed,
@@ -521,6 +584,120 @@ def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
             temporary.unlink()
         except FileNotFoundError:
             pass
+
+
+def _canonical_json_bytes(value: dict[str, Any]) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _mimocode_exit_class(exit_code: Any) -> str:
+    if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+        return "unknown"
+    if exit_code == 0:
+        return "success"
+    if exit_code == 124:
+        return "timeout"
+    if exit_code in {126, 127}:
+        return "spawn_failed"
+    if exit_code < 0 or 128 <= exit_code <= 255:
+        return "signal"
+    if 0 < exit_code < 128:
+        return "nonzero"
+    return "unknown"
+
+
+def build_runtime_failure_receipt(
+    *,
+    mimocode_exit_code: int,
+    sanitization_failed: bool,
+    atif_present: bool,
+    metadata: dict[str, Any],
+    model: str,
+    seed: int,
+) -> dict[str, Any]:
+    """Build a content-free, self-verifying runtime failure receipt."""
+
+    try:
+        normalized_metadata = _load_metadata(
+            json.dumps(
+                metadata,
+                ensure_ascii=True,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise SanitizationError("failure receipt metadata is invalid") from exc
+    if not isinstance(sanitization_failed, bool) or not isinstance(atif_present, bool):
+        raise SanitizationError("failure receipt booleans are invalid")
+    if model != MODEL_NAME:
+        raise SanitizationError("failure receipt model is invalid")
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2**63 - 1:
+        raise SanitizationError("failure receipt seed is invalid")
+    exit_class = _mimocode_exit_class(mimocode_exit_code)
+    if sanitization_failed:
+        failure_class = (
+            "runtime_sanitization_failed"
+            if exit_class == "success"
+            else "mimocode_and_sanitization_failed"
+        )
+        failure_stage = "sanitize"
+    else:
+        if exit_class == "success":
+            raise SanitizationError("a successful runtime cannot emit a failure receipt")
+        failure_class = "mimocode_process_failed"
+        failure_stage = "mimocode"
+    if failure_class not in _FAILURE_CLASSES or failure_stage not in _FAILURE_STAGES:
+        raise SanitizationError("failure receipt classification is invalid")
+    if exit_class not in _MIMOCODE_EXIT_CLASSES:
+        raise SanitizationError("failure receipt exit classification is invalid")
+    unsigned = {
+        "schema_version": FAILURE_RECEIPT_SCHEMA,
+        "failure_class": failure_class,
+        "failure_stage": failure_stage,
+        "mimocode_exit_class": exit_class,
+        "snapshot_sha256": normalized_metadata["snapshot_hash"],
+        "component_sha256": dict(normalized_metadata["component_hashes"]),
+        "route_contract_sha256": normalized_metadata["route_contract_sha256"],
+        "model": {"api_id": API_MODEL_ID, "harbor_id": MODEL_NAME},
+        "seed": seed,
+        "runtime": dict(normalized_metadata["runtime_identity"]),
+        "atif_present": atif_present,
+        "raw_prompt_persisted": False,
+        "raw_response_persisted": False,
+        "reasoning_content_persisted": False,
+    }
+    receipt_sha256 = hashlib.sha256(_canonical_json_bytes(unsigned)).hexdigest()
+    return {**unsigned, "receipt_sha256": receipt_sha256}
+
+
+def write_runtime_failure_receipt(
+    path: str | os.PathLike[str],
+    *,
+    mimocode_exit_code: int,
+    sanitization_failed: bool,
+    atif_present: bool,
+    metadata: dict[str, Any],
+    model: str,
+    seed: int,
+) -> dict[str, Any]:
+    receipt = build_runtime_failure_receipt(
+        mimocode_exit_code=mimocode_exit_code,
+        sanitization_failed=sanitization_failed,
+        atif_present=atif_present,
+        metadata=metadata,
+        model=model,
+        seed=seed,
+    )
+    _atomic_write_json(Path(path).absolute(), receipt)
+    return receipt
 
 
 def _scrub_regular_file(path: Path) -> None:
@@ -626,12 +803,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--snapshot-metadata-json", required=True, help="bounded snapshot metadata object")
     parser.add_argument("--prompt-file", help="optional disposable prompt file")
     parser.add_argument("--session-dir", help="optional disposable MiMoCode session directory")
+    parser.add_argument("--mimocode-exit-code", required=True, type=int)
+    parser.add_argument("--failure-receipt", required=True, help="content-free failure receipt destination")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    metadata: dict[str, Any] | None = None
     try:
+        metadata = _load_metadata(args.snapshot_metadata_json)
         sanitize_runtime_jsonl(
             args.input,
             args.output,
@@ -642,7 +823,39 @@ def main(argv: list[str] | None = None) -> int:
             session_dir=args.session_dir,
         )
     except (OSError, SanitizationError) as exc:
+        if metadata is not None:
+            try:
+                destination = Path(args.output).absolute()
+                write_runtime_failure_receipt(
+                    args.failure_receipt,
+                    mimocode_exit_code=args.mimocode_exit_code,
+                    sanitization_failed=True,
+                    atif_present=(
+                        destination.is_file() and not destination.is_symlink()
+                    ),
+                    metadata=metadata,
+                    model=args.model,
+                    seed=args.seed,
+                )
+            except (OSError, SanitizationError):
+                pass
         raise SystemExit(f"sanitization failed: {type(exc).__name__}") from None
+    if metadata is None:  # Defensive type narrowing; successful sanitization parsed it.
+        raise SystemExit("sanitization failed: SanitizationError")
+    if args.mimocode_exit_code != 0:
+        destination = Path(args.output).absolute()
+        try:
+            write_runtime_failure_receipt(
+                args.failure_receipt,
+                mimocode_exit_code=args.mimocode_exit_code,
+                sanitization_failed=False,
+                atif_present=(destination.is_file() and not destination.is_symlink()),
+                metadata=metadata,
+                model=args.model,
+                seed=args.seed,
+            )
+        except (OSError, SanitizationError) as exc:
+            raise SystemExit(f"failure receipt failed: {type(exc).__name__}") from None
     return 0
 
 

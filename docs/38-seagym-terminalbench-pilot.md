@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v6 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v7 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -37,7 +37,11 @@ The same model route is frozen for update and rollout:
 - required response provider identity: Xiaomi
 - provider fallbacks: disabled
 - required parameter support: enabled
-- reasoning.enabled: false
+- request setting `reasoning.enabled`: false; this does not claim that the
+  provider performed no internal reasoning
+- provider-reported reasoning-token counts: accepted only as bounded numeric
+  usage telemetry; reasoning text, events, details, and content remain forbidden
+  and are never persisted
 - response cache: disabled
 - router metadata: required; one alias/direct Xiaomi attempt and no material
   plugin, guardrail, compression, healing, or server-tool pipeline stage
@@ -104,29 +108,29 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v6, a score-blind amendment. Four pre-v2 controller attempts
-were infrastructure/preflight diagnostics. Four real v2 attempts, one real v3
-attempt, one real v4 attempt, and one real v5 attempt reached progressively
-deeper parts of the pinned external pipeline, but none completed the A_0/A_T
-comparison and none produced a score. The eleven controller attempts had a
-cumulative observed key-usage delta of USD 0.217105791 across their separately
-bounded observation windows.
+This is protocol v7, a score-blind amendment. Four pre-v2 controller attempts
+were infrastructure/preflight diagnostics. Four real v2 attempts and one real
+attempt for each of v3, v4, v5, and v6 reached progressively deeper parts of
+the pinned external pipeline, but none completed the A_0/A_T comparison and
+none produced a score. The twelve controller attempts had a cumulative
+observed key-usage delta of USD 0.267401320 across their separately bounded
+observation windows.
 
-The latest diagnostic run `33289924348`, against controller commit
-`8c2015febaabca2710e90805bb9ee95e0ec5a83c` and public EvoAgent commit
-`092ba665fd01450ee70446fe3f8e30cce4775c08`, forwarded and completed 106
-logical requests. Across 126 upstream attempts it observed 25 HTTP 404
-responses, made 20 retries of the same normalized outbound request on the same
-route, and ended with five final 404 errors and zero proxy rejections. Route
-preflight had verified the exact Xiaomi endpoint. One train batch consequently
-contained no usable Harbor ATIF evidence, so the adapter correctly stopped
-instead of inventing evidence. The safe fixed phrase
+The latest incomplete run `33295415122`, against controller commit
+`2a44abedde490fc3d6d602a372284db030357eb4` and public EvoAgent commit
+`9889fee8888baca681311a3c10880a7144f5736d`, forwarded and completed all 111
+logical requests with 111 upstream attempts, zero retries, zero proxy
+rejections, and zero upstream errors. It made seven bounded final-text
+normalizations. The first train batch retained one usable ATIF, but later
+Harbor exceptions left the second train batch with no usable ATIF. SEAGym then
+stopped at the existing fail-closed evidence boundary. The safe fixed phrase
 `train batch contains no usable Harbor ATIF evidence` occurred twice in
 downloaded job-log bytes whose SHA-256 is
-`88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a`.
-Artifact `9725879182` is bound by the GitHub Actions artifact-ZIP SHA-256
-`d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54`.
-That run used USD 0.042668012. The evidence contains no complete comparison or
+`b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181`.
+Artifact `9727486245` is bound by the GitHub Actions artifact-ZIP SHA-256
+`84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9`.
+That run used USD 0.050295529. The artifact manifest verified 11 of 11 files;
+it contains no raw prompt, response, reasoning content, complete comparison, or
 reportable effect score.
 
 Protocol v4 had already added two bounded failure-handling corrections before
@@ -170,6 +174,33 @@ unchanged; the config SHA-256 remains
 No Task score or partial effect was inspected to select this amendment, and
 `benchmark_effect_claimed` remains false until a complete frozen run verifies it.
 
+Protocol v7 addresses a different, two-layer lifecycle failure without changing
+the frozen model, Xiaomi endpoint, tasks, split, order, seed, budget, metrics, or
+config bytes. MiMoCode v0.1.13 maps a provider-reported numeric reasoning-token
+usage count into its terminal step. The old sanitizer rejected any non-zero
+count as though it were reasoning content. This is the highest-probability leaf
+cause for the observed missing ATIF files, but it is not proven for run
+`33295415122`: raw response and event content was correctly deleted, and the
+safe proxy telemetry did not record that count. v7 therefore treats only a
+bounded non-negative numeric count as usage telemetry while continuing to reject
+all reasoning text, events, details, and content.
+
+The second layer was deterministic: the custom Agent raised a generic runtime
+error, then Harbor's post-run recovery attempted to load the missing ATIF and
+raised again, masking the inner stage and cancelling pending trials. v7 assigns
+fixed classified exit codes and writes a content-free, canonical-hash-bound
+failure receipt. Harbor may contain only those classified failures. A missing,
+malformed, unbound, or unsafe receipt remains a hard failure. A train update may
+be skipped unchanged only when every missing ATIF belongs to an explicit errored
+trial with a valid receipt; it performs no update-model call and remains visible
+in the denominator. Any such skip or incomplete trial prevents a positive pilot
+classification even if the outer run reaches final reporting.
+
+MiMoCode's command deadline reserves 120 seconds inside Harbor's outer Agent
+timeout. Its bounded 15-second forced-kill grace is part of that reserve,
+leaving at least 105 seconds at the command layer in which ATIF or the
+classified failure receipt can be persisted before the outer process ends.
+
 The public protocol also pins guard-proxy source SHA-256
 `14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754`, health schema v4, and all request, response,
 concurrency, token and timeout limits. Schema v4 adds only fixed aggregate
@@ -207,6 +238,12 @@ simultaneous requests so one trial can make its main and auxiliary model calls.
 Concurrency changes wall-clock scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
 
+The full pilot command is bounded to 13,200 seconds and the lifecycle gate to
+2,400 seconds. Together with the 600-second MiMo route canary, this reserves
+5,100 seconds of the GitHub job ceiling for checkout, installation, the Harbor
+oracle, usage capture, verification, cleanup, blocker generation, and artifact
+upload, so the job-level timeout should not pre-empt fail-closed reporting.
+
 The one-seed authorization has a USD 1.20 maximum observed key-usage delta.
 An independent guard polls OpenRouter's authenticated, cumulative key usage
 every 10 seconds and stops the process group at a USD 0.90 delta, leaving a
@@ -219,13 +256,19 @@ instead of spending on later rollouts that cannot produce a verifiable update
 chain. Reaching the budget guard, an update failure, or a timeout produces an
 incomplete-run blocker, never a partial score. Because the usage endpoint is
 key-wide, unrelated calls made with the same key during the window would count
-against this pilot and should be avoided.
+against this pilot and should be avoided. Before the 24-trial run, compare mode
+must also pass one official `terminal-bench/fix-git` lifecycle gate through the
+exact custom Agent, Harbor synchronization, sanitizer, ATIF, attestation, and
+verifier boundary. It is integration evidence only and produces no benchmark
+claim. The gate has a USD 0.15 stop threshold measured from the same pre-run
+usage snapshot; a failure stops before the full pilot.
 
 Raw MiMoCode JSONL is transient and deleted after privacy projection. The
 sanitizer accepts at most 64 MiB per trial, 16 MiB per JSONL record, and 16 MiB
-per raw string; it persists only bounded structural ATIF evidence. Exceeding a
-bound fails closed and makes the pilot incomplete rather than truncating or
-inventing evidence.
+per raw string; it persists only bounded structural ATIF evidence. A bounded
+numeric reasoning-token usage count may be retained in ATIF metrics, but no
+reasoning content is retained. Exceeding a bound fails closed and makes the
+pilot incomplete rather than truncating or inventing evidence.
 
 ## Pre-registered interpretation
 
@@ -295,10 +338,11 @@ errors or incomplete trials. Do not fabricate missing scores, infer success
 from workflow completion alone, or describe this pilot as a leaderboard result.
 
 Harbor's `input_tokens` value includes cache reads, while `cached_tokens`
-identifies the cached subset. The final bundle therefore reports both the
-attested total (`input_tokens + output_tokens`) and SEAGym's upstream total
-(`input_tokens + cached_tokens + output_tokens`) instead of silently treating
-the latter as a second independent token count.
+identifies the cached subset. Visible output tokens and provider-reported
+reasoning-token usage are reported separately. The attested total is therefore
+`input_tokens + visible_output_tokens + reasoning_tokens`; SEAGym's existing
+upstream total remains separately labeled instead of being treated as a second
+independent token count.
 
 Upstream references:
 

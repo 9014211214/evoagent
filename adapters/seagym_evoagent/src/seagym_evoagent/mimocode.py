@@ -77,6 +77,7 @@ def install_command() -> str:
             "command -v sha256sum >/dev/null",
             "command -v grep >/dev/null",
             "command -v install >/dev/null",
+            "command -v timeout >/dev/null",
             "if ! command -v python3 >/dev/null; then command -v apt-get >/dev/null && apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-minimal ca-certificates && rm -rf /var/lib/apt/lists/*; fi",
             "command -v python3 >/dev/null",
             "grep -qwi avx2 /proc/cpuinfo",

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Verify and publish a privacy-bounded SEAGym + Terminal-Bench pilot bundle.
 
 The verifier consumes the exact preregistered protocol and a completed SEAGym
@@ -8,6 +6,8 @@ underlying Harbor result and EvoAgent attestations, and emits only bounded
 observable evidence.  Raw prompts, model text, trajectories, errors, and logs
 never enter the publishable bundle.
 """
+
+from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
@@ -27,15 +27,25 @@ CLAIM = "real_seagym_terminalbench_subset_pilot_not_leaderboard"
 MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_JSONL_BYTES = 32 * 1024 * 1024
 MAX_RECORDS = 10_000
+FAILURE_RECEIPT_FILENAME = "evoagent-runtime-failure.json"
+FAILURE_RECEIPT_SCHEMA = "evoagent-runtime-failure-v1"
+NO_USABLE_ATIF_SKIP_CODE = "no_usable_harbor_atif_evidence"
+FAILURE_RECEIPT_CLASSES = {
+    "mimocode_process_failed",
+    "runtime_sanitization_failed",
+    "mimocode_and_sanitization_failed",
+}
+FAILURE_RECEIPT_STAGES = {"mimocode", "sanitize"}
+MIMOCODE_EXIT_CLASSES = {"nonzero", "signal", "timeout", "spawn_failed", "success", "unknown"}
 EXPECTED_MODEL_API = "xiaomi/mimo-v2.5"
 EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7"
 EXPECTED_AMENDMENT = {
-    "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-30T04:03:18Z",
+    "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
+    "amended_at": "2026-08-30T06:39:29Z",
     "compatibility_normalization": {
         "applies_only_when": "inbound_tool_choice_none_with_nonempty_local_function_tools",
         "benchmark_effect_claimed": False,
@@ -48,38 +58,46 @@ EXPECTED_AMENDMENT = {
     },
     "config_sha256_unchanged": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9725879182,
-    "diagnostic_artifact_sha256": "d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54",
-    "diagnostic_controller_run_id": 33289924348,
+    "diagnostic_artifact_id": 9727486245,
+    "diagnostic_artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+    "diagnostic_controller_run_id": 33295415122,
     "diagnostic_job_log": {
         "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
-        "job_id": 99199651435,
+        "job_id": 99214123678,
         "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
         "safe_fixed_phrase_occurrences": 2,
-        "sha256": "88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a",
+        "sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181",
     },
     "diagnostic_observation": {
-        "completed_requests": 106,
-        "final_upstream_http_404_errors": 5,
-        "forwarded_requests": 106,
+        "completed_requests": 111,
+        "final_upstream_http_404_errors": 0,
+        "forwarded_requests": 111,
         "rejected_requests": 0,
+        "tool_choice_none_normalizations": 7,
         "train_batches_without_usable_atif": 1,
-        "upstream_attempts": 126,
-        "upstream_http_404_attempts": 25,
+        "upstream_attempts": 111,
+        "upstream_http_404_attempts": 0,
         "upstream_other_attempt_errors": 0,
-        "upstream_retries": 20,
+        "upstream_retries": 0,
     },
-    "execution_resilience_change": "normalize_mimocode_final_text_requests_for_the_pinned_xiaomi_endpoint_without_changing_model_provider_tasks_seed_or_config_while_preserving_the_no_tool_action_authorization_boundary",
+    "execution_resilience_change": "classify_mimocode_and_sanitizer_failures_before_harbor_post_run_recovery_and_skip_an_update_only_when_every_missing_atif_has_a_valid_content_free_hash_bound_failure_receipt",
+    "leaf_cause_status": {
+        "exact_failed_run_reasoning_token_value_available": False,
+        "highest_probability_hypothesis": "provider_reported_reasoning_token_usage_was_rejected_as_reasoning_content_by_the_frozen_runtime_sanitizer",
+        "hypothesis_confirmed_for_run_33295415122": False,
+        "raw_event_or_response_content_persisted": False,
+    },
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 11,
+    "prior_controller_attempts_total": 12,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
     "prior_v4_controller_attempts": 1,
     "prior_v5_controller_attempts": 1,
+    "prior_v6_controller_attempts": 1,
     "prior_model_inference_completed": True,
-    "prior_observed_usage_delta_usd": 0.217105791,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5",
+    "prior_observed_usage_delta_usd": 0.26740132,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6",
     "prior_v2_run_evidence": [
         {
             "artifact_id": 9710915384,
@@ -149,19 +167,38 @@ EXPECTED_AMENDMENT = {
             "score_produced": False,
         }
     ],
+    "prior_v6_run_evidence": [
+        {
+            "artifact_id": 9727486245,
+            "artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+            "blocker_code": "seagym_execution_failed",
+            "controller_commit": "2a44abedde490fc3d6d602a372284db030357eb4",
+            "evoagent_public_commit": "9889fee8888baca681311a3c10880a7144f5736d",
+            "job_id": 99214123678,
+            "job_log_sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181",
+            "observed_usage_delta_usd": 0.050295529,
+            "run_id": 33295415122,
+            "score_produced": False,
+        }
+    ],
     "prior_score_produced": False,
-    "reason_code": "mimocode_final_step_tool_choice_none_is_unsupported_by_the_pinned_xiaomi_endpoint",
+    "reason_code": "harbor_post_run_missing_atif_masked_an_inner_mimocode_or_runtime_sanitizer_failure",
     "root_cause_evidence": {
         "benchmark_result_claimed": False,
-        "confidence": "high",
+        "confidence": "high_for_two_layer_failure_and_unconfirmed_for_exact_leaf_cause",
         "frozen_mimocode_local_capture": {
             "capture_content_persisted": False,
-            "observed_final_step_shape": "tool_choice_none_with_nonempty_local_function_tools",
+            "observable_contract": "completion_tokens_details_reasoning_tokens_maps_to_step_finish_part_tokens_reasoning",
             "runtime": "mimocode-v0.1.13",
         },
-        "xiaomi_endpoint_parameter_metadata": {
-            "endpoint": "xiaomi/fp8",
-            "tool_choice_none_supported": False,
+        "harbor_recovery_contract": {
+            "classified_nonzero_agent_failure_is_contained": True,
+            "generic_runtime_error_can_be_masked_by_a_second_missing_atif_error": True,
+        },
+        "run_observation": {
+            "completed_requests": 111,
+            "proxy_or_upstream_errors": 0,
+            "train_batch_without_usable_atif": True,
         },
     },
     "score_blind": True,
@@ -336,23 +373,36 @@ def _strict_loads(data: str | bytes) -> Any:
 def _regular_file(path: Path, *, root: Path | None = None, max_bytes: int = MAX_JSON_BYTES) -> Path:
     lexical = path.absolute()
     for part in (lexical, *lexical.parents):
-        if part.exists() and part.is_symlink():
+        if part.exists() and _is_linklike(part):
             raise VerificationError(f"symlinked evidence path is forbidden: {path}")
         if root is not None and part == root.absolute():
             break
     if root is not None:
-        root = root.resolve(strict=True)
-        candidate = path if path.is_absolute() else root / path
-        resolved = candidate.resolve(strict=True)
+        try:
+            root = root.resolve(strict=True)
+            candidate = path if path.is_absolute() else root / path
+            resolved = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise VerificationError(f"expected evidence file is missing: {path}") from exc
         if resolved != root and root not in resolved.parents:
             raise VerificationError(f"path escapes controlled root: {path}")
     else:
-        resolved = path.resolve(strict=True)
-    if resolved.is_symlink() or not resolved.is_file():
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError as exc:
+            raise VerificationError(f"expected evidence file is missing: {path}") from exc
+    if _is_linklike(resolved) or not resolved.is_file():
         raise VerificationError(f"expected regular non-symlink file: {path}")
     if resolved.stat().st_size > max_bytes:
         raise VerificationError(f"file exceeds size limit: {path}")
     return resolved
+
+
+def _is_linklike(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction and is_junction())
 
 
 def _load_json(path: Path, *, root: Path | None = None, max_bytes: int = MAX_JSON_BYTES) -> Any:
@@ -484,6 +534,7 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     resources = protocol.get("resources")
     expected_budget_guard = {
         "accounting_scope": "entire_openrouter_key_between_before_and_after_checks",
+        "command_timeout_seconds": 13200,
         "poll_seconds": 10,
         "stop_threshold_usd": 0.9,
         "usage_check_failures_before_stop": 3,
@@ -493,8 +544,21 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         or resources.get("authorized_max_observed_key_usage_delta_usd") != 1.2
         or resources.get("budget_guard") != expected_budget_guard
         or resources.get("harbor_concurrency") != 1
+        or resources.get("mimocode_force_kill_grace_seconds") != 15
+        or resources.get("mimocode_route_canary_timeout_seconds") != 600
+        or resources.get("mimocode_sanitization_margin_seconds") != 120
+        or resources.get("non_full_pilot_workflow_reserve_seconds") != 5100
     ):
         raise VerificationError("protocol resource or budget guard drifted")
+    if resources.get("lifecycle_canary") != {
+        "budget_stop_threshold_usd": 0.15,
+        "command_timeout_seconds": 2400,
+        "must_complete_before_full_pilot": True,
+        "purpose": "integration_only_no_benchmark_score",
+        "seed": 42,
+        "task_id": "terminal-bench/fix-git",
+    }:
+        raise VerificationError("protocol lifecycle canary drifted")
     route = protocol.get("model_route")
     if not isinstance(route, dict):
         raise VerificationError("protocol route is missing")
@@ -516,6 +580,13 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         "successful_attempt": 1,
     }:
         raise VerificationError("protocol router-audit contract drifted")
+    if route.get("reasoning_semantics") != {
+        "absence_of_internal_reasoning_claimed": False,
+        "reasoning_content_persisted": False,
+        "reasoning_request_enabled": False,
+        "safe_provider_usage_count_may_be_reported": True,
+    }:
+        raise VerificationError("protocol reasoning semantics drifted")
     claim = protocol.get("claim_boundary")
     if claim != EXPECTED_CLAIM_BOUNDARY:
         raise VerificationError("protocol claim boundary drifted")
@@ -540,13 +611,16 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         "raw_persisted": False,
         "raw_record_max_bytes": 16 * 1024 * 1024,
         "raw_string_max_chars": 16 * 1024 * 1024,
+        "reasoning_content_persisted": False,
+        "reasoning_token_count_telemetry_allowed": True,
     }
     if runtime.get("privacy_sanitizer") != expected_privacy_sanitizer:
         raise VerificationError("runtime privacy sanitizer bounds drifted")
     expected_token_semantics = {
         "harbor_cached_tokens": "cache_read_subset_of_harbor_input_tokens",
         "harbor_input_tokens": "non_cached_input_plus_cache_read",
-        "reported_attested_total_tokens": "harbor_input_tokens_plus_output_tokens",
+        "harbor_reasoning_tokens": "provider_reported_usage_count_only_not_reasoning_content",
+        "reported_attested_total_tokens": "harbor_input_tokens_plus_visible_output_tokens_plus_reasoning_tokens",
         "seagym_total_tokens": "harbor_input_tokens_plus_harbor_cached_tokens_plus_output_tokens",
     }
     if runtime.get("token_semantics") != expected_token_semantics:
@@ -738,6 +812,22 @@ def _checkpoint_snapshot(
             or attempt.get("model_id") != EXPECTED_MODEL_API
         ):
             raise VerificationError("update attempt model or seed drifted")
+        model_call_executed = attempt.get("model_call_executed")
+        if not isinstance(model_call_executed, bool):
+            raise VerificationError("update attempt lacks an explicit model-call decision")
+        if model_call_executed:
+            if attempt.get("status") == "skipped_no_usable_atif" or attempt.get("skip_code") is not None:
+                raise VerificationError("model-backed attempt claims an ATIF skip")
+        elif (
+            attempt.get("status") != "skipped_no_usable_atif"
+            or attempt.get("skip_code") != NO_USABLE_ATIF_SKIP_CODE
+            or attempt.get("response_sha256") is not None
+            or attempt.get("served_model_id") is not None
+            or attempt.get("provider") is not None
+            or attempt.get("usage")
+            != {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
+        ):
+            raise VerificationError("update attempt no-call evidence is invalid")
     return a0, candidate, component_hashes_by_snapshot
 
 
@@ -769,6 +859,24 @@ def _validate_updates(run_dir: Path) -> tuple[list[dict[str, Any]], dict[int, st
         metrics = summary.get("metrics") or {}
         if not isinstance(metrics, dict):
             raise VerificationError("agent update metrics are invalid")
+        model_call_executed = logs.get("model_call_executed")
+        if not isinstance(model_call_executed, bool):
+            raise VerificationError("agent update lacks an explicit model-call decision")
+        skip_code = logs.get("skip_code")
+        if model_call_executed:
+            if skip_code is not None:
+                raise VerificationError("a model-backed update cannot claim a no-evidence skip")
+        else:
+            if (
+                skip_code != NO_USABLE_ATIF_SKIP_CODE
+                or summary.get("changed") is not False
+                or summary.get("status") != "unchanged"
+                or candidate is None
+            ):
+                raise VerificationError("agent no-call update is not the frozen ATIF skip")
+            for key in ("input_tokens", "output_tokens", "cost_usd"):
+                if _finite_number(metrics.get(key), f"skipped update {key}") != 0.0:
+                    raise VerificationError("skipped update contains fabricated model usage")
         safe.append(
             {
                 "update_index": expected_index,
@@ -779,6 +887,8 @@ def _validate_updates(run_dir: Path) -> tuple[list[dict[str, Any]], dict[int, st
                 "input_tokens": _optional_number(metrics.get("input_tokens")),
                 "output_tokens": _optional_number(metrics.get("output_tokens")),
                 "cost_usd": _optional_number(metrics.get("cost_usd")),
+                "model_call_executed": model_call_executed,
+                "skip_code": skip_code if isinstance(skip_code, str) else None,
                 "causal_attribution_claimed": False,
                 "promotion_claimed": False,
             }
@@ -870,9 +980,11 @@ def _validate_atif(
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "cached_tokens": 0,
+        "reasoning_tokens": 0,
         "cost_usd": 0.0,
     }
     seen_metrics: set[str] = set()
+    saw_reasoning_telemetry = False
     llm_call_count = 0
     for expected, step in enumerate(steps, start=1):
         if not isinstance(step, dict) or step.get("step_id") != expected or step.get("message") != "":
@@ -902,9 +1014,19 @@ def _validate_atif(
             raise VerificationError("sanitized ATIF timestamp is invalid")
         metrics = step.get("metrics")
         if metrics is not None:
-            if not isinstance(metrics, dict) or not metrics or set(metrics) - set(aggregate):
+            allowed_metric_keys = {"prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd", "extra"}
+            if not isinstance(metrics, dict) or not metrics or set(metrics) - allowed_metric_keys:
                 raise VerificationError("sanitized ATIF metrics shape is invalid")
             for key, value in metrics.items():
+                if key == "extra":
+                    if not isinstance(value, dict) or set(value) != {"reasoning_tokens"}:
+                        raise VerificationError("sanitized ATIF reasoning telemetry is invalid")
+                    aggregate["reasoning_tokens"] += _bounded_int(
+                        value["reasoning_tokens"],
+                        "ATIF step reasoning tokens",
+                    )
+                    saw_reasoning_telemetry = True
+                    continue
                 if key == "cost_usd":
                     parsed: int | float = _finite_number(value, "ATIF step cost")
                 else:
@@ -954,6 +1076,8 @@ def _validate_atif(
         ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
         for name in seen_metrics
     }
+    if saw_reasoning_telemetry:
+        expected_metric_keys.add("extra")
     if not isinstance(final_metrics, dict) or set(final_metrics) != expected_metric_keys or final_metrics.get("total_steps") != len(steps):
         raise VerificationError("sanitized ATIF final metrics shape is invalid")
     for name in seen_metrics:
@@ -965,10 +1089,17 @@ def _validate_atif(
                 raise VerificationError("sanitized ATIF final cost does not match its steps")
         elif _bounded_int(actual, f"ATIF {total_name}") != expected_total:
             raise VerificationError("sanitized ATIF final tokens do not match its steps")
+    if saw_reasoning_telemetry:
+        final_extra = final_metrics.get("extra")
+        if not isinstance(final_extra, dict) or set(final_extra) != {"total_reasoning_tokens"}:
+            raise VerificationError("sanitized ATIF final reasoning telemetry is invalid")
+        if _bounded_int(final_extra["total_reasoning_tokens"], "ATIF total reasoning tokens") != aggregate["reasoning_tokens"]:
+            raise VerificationError("sanitized ATIF final reasoning tokens do not match its steps")
     atif_usage = {
         "prompt_tokens": int(aggregate["prompt_tokens"]),
         "completion_tokens": int(aggregate["completion_tokens"]),
         "cached_tokens": int(aggregate["cached_tokens"]),
+        "reasoning_tokens": int(aggregate["reasoning_tokens"]),
         "cost_usd": float(aggregate["cost_usd"]),
     }
     attested_usage = attestation.get("usage")
@@ -992,8 +1123,14 @@ def _validate_attestation(
     expected_component_hashes: dict[str, str],
 ) -> tuple[dict[str, Any], str, int]:
     trial_dir = result_path.parent
-    agent_dir = (trial_dir / "agent").resolve(strict=True)
-    if agent_dir.is_symlink() or agent_dir.parent != trial_dir.resolve(strict=True):
+    lexical_agent_dir = trial_dir / "agent"
+    if _is_linklike(lexical_agent_dir):
+        raise VerificationError("Harbor agent evidence directory is invalid")
+    try:
+        agent_dir = lexical_agent_dir.resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError("Harbor agent evidence directory is missing") from exc
+    if _is_linklike(agent_dir) or agent_dir.parent != trial_dir.resolve(strict=True):
         raise VerificationError("Harbor agent evidence directory is invalid")
     attestation_path = _regular_file(agent_dir / "evoagent-attestation.json", root=trial_dir)
     _scan_secret_bytes(attestation_path)
@@ -1008,6 +1145,7 @@ def _validate_attestation(
         "seed",
         "runtime",
         "usage",
+        "runtime_failure_receipt_sha256",
         "raw_prompt_persisted",
         "raw_response_persisted",
         "reasoning_persisted",
@@ -1055,6 +1193,11 @@ def _validate_attestation(
     }
     if runtime != expected_runtime:
         raise VerificationError("Harbor trial runtime identity drifted")
+    failure_receipt_sha256 = attestation.get("runtime_failure_receipt_sha256")
+    if failure_receipt_sha256 is not None and (
+        not isinstance(failure_receipt_sha256, str) or not HEX64.fullmatch(failure_receipt_sha256)
+    ):
+        raise VerificationError("Harbor attestation runtime-failure receipt hash is invalid")
     for key in ("raw_prompt_persisted", "raw_response_persisted", "reasoning_persisted", "causal_attribution_claimed", "promotion_claimed", "activation_claimed"):
         if attestation.get(key) is not False:
             raise VerificationError(f"Harbor attestation violates boundary: {key}")
@@ -1066,6 +1209,138 @@ def _validate_attestation(
         root=trial_dir,
     )
     return attestation, claimed_hash, llm_call_count
+
+
+def _validate_failure_receipt(
+    row: dict[str, Any],
+    result_path: Path,
+    expected_snapshot: str,
+    expected_component_hashes: dict[str, str],
+    expected_atif_present: bool,
+) -> tuple[dict[str, Any], str]:
+    trial_dir = result_path.parent.resolve(strict=True)
+    lexical_agent_dir = trial_dir / "agent"
+    if _is_linklike(lexical_agent_dir):
+        raise VerificationError("Harbor failure evidence directory is invalid")
+    try:
+        agent_dir = lexical_agent_dir.resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError("Harbor failure evidence directory is missing") from exc
+    if _is_linklike(agent_dir) or agent_dir.parent != trial_dir:
+        raise VerificationError("Harbor failure evidence directory is invalid")
+    receipt_path = _regular_file(agent_dir / FAILURE_RECEIPT_FILENAME, root=trial_dir, max_bytes=64 * 1024)
+    refs = row.get("refs") or {}
+    explicit = refs.get("failure_receipt_path") if isinstance(refs, dict) else None
+    if explicit is not None:
+        if not isinstance(explicit, str) or not explicit:
+            raise VerificationError("task failure receipt reference is invalid")
+        jobs_root = result_path.parents[2].resolve(strict=True)
+        explicit_path = Path(explicit)
+        if not explicit_path.is_absolute():
+            explicit_path = jobs_root / explicit_path
+        if _regular_file(explicit_path, root=jobs_root, max_bytes=64 * 1024) != receipt_path:
+            raise VerificationError("task failure receipt reference does not match its Harbor trial")
+    _scan_secret_bytes(receipt_path)
+    receipt = _load_json(receipt_path, root=trial_dir, max_bytes=64 * 1024)
+    expected_keys = {
+        "schema_version",
+        "failure_class",
+        "failure_stage",
+        "mimocode_exit_class",
+        "snapshot_sha256",
+        "component_sha256",
+        "route_contract_sha256",
+        "model",
+        "seed",
+        "runtime",
+        "atif_present",
+        "raw_prompt_persisted",
+        "raw_response_persisted",
+        "reasoning_content_persisted",
+        "receipt_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != expected_keys:
+        raise VerificationError("runtime failure receipt schema is invalid")
+    _reject_nonempty_reasoning(receipt)
+    if receipt.get("schema_version") != FAILURE_RECEIPT_SCHEMA:
+        raise VerificationError("runtime failure receipt version drifted")
+    unsigned = dict(receipt)
+    claimed_hash = unsigned.pop("receipt_sha256", None)
+    if not isinstance(claimed_hash, str) or not HEX64.fullmatch(claimed_hash) or _canonical_sha(unsigned) != claimed_hash:
+        raise VerificationError("runtime failure receipt hash is invalid")
+    failure_class = receipt.get("failure_class")
+    failure_stage = receipt.get("failure_stage")
+    exit_class = receipt.get("mimocode_exit_class")
+    if failure_class not in FAILURE_RECEIPT_CLASSES:
+        raise VerificationError("runtime failure receipt class is invalid")
+    if failure_stage not in FAILURE_RECEIPT_STAGES or exit_class not in MIMOCODE_EXIT_CLASSES:
+        raise VerificationError("runtime failure receipt classification is invalid")
+    expected_pair = {
+        "mimocode_process_failed": ("mimocode", False),
+        "runtime_sanitization_failed": ("sanitize", True),
+        "mimocode_and_sanitization_failed": ("sanitize", False),
+    }[failure_class]
+    if failure_stage != expected_pair[0] or (exit_class == "success") is not expected_pair[1]:
+        raise VerificationError("runtime failure receipt classification is inconsistent")
+    if receipt.get("snapshot_sha256") != expected_snapshot:
+        raise VerificationError("runtime failure receipt snapshot drifted")
+    if receipt.get("component_sha256") != expected_component_hashes:
+        raise VerificationError("runtime failure receipt component hashes drifted")
+    if receipt.get("route_contract_sha256") != EXPECTED_ROUTE_CONTRACT_SHA256:
+        raise VerificationError("runtime failure receipt route contract drifted")
+    if receipt.get("model") != {"api_id": EXPECTED_MODEL_API, "harbor_id": EXPECTED_MODEL_HARBOR}:
+        raise VerificationError("runtime failure receipt model route drifted")
+    if receipt.get("seed") != 42:
+        raise VerificationError("runtime failure receipt seed drifted")
+    if receipt.get("runtime") != {"name": "mimocode", "version": EXPECTED_MIMOCODE["version"]}:
+        raise VerificationError("runtime failure receipt runtime identity drifted")
+    if receipt.get("atif_present") is not expected_atif_present:
+        raise VerificationError("runtime failure receipt ATIF state drifted")
+    for key in (
+        "raw_prompt_persisted",
+        "raw_response_persisted",
+        "reasoning_content_persisted",
+    ):
+        if receipt.get(key) is not False:
+            raise VerificationError(f"runtime failure receipt violates boundary: {key}")
+    if not expected_atif_present:
+        for unexpected in ("trajectory.json", "atif.json", "evoagent-attestation.json"):
+            path = agent_dir / unexpected
+            if path.exists() or _is_linklike(path):
+                raise VerificationError("runtime failure receipt conflicts with partial ATIF evidence")
+    return receipt, claimed_hash
+
+
+def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str, int | float]:
+    agent_result = payload.get("agent_result")
+    if agent_result is None:
+        agent_result = {}
+    if not isinstance(agent_result, dict):
+        raise VerificationError("failed Harbor trial agent_result is invalid")
+    cost = row.get("cost") or {}
+    if not isinstance(cost, dict):
+        raise VerificationError("failed normalized task cost is invalid")
+    fields = {
+        "prompt_tokens": ("n_input_tokens", "n_input_tokens"),
+        "cached_tokens": ("n_cache_tokens", "n_cache_tokens"),
+        "completion_tokens": ("n_output_tokens", "n_output_tokens"),
+        "cost_usd": ("cost_usd", "cost_usd"),
+    }
+    usage: dict[str, int | float] = {}
+    for output_name, (payload_name, row_name) in fields.items():
+        payload_value = agent_result.get(payload_name, 0)
+        row_value = cost.get(row_name, 0)
+        if output_name == "cost_usd":
+            parsed_payload: int | float = _finite_number(payload_value, "failed Harbor cost")
+            parsed_row = _finite_number(row_value, "failed normalized cost")
+        else:
+            parsed_payload = _bounded_int(payload_value, f"failed Harbor {output_name}")
+            parsed_row = _bounded_int(row_value, f"failed normalized {output_name}")
+        if parsed_payload != parsed_row:
+            raise VerificationError("failed Harbor usage differs from the normalized row")
+        usage[output_name] = parsed_row
+    usage["reasoning_tokens"] = 0
+    return usage
 
 
 def _row_expected_snapshot(row: dict[str, Any], snapshots: dict[str, str]) -> str:
@@ -1109,6 +1384,9 @@ def _validate_rows(
     phase_tasks: dict[str, list[str]] = defaultdict(list)
     safe_rows: list[dict[str, Any]] = []
     attestation_hashes: list[str] = []
+    failure_receipt_hashes: list[str] = []
+    failure_receipt_paths: set[Path] = set()
+    missing_atif_receipt_count = 0
     rollout_llm_call_count = 0
     for row in rows:
         _reject_nonempty_reasoning(row)
@@ -1156,26 +1434,88 @@ def _validate_rows(
         expected_component_hashes = component_hashes_by_snapshot.get(expected_snapshot)
         if expected_component_hashes is None:
             raise VerificationError("trial snapshot lacks independently verified component hashes")
-        attestation, attestation_hash, llm_call_count = _validate_attestation(
-            result_path,
-            expected_snapshot,
-            expected_component_hashes,
+        agent_dir = result_path.parent / "agent"
+        trajectory_path = agent_dir / "trajectory.json"
+        alternate_atif_path = agent_dir / "atif.json"
+        atif_present = any(
+            path.exists() or _is_linklike(path)
+            for path in (trajectory_path, alternate_atif_path)
         )
-        attestation_hashes.append(attestation_hash)
-        rollout_llm_call_count += llm_call_count
-        usage = attestation["usage"]
-        cost = row.get("cost") or {}
-        if not isinstance(cost, dict):
-            raise VerificationError("normalized task cost is invalid")
-        expected_cost_map = {
-            "n_input_tokens": usage["prompt_tokens"],
-            "n_cache_tokens": usage["cached_tokens"],
-            "n_output_tokens": usage["completion_tokens"],
-            "cost_usd": usage["cost_usd"],
-        }
-        for key, value in expected_cost_map.items():
-            if key not in cost or not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
-                raise VerificationError(f"normalized task cost differs from attestation: {key}")
+        attestation_hash: str | None = None
+        failure_receipt_hash: str | None = None
+        failure_class: str | None = None
+        failure_stage: str | None = None
+        mimocode_exit_class: str | None = None
+        if atif_present:
+            attestation, attestation_hash, llm_call_count = _validate_attestation(
+                result_path,
+                expected_snapshot,
+                expected_component_hashes,
+            )
+            attestation_hashes.append(attestation_hash)
+            rollout_llm_call_count += llm_call_count
+            usage = attestation["usage"]
+            cost = row.get("cost") or {}
+            if not isinstance(cost, dict):
+                raise VerificationError("normalized task cost is invalid")
+            expected_cost_map = {
+                "n_input_tokens": usage["prompt_tokens"],
+                "n_cache_tokens": usage["cached_tokens"],
+                "n_output_tokens": usage["completion_tokens"],
+                "cost_usd": usage["cost_usd"],
+            }
+            for key, value in expected_cost_map.items():
+                if key not in cost or not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
+                    raise VerificationError(f"normalized task cost differs from attestation: {key}")
+            receipt_path = agent_dir / FAILURE_RECEIPT_FILENAME
+            if receipt_path.exists() or _is_linklike(receipt_path):
+                if not error_present:
+                    raise VerificationError("runtime failure receipt requires an errored task row")
+                receipt, failure_receipt_hash = _validate_failure_receipt(
+                    row,
+                    result_path,
+                    expected_snapshot,
+                    expected_component_hashes,
+                    expected_atif_present=True,
+                )
+                failure_class = receipt["failure_class"]
+                failure_stage = receipt["failure_stage"]
+                mimocode_exit_class = receipt["mimocode_exit_class"]
+                failure_receipt_hashes.append(failure_receipt_hash)
+                controlled_receipt_path = _regular_file(
+                    receipt_path,
+                    root=result_path.parent,
+                    max_bytes=64 * 1024,
+                )
+                if controlled_receipt_path in failure_receipt_paths:
+                    raise VerificationError("a runtime failure receipt was reused across trials")
+                failure_receipt_paths.add(controlled_receipt_path)
+                if attestation.get("runtime_failure_receipt_sha256") != failure_receipt_hash:
+                    raise VerificationError("ATIF attestation does not bind its runtime failure receipt")
+            elif attestation.get("runtime_failure_receipt_sha256") is not None:
+                raise VerificationError("ATIF attestation references a missing runtime failure receipt")
+        else:
+            if not error_present:
+                raise VerificationError("non-errored Harbor trial is missing ATIF evidence")
+            receipt_path = agent_dir / FAILURE_RECEIPT_FILENAME
+            receipt, failure_receipt_hash = _validate_failure_receipt(
+                row,
+                result_path,
+                expected_snapshot,
+                expected_component_hashes,
+                expected_atif_present=False,
+            )
+            controlled_receipt_path = _regular_file(receipt_path, root=result_path.parent, max_bytes=64 * 1024)
+            if controlled_receipt_path in failure_receipt_paths:
+                raise VerificationError("a runtime failure receipt was reused across trials")
+            failure_receipt_paths.add(controlled_receipt_path)
+            failure_receipt_hashes.append(failure_receipt_hash)
+            missing_atif_receipt_count += 1
+            failure_class = receipt["failure_class"]
+            failure_stage = receipt["failure_stage"]
+            mimocode_exit_class = receipt["mimocode_exit_class"]
+            usage = _failure_row_usage(payload, row)
+            llm_call_count = 0
         safe_rows.append(
             {
                 "task_id": task_id,
@@ -1192,10 +1532,16 @@ def _validate_rows(
                 "input_tokens": usage["prompt_tokens"],
                 "output_tokens": usage["completion_tokens"],
                 "cached_tokens": usage["cached_tokens"],
+                "reasoning_tokens": usage["reasoning_tokens"],
                 "cost_usd": usage["cost_usd"],
                 "llm_call_count": llm_call_count,
                 "snapshot_sha256": expected_snapshot,
                 "attestation_sha256": attestation_hash,
+                "failure_receipt_sha256": failure_receipt_hash,
+                "failure_class": failure_class,
+                "failure_stage": failure_stage,
+                "mimocode_exit_class": mimocode_exit_class,
+                "training_evidence_complete": attestation_hash is not None,
                 "harbor_result_sha256": _sha256(result_path),
             }
         )
@@ -1209,9 +1555,27 @@ def _validate_rows(
         raise VerificationError("replay execution order drifted")
     if phase_tasks["final"] != splits["test"] or phase_tasks["final_baseline"] != splits["test"]:
         raise VerificationError("final A0/AT held-out task order drifted")
-    if len(attestation_hashes) != 24:
-        raise VerificationError("trial attestation coverage is incomplete")
+    if len(attestation_hashes) + missing_atif_receipt_count != 24:
+        raise VerificationError("trial ATIF or failure-receipt coverage is incomplete")
     summary = _recompute_summary(safe_rows)
+    summary["failure_receipt_trials"] = len(failure_receipt_paths)
+    summary["missing_atif_failure_receipt_trials"] = missing_atif_receipt_count
+    summary["failure_receipt_set_sha256"] = _canonical_sha(sorted(failure_receipt_hashes))
+    summary["runtime_failure_classes"] = dict(
+        sorted(Counter(row["failure_class"] for row in safe_rows if row["failure_class"] is not None).items())
+    )
+    summary["runtime_failure_stages"] = dict(
+        sorted(Counter(row["failure_stage"] for row in safe_rows if row["failure_stage"] is not None).items())
+    )
+    summary["mimocode_exit_classes"] = dict(
+        sorted(
+            Counter(
+                row["mimocode_exit_class"]
+                for row in safe_rows
+                if row["mimocode_exit_class"] is not None
+            ).items()
+        )
+    )
     return safe_rows, summary, rollout_llm_call_count
 
 
@@ -1272,8 +1636,10 @@ def _recompute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "rollout_input_tokens": sum(int(row["input_tokens"]) for row in rows),
         "rollout_output_tokens": sum(int(row["output_tokens"]) for row in rows),
         "rollout_cache_tokens": sum(int(row["cached_tokens"]) for row in rows),
+        "rollout_reasoning_tokens": sum(int(row["reasoning_tokens"]) for row in rows),
         "rollout_attested_total_tokens": sum(
-            int(row["input_tokens"]) + int(row["output_tokens"]) for row in rows
+            int(row["input_tokens"]) + int(row["output_tokens"]) + int(row["reasoning_tokens"])
+            for row in rows
         ),
         "seagym_rollout_total_tokens": sum(
             int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
@@ -1363,7 +1729,8 @@ def _validate_metrics(run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
         "seagym_rollout_total_tokens": rollout["total_tokens"],
         "seagym_update_total_tokens": update.get("total_tokens", 0),
         "seagym_overall_total_tokens": overall["total_tokens"],
-        "token_accounting_note": "SEAGym total_tokens adds cache_tokens to input_tokens even though Harbor defines input_tokens as cache-inclusive; both values are retained.",
+        "rollout_reasoning_tokens": summary["rollout_reasoning_tokens"],
+        "token_accounting_note": "Attested totals include bounded provider-reported reasoning-token usage; SEAGym total_tokens separately adds cache_tokens to cache-inclusive Harbor input_tokens and excludes reasoning telemetry. Both conventions are retained.",
         "rollout_cost_usd": rollout["cost_usd"],
         "update_cost_usd": update.get("cost_usd", 0),
         "overall_cost_usd": overall["cost_usd"],
@@ -1404,7 +1771,8 @@ def _proxy_counter(value: Any, label: str) -> int:
 def _validate_guard_proxy_health(
     run_dir: Path,
     *,
-    expected_logical_requests: int,
+    minimum_logical_requests: int,
+    maximum_logical_requests: int,
 ) -> dict[str, Any]:
     health = _load_json(
         run_dir / "evidence" / "guard-proxy-health.json",
@@ -1459,7 +1827,7 @@ def _validate_guard_proxy_health(
     if (
         active != 0
         or forwarded <= 0
-        or forwarded != expected_logical_requests
+        or not minimum_logical_requests <= forwarded <= maximum_logical_requests
         or completed != forwarded
         or rejected != 0
         or upstream_errors != 0
@@ -1611,8 +1979,14 @@ def verify_pilot(
                 raise VerificationError("snapshot component hashes conflict across checkpoints")
             component_hashes_by_snapshot[digest] = component_hashes
     updates, candidate_by_update = _validate_updates(run_dir)
-    if candidate_by_update.get(1, e1) != e1 or candidate_by_update.get(2, final_candidate) != final_candidate:
+    if candidate_by_update.get(1) != e1 or candidate_by_update.get(2) != final_candidate:
         raise VerificationError("update candidate hashes differ from checkpoints")
+    expected_before = initial_candidate
+    for index, (update, candidate) in enumerate(zip(updates, (e1, final_candidate), strict=True), start=1):
+        changed = update["changed"] is True
+        if changed == (candidate == expected_before):
+            raise VerificationError(f"update {index} changed flag disagrees with snapshot lineage")
+        expected_before = candidate
     snapshots = {"A0": initial_a0, "E1": e1, "AT": final_candidate}
     safe_rows, summary, rollout_llm_call_count = _validate_rows(
         run_dir,
@@ -1622,14 +1996,33 @@ def verify_pilot(
         snapshots,
         component_hashes_by_snapshot,
     )
+    for update in updates:
+        index = update["update_index"]
+        batch_rows = [
+            row
+            for row in safe_rows
+            if row["mode"] == "train" and row["train_batch_index"] == index
+        ]
+        all_missing_atif = len(batch_rows) == 3 and all(
+            row["training_evidence_complete"] is False for row in batch_rows
+        )
+        if update["model_call_executed"] is False and not all_missing_atif:
+            raise VerificationError("ATIF skip does not correspond to an all-receipted error batch")
+        if update["model_call_executed"] is True and all_missing_atif:
+            raise VerificationError("update model was called for a batch with no usable ATIF evidence")
     metric_usage = _validate_metrics(run_dir, summary)
     _validate_evaluation_points(run_dir, summary)
-    update_llm_call_count = len(updates)
-    verified_total_logical_requests = rollout_llm_call_count + update_llm_call_count
+    update_llm_call_count = sum(update["model_call_executed"] is True for update in updates)
+    skipped_update_count = sum(update["model_call_executed"] is False for update in updates)
+    failure_receipt_trials = int(summary["failure_receipt_trials"])
+    missing_atif_failure_receipt_trials = int(summary["missing_atif_failure_receipt_trials"])
     proxy_health = _validate_guard_proxy_health(
         run_dir,
-        expected_logical_requests=rollout_llm_call_count,
+        minimum_logical_requests=rollout_llm_call_count,
+        maximum_logical_requests=rollout_llm_call_count + missing_atif_failure_receipt_trials * 32,
     )
+    verified_rollout_logical_requests = int(proxy_health["forwarded_requests"])
+    verified_total_logical_requests = verified_rollout_logical_requests + update_llm_call_count
     cost = _usage_cost(usage_before, usage_after)
     result = {
         "schema_version": FORMAT_VERSION,
@@ -1637,7 +2030,11 @@ def verify_pilot(
         "protocol_id": protocol["protocol_id"],
         "run_id": plan["run_id"],
         "experiment_id": plan["experiment_id"],
-        "results_status": "verified_completed_real_pilot",
+        "results_status": (
+            "completed_with_incomplete_training_evidence"
+            if failure_receipt_trials or skipped_update_count
+            else "verified_completed_real_pilot"
+        ),
         "pilot_kind": "real_external_scientific_pilot",
         "leaderboard_submission": False,
         "paper_scale_reproduction": False,
@@ -1664,9 +2061,13 @@ def verify_pilot(
             "planned_task_trials": 24,
             "verified_task_trials": len(safe_rows),
             "verified_update_attempts": len(updates),
-            "verified_rollout_model_calls": rollout_llm_call_count,
+            "verified_rollout_model_calls": verified_rollout_logical_requests,
+            "attested_rollout_model_calls": rollout_llm_call_count,
+            "runtime_failure_receipt_trials": failure_receipt_trials,
+            "missing_atif_failure_receipt_trials": missing_atif_failure_receipt_trials,
             "verified_update_model_calls": update_llm_call_count,
-            "verified_guard_proxy_logical_requests": rollout_llm_call_count,
+            "skipped_update_attempts": skipped_update_count,
+            "verified_guard_proxy_logical_requests": verified_rollout_logical_requests,
             "verified_total_logical_model_requests": verified_total_logical_requests,
             "privacy_projection_verified": True,
             "credential_exposure_observed": False,

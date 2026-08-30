@@ -22,39 +22,51 @@
   },
   "amendment": {
     "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-30T01:43:46Z",
+    "amended_at": "2026-08-30T04:03:18Z",
+    "compatibility_normalization": {
+      "applies_only_when": "inbound_tool_choice_none_with_nonempty_local_function_tools",
+      "benchmark_effect_claimed": false,
+      "inbound_semantics": "tool_calls_disabled_for_the_final_text_response",
+      "model_provider_tasks_seed_or_config_changed": false,
+      "outbound_change": "delete_tool_choice_and_tools_before_forwarding",
+      "outbound_semantics": "no_local_function_tools_are_offered_to_the_model",
+      "retry_identity": "byte_identical_normalized_outbound_body",
+      "unexpected_outbound_tool_call_policy": "reject_response_and_make_pilot_incomplete"
+    },
+    "config_sha256_unchanged": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9724445260,
-    "diagnostic_artifact_sha256": "9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee",
-    "diagnostic_controller_run_id": 33285475794,
+    "diagnostic_artifact_id": 9725879182,
+    "diagnostic_artifact_sha256": "d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54",
+    "diagnostic_controller_run_id": 33289924348,
     "diagnostic_job_log": {
       "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
-      "job_id": 99187817660,
+      "job_id": 99199651435,
       "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
       "safe_fixed_phrase_occurrences": 2,
-      "sha256": "546e3619370df2bd34758b74cb1b7e271c4158c06142197839943b4f1e23cbc1"
+      "sha256": "88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a"
     },
     "diagnostic_observation": {
-      "completed_requests": 100,
+      "completed_requests": 106,
       "final_upstream_http_404_errors": 5,
-      "forwarded_requests": 100,
+      "forwarded_requests": 106,
       "rejected_requests": 0,
       "train_batches_without_usable_atif": 1,
-      "upstream_attempts": 110,
-      "upstream_http_404_attempts": 15,
+      "upstream_attempts": 126,
+      "upstream_http_404_attempts": 25,
       "upstream_other_attempt_errors": 0,
-      "upstream_retries": 10
+      "upstream_retries": 20
     },
-    "execution_resilience_change": "serialize_harbor_trials_and_expand_byte_identical_same_route_backoff_without_changing_model_provider_tasks_or_request_bytes",
+    "execution_resilience_change": "normalize_mimocode_final_text_requests_for_the_pinned_xiaomi_endpoint_without_changing_model_provider_tasks_seed_or_config_while_preserving_the_no_tool_action_authorization_boundary",
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 10,
+    "prior_controller_attempts_total": 11,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
     "prior_v4_controller_attempts": 1,
+    "prior_v5_controller_attempts": 1,
     "prior_model_inference_completed": true,
-    "prior_observed_usage_delta_usd": 0.174437779,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4",
+    "prior_observed_usage_delta_usd": 0.217105791,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5",
     "prior_v2_run_evidence": [
       {
         "artifact_id": 9710915384,
@@ -112,8 +124,33 @@
         "score_produced": false
       }
     ],
+    "prior_v5_run_evidence": [
+      {
+        "artifact_id": 9725879182,
+        "artifact_sha256": "d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54",
+        "blocker_code": "seagym_execution_failed",
+        "controller_commit": "8c2015febaabca2710e90805bb9ee95e0ec5a83c",
+        "evoagent_public_commit": "092ba665fd01450ee70446fe3f8e30cce4775c08",
+        "observed_usage_delta_usd": 0.042668012,
+        "run_id": 33289924348,
+        "score_produced": false
+      }
+    ],
     "prior_score_produced": false,
-    "reason_code": "persistent_intermittent_upstream_404_exhausted_short_retries_and_left_a_train_batch_without_usable_atif",
+    "reason_code": "mimocode_final_step_tool_choice_none_is_unsupported_by_the_pinned_xiaomi_endpoint",
+    "root_cause_evidence": {
+      "benchmark_result_claimed": false,
+      "confidence": "high",
+      "frozen_mimocode_local_capture": {
+        "capture_content_persisted": false,
+        "observed_final_step_shape": "tool_choice_none_with_nonempty_local_function_tools",
+        "runtime": "mimocode-v0.1.13"
+      },
+      "xiaomi_endpoint_parameter_metadata": {
+        "endpoint": "xiaomi/fp8",
+        "tool_choice_none_supported": false
+      }
+    },
     "score_blind": true,
     "transport_only_change": false
   },
@@ -198,7 +235,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,
@@ -232,7 +269,7 @@
       "proxy_base_url": "http://evoagent-openrouter-proxy:18765/api/v1"
     },
     "guard_proxy": {
-      "health_schema_version": "openrouter-guard-proxy-health-v3",
+      "health_schema_version": "openrouter-guard-proxy-health-v4",
       "limits": {
         "client_timeout_seconds": 30.0,
         "max_concurrency": 2,
@@ -242,7 +279,25 @@
         "max_response_bytes": 16777216,
         "upstream_timeout_seconds": 300.0
       },
-      "source_sha256": "83afa0faf842ad91a72936da63b1b66b6c0d02f817520969dbe9fa68ac7c0804"
+      "source_sha256": "14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754",
+      "telemetry": {
+        "normalization_counters": [
+          "tool_choice_none_to_no_tools"
+        ],
+        "raw_request_content_persisted": false,
+        "request_profile_buckets": [
+          "absent",
+          "auto",
+          "required",
+          "none",
+          "named"
+        ],
+        "request_profile_fields": [
+          "inbound_tool_choice",
+          "outbound_tool_choice",
+          "final_upstream_errors_by_outbound_tool_choice"
+        ]
+      }
     },
     "mimocode": {
       "asset": "mimocode-linux-x64.tar.gz",

@@ -436,13 +436,37 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
             "guard_proxy_source_sha256": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["source_sha256"],
             "limits": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["limits"],
             "max_upstream_retries": 4,
+            "normalizations": {"tool_choice_none_to_no_tools": 4},
             "ready": True,
             "rejected_requests": 0,
             "rejection_classes": {"concurrency_limit": 0, "request_limit": 0, "other": 0},
             "remaining_requests": 744,
+            "request_profiles": {
+                "inbound_tool_choice": {
+                    "absent": 20,
+                    "auto": 0,
+                    "required": 0,
+                    "none": 4,
+                    "named": 0,
+                },
+                "outbound_tool_choice": {
+                    "absent": 24,
+                    "auto": 0,
+                    "required": 0,
+                    "none": 0,
+                    "named": 0,
+                },
+                "final_upstream_errors_by_outbound_tool_choice": {
+                    "absent": 0,
+                    "auto": 0,
+                    "required": 0,
+                    "none": 0,
+                    "named": 0,
+                },
+            },
             "request_limit": 768,
             "retry_policy": pilot_verifier.EXPECTED_RETRY_POLICY,
-            "schema_version": "openrouter-guard-proxy-health-v3",
+            "schema_version": "openrouter-guard-proxy-health-v4",
             "upstream_attempt_error_classes": attempt_error_classes,
             "upstream_attempts": 28,
             "upstream_error_classes": {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES},
@@ -498,6 +522,9 @@ def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -
     assert len(rows) == 24
     assert len(updates) == 2
     assert result["evidence"]["guard_proxy_health"]["upstream_retries"] == 4
+    assert result["evidence"]["guard_proxy_health"]["normalizations"] == {
+        "tool_choice_none_to_no_tools": 4
+    }
     assert result["evidence"]["verified_rollout_model_calls"] == 24
     assert result["evidence"]["verified_update_model_calls"] == 2
     assert result["evidence"]["verified_guard_proxy_logical_requests"] == 24
@@ -648,7 +675,7 @@ def test_rejects_retry_policy_drift(
         pilot_verifier._validate_protocol(path)
 
 
-def test_rejects_score_blind_v5_diagnostic_evidence_drift(
+def test_rejects_score_blind_v6_diagnostic_evidence_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -658,6 +685,35 @@ def test_rejects_score_blind_v5_diagnostic_evidence_drift(
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError, match="score-blind protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("model_route", "request_model", "qwen/qwen3.8-flash"),
+        ("route_contract", "response_provider", "auto"),
+        ("provider", "only", ["auto"]),
+    ],
+)
+def test_rejects_score_blind_v6_model_or_provider_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    if section == "model_route":
+        protocol["model_route"][field] = value
+    elif section == "route_contract":
+        protocol["model_route"]["route_contract"][field] = value
+    else:
+        protocol["model_route"]["route_contract"]["provider"][field] = value
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="protocol .*route.* drifted"):
         pilot_verifier._validate_protocol(path)
 
 
@@ -703,6 +759,44 @@ def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
     health["guard_proxy_source_sha256"] = "0" * 64
     _write_json(health_path, health)
     with pytest.raises(VerificationError, match="runtime identity or retry policy drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_accepts_content_free_profile_for_none_without_tools(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    health["normalizations"]["tool_choice_none_to_no_tools"] = 3
+    health["request_profiles"]["outbound_tool_choice"]["absent"] = 23
+    health["request_profiles"]["outbound_tool_choice"]["none"] = 1
+    _write_json(health_path, health)
+
+    result, _, _ = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["evidence"]["guard_proxy_health"]["normalizations"] == {
+        "tool_choice_none_to_no_tools": 3
+    }
+
+
+@pytest.mark.parametrize("tamper", ["normalization_count", "outbound_none", "raw_dynamic_field"])
+def test_rejects_guard_proxy_v6_request_profile_drift(tmp_path: Path, tamper: str) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    if tamper == "normalization_count":
+        health["normalizations"]["tool_choice_none_to_no_tools"] = 3
+    elif tamper == "outbound_none":
+        health["request_profiles"]["outbound_tool_choice"]["absent"] = 23
+        health["request_profiles"]["outbound_tool_choice"]["none"] = 1
+    else:
+        health["request_profiles"]["raw_request_sha256"] = "0" * 64
+    _write_json(health_path, health)
+    with pytest.raises(VerificationError, match="guard-proxy (request-profile|normalization)"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 

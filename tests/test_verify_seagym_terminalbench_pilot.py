@@ -583,8 +583,12 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
                 },
             },
             "request_limit": 768,
+            "root_session_binding_enabled": True,
+            "root_session_rejections": 0,
+            "root_sessions_limit": 24,
+            "root_sessions_observed": 24,
             "retry_policy": pilot_verifier.EXPECTED_RETRY_POLICY,
-            "schema_version": "openrouter-guard-proxy-health-v4",
+            "schema_version": "openrouter-guard-proxy-health-v5",
             "upstream_attempt_error_classes": attempt_error_classes,
             "upstream_attempts": 28,
             "upstream_error_classes": {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES},
@@ -935,16 +939,103 @@ def test_rejects_retry_policy_drift(
         pilot_verifier._validate_protocol(path)
 
 
-def test_rejects_score_blind_v6_diagnostic_evidence_drift(
+def test_rejects_score_blind_v8_auxiliary_call_policy_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-    protocol["amendment"]["diagnostic_artifact_sha256"] = "0" * 64
+    protocol["amendment"]["generated_runtime_config_change"][
+        "title_agent_enabled"
+    ] = True
     path = tmp_path / "protocol.json"
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError, match="score-blind protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_preserved_v7_amendment_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v7"]["diagnostic_artifact_sha256"] = "0" * 64
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v7 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actor_subsessions_enabled", True),
+        ("automatic_checkpoint_enabled", True),
+        ("automatic_cron_enabled", True),
+        ("automatic_distill_enabled", True),
+        ("automatic_dream_enabled", True),
+        ("mcp_sampling_enabled", True),
+        ("title_agent_enabled", True),
+        ("next_prompt_prediction_enabled", True),
+        ("unattested_model_calls_allowed", True),
+    ],
+)
+def test_rejects_unattested_auxiliary_model_call_runtime_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: bool,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["runtime"]["mimocode"]["auxiliary_model_calls"][field] = value
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="MiMoCode runtime identity drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("build_tool_allowlist", ["bash", "read", "write", "edit", "glob", "grep", "actor"]),
+        ("compaction_auto_enabled", False),
+        ("config_content_overlay", '{"mcp":{"host":{}}}'),
+        ("disposable_home_environment", ["MIMOCODE_HOME"]),
+        ("fixed_session_title", ""),
+        ("mcp_servers_configured", True),
+        ("proxy_session_affinity_header", "x-parent-session-id"),
+        ("proxy_session_affinity_required", False),
+        ("pure_mode_enabled", False),
+        ("root_session_only", False),
+    ],
+)
+def test_rejects_mimocode_execution_isolation_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["runtime"]["mimocode"]["execution_isolation"][field] = value
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="MiMoCode runtime identity drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_guard_proxy_root_session_protocol_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["runtime"]["guard_proxy"]["root_session_binding"]["full_pilot_limit"] = 23
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="runtime guard-proxy identity drifted"):
         pilot_verifier._validate_protocol(path)
 
 
@@ -956,7 +1047,7 @@ def test_rejects_score_blind_v6_diagnostic_evidence_drift(
         ("provider", "only", ["auto"]),
     ],
 )
-def test_rejects_score_blind_v6_model_or_provider_drift(
+def test_rejects_score_blind_v8_model_or_provider_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     section: str,
@@ -1019,6 +1110,29 @@ def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
     health["guard_proxy_source_sha256"] = "0" * 64
     _write_json(health_path, health)
     with pytest.raises(VerificationError, match="runtime identity or retry policy drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("root_session_binding_enabled", False),
+        ("root_session_rejections", 1),
+        ("root_sessions_limit", 23),
+        ("root_sessions_observed", 23),
+    ],
+)
+def test_rejects_guard_proxy_root_session_binding_drift(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    health_path = run / "evidence" / "guard-proxy-health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    health[field] = value
+    _write_json(health_path, health)
+    with pytest.raises(VerificationError, match="completed-run counters are inconsistent"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 

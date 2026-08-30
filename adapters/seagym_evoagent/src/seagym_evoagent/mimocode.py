@@ -17,6 +17,7 @@ MIMOCODE_ARCHIVE_URL = (
 MIMOCODE_ARCHIVE_SHA256 = "0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada"
 MIMOCODE_ARCHIVE_ENV = "EVOAGENT_MIMOCODE_ARCHIVE_PATH"
 MIMOCODE_PROXY_BASE_URL = "http://evoagent-openrouter-proxy:18765/api/v1"
+MIMOCODE_SESSION_TITLE = "evoagent-seagym-trial"
 SEAGYM_COMMIT = "9e61e14db1f1355de944cd7c5b10c244fc74e82d"
 HARBOR_RUNTIME_COMMIT = "f7110f1a240c6a50589b90c4d69714763946d088"
 
@@ -62,9 +63,35 @@ def locked_mimocode_config(
                 "models": {UPDATE_MODEL_ID: model},
             }
         },
+        "compaction": {"auto": True, "prune": True},
         "memory": {"disable_write": True},
         "dream": {"auto": False},
-        "agent": {"build": {"steps": max_iterations}},
+        "distill": {"auto": False},
+        "mcp": {},
+        "permission": {
+            "actor": "deny",
+            "cron": "deny",
+            "mcp_sampling": "deny",
+            "mcp_tool_search": "deny",
+        },
+        # Only root-session calls may reach the proxy. Compaction remains in the
+        # root event stream; detached/system model paths are disabled instead of
+        # being excluded from strict proxy-to-ATIF request accounting.
+        "experimental": {"predict_next_prompt": False},
+        "agent": {
+            "build": {
+                "permission": {"actor": "deny"},
+                "steps": max_iterations,
+                "tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"],
+            },
+            "checkpoint-writer": {"disable": True},
+            "distill": {"disable": True},
+            "dream": {"disable": True},
+            "max": {"disable": True},
+            "orchestrator": {"disable": True},
+            "summary": {"disable": True},
+            "title": {"disable": True},
+        },
     }
 
 
@@ -96,9 +123,21 @@ def runtime_env(config_path: str, home_path: str, *, proxy_token: str) -> dict[s
     if not re.fullmatch(r"evoagent-local-proxy-v1-[0-9a-f]{64}", proxy_token):
         raise ValueError("invalid run-scoped local proxy capability")
     return {
+        "HOME": home_path,
         "OPENROUTER_API_KEY": proxy_token,
+        "USERPROFILE": home_path,
         "MIMOCODE_CONFIG": config_path,
+        "MIMOCODE_CONFIG_CONTENT": "{}",
         "MIMOCODE_HOME": home_path,
+        "MIMOCODE_PURE": "1",
+        "MIMOCODE_EXPERIMENTAL": "0",
+        "MIMOCODE_EXPERIMENTAL_CRON": "0",
+        "MIMOCODE_DISABLE_CRON": "1",
+        "MIMOCODE_DISABLE_CHECKPOINT": "1",
+        "MIMOCODE_EXPERIMENTAL_ORCHESTRATOR": "0",
+        "MIMOCODE_EXPERIMENTAL_WORKFLOW_TOOL": "0",
+        "MIMOCODE_EXPERIMENTAL_MCP_TOOL_SEARCH": "0",
+        "MIMOCODE_ENABLE_EXEC_TOOL": "0",
         "MIMOCODE_DISABLE_PROVIDER_ENV": "1",
         "MIMOCODE_DISABLE_EXTERNAL_SKILLS": "1",
         "MIMOCODE_DISABLE_BUILTIN_SKILLS": "1",

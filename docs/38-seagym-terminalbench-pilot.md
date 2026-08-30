@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v7 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v8 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,15 +108,34 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v7, a score-blind amendment. Four pre-v2 controller attempts
+This is protocol v8, a score-blind amendment. Four pre-v2 controller attempts
 were infrastructure/preflight diagnostics. Four real v2 attempts and one real
-attempt for each of v3, v4, v5, and v6 reached progressively deeper parts of
-the pinned external pipeline, but none completed the A_0/A_T comparison and
-none produced a score. The twelve controller attempts had a cumulative
-observed key-usage delta of USD 0.267401320 across their separately bounded
+attempt for each of v3, v4, v5, v6, and v7 reached progressively deeper parts
+of the pinned external pipeline, but none completed the A_0/A_T comparison and
+none produced a score. The thirteen controller attempts had a cumulative
+observed key-usage delta of USD 0.272736272 across their separately bounded
 observation windows.
 
-The latest incomplete run `33295415122`, against controller commit
+The latest incomplete run `33304816856`, against controller commit
+`cc54328af922aed15093687f654383c2cf88f5e5` and public EvoAgent commit
+`25ee0721f7d206b6168a6d7d642bebb1700d9b41`, passed the strict route canary and
+official Harbor oracle. Its lifecycle Harbor child exited zero; the guard proxy
+forwarded and completed 12 requests with 12 upstream attempts, zero retries,
+zero rejections, and zero upstream errors. The safe request profile contained
+one request with absent `tool_choice` and 11 with `tool_choice: "auto"`. The
+strict lifecycle verifier returned `invalid_evidence`, so the 24-trial pilot did
+not start and no score was produced. Raw trial jobs were deleted at the privacy
+boundary, so the exact ATIF model-call count is unavailable. MiMoCode v0.1.13's
+source contract and the one-plus-eleven request profile provide high-confidence,
+not definitive, evidence that the unmatched request was its default first-turn
+title call. Artifact `9730177730` is bound by GitHub Actions artifact-ZIP
+SHA-256 `819d535de948bc3a8d2ecda62af647901d4fa4f82b309ac130a250930126b0bb`;
+the downloaded job-log bytes have SHA-256
+`217028db03c83c93e90577aceea539825babeea93a18deb5c0ea28def13f7051`.
+The lifecycle guard observed USD 0.004855739 and the entire key-usage window
+observed USD 0.005334952.
+
+The immediately preceding incomplete run `33295415122`, against controller commit
 `2a44abedde490fc3d6d602a372284db030357eb4` and public EvoAgent commit
 `9889fee8888baca681311a3c10880a7144f5736d`, forwarded and completed all 111
 logical requests with 111 upstream attempts, zero retries, zero proxy
@@ -201,15 +220,62 @@ timeout. Its bounded 15-second forced-kill grace is part of that reserve,
 leaving at least 105 seconds at the command layer in which ATIF or the
 classified failure receipt can be persisted before the outer process ends.
 
+Protocol v8 closes an evidence-accounting bypass exposed by the v7 lifecycle
+run without weakening the verifier. MiMoCode v0.1.13 starts its default title
+Agent on the first user turn and can independently predict a next prompt. Its
+build Agent can also spawn `actor` sub-sessions; checkpoint, dream/distill,
+cron, workflow/orchestrator, and MCP sampling paths can likewise initiate work
+outside the completed root turn. Those requests use the frozen route but are
+not guaranteed to be emitted as root-session CLI `step_finish` events, so the
+sanitizer cannot bind them to the task's ATIF model calls.
+
+The generated, per-task MiMoCode config now sets `agent.title.disable=true`,
+`experimental.predict_next_prompt=false`, `memory.disable_write=true`, and
+`dream.auto=false`/`distill.auto=false`; it disables the checkpoint writer,
+max/orchestrator and other detached system Agents. The build Agent has an exact
+Tool allowlist of `bash`, `read`, `write`, `edit`, `glob`, and `grep`, plus an
+explicit `actor` deny. Top-level permissions deny actor, cron, MCP sampling,
+and MCP Tool search, with no MCP servers configured. Runtime flags independently
+disable cron at registration and at fire time, checkpoint creation, the
+experimental umbrella, orchestrator, workflow, MCP Tool search, and exec. The
+CLI supplies the fixed task-independent title `evoagent-seagym-trial`, so even
+a title-config merge regression leaves the session non-default.
+
+Automatic compaction and pruning remain enabled because compaction stays in the
+root event flow. Each trial binds `HOME`, `USERPROFILE`, and `MIMOCODE_HOME` to
+its disposable runtime directory, enables MiMoCode pure mode, and overrides the
+late-merged `MIMOCODE_CONFIG_CONTENT` value with `{}`. The controller guard
+proxy must enforce the root `x-session-affinity` value; the private proxy
+implementation rejects `x-parent-session-id`, requires the affinity to equal
+the request `prompt_cache_key`, and remains bound by its reviewed source hash.
+Route and lifecycle checks permit exactly one root session; the full pilot
+permits and requires exactly 24, with zero root-session rejections. The
+small-model route remains identical to the frozen rollout route, but no
+unattested auxiliary or actor-session request is authorized. A complete scored
+comparison still requires exact proxy-to-ATIF logical-request equality. A
+classified trial whose ATIF is missing may produce only the already-defined,
+explicitly incomplete diagnostic bundle; it cannot support a positive pilot
+classification.
+
+This changes only generated runtime request scoping. It does not change the
+model or provider, task set or split, order, seed, budgets, metrics, or
+interpretation rule. The frozen SEAGym experiment config bytes remain unchanged
+at SHA-256
+`28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195`.
+No task score or partial effect was inspected, and no benchmark effect is
+claimed.
+
 The public protocol also pins guard-proxy source SHA-256
-`14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754`, health schema v4, and all request, response,
-concurrency, token and timeout limits. Schema v4 adds only fixed aggregate
-counters for inbound/outbound Tool-choice profiles, final upstream errors by
-outbound Tool-choice profile, and the `tool_choice_none_to_no_tools`
-normalization. It records no request body, prompt, Tool definition, dynamic
-identifier, or request hash. A completed result is accepted only if its safe
-runtime health evidence matches that identity and proves the logical-request,
-attempt, retry, profile, and normalization counts.
+`e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
+health schema v5, and all request, response, concurrency, token and timeout
+limits. Schema v5 preserves the fixed aggregate Tool-choice and normalization
+counters from v4 and adds only whether root-session binding is enabled, its
+fixed limit, the number of distinct accepted root sessions, and the number of
+root-session rejections. It records no request body, prompt, Tool definition,
+session value or hash, dynamic identifier, or request hash. A completed result
+is accepted only if its safe runtime health evidence matches that identity and
+proves the logical-request, attempt, retry, profile, normalization, and
+root-session counts.
 The controller repository remains private, so the digest binds the reviewed
 implementation used by this pilot but does not make that implementation
 publicly inspectable. This is an explicit controller trust boundary, not a
@@ -234,8 +300,10 @@ CPUs and 16 GiB memory. Each selected task declares one CPU, 2,048 MB memory,
 10,240 MB storage, and no GPU at the pinned Terminal-Bench commit. Harbor
 concurrency is one, with a 1,800-second Agent timeout, 600-second verifier
 timeout, and 355-minute workflow ceiling. The proxy permits at most two
-simultaneous requests so one trial can make its main and auxiliary model calls.
-Concurrency changes wall-clock scheduling only; it must not change task
+simultaneous requests as a transport ceiling, but v8 forbids untracked title
+and next-prompt calls and requires every rollout request in a complete scored
+comparison to be accounted for in ATIF. Concurrency changes wall-clock
+scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
 
 The full pilot command is bounded to 13,200 seconds and the lifecycle gate to
@@ -247,7 +315,7 @@ upload, so the job-level timeout should not pre-empt fail-closed reporting.
 The one-seed authorization has a USD 1.20 maximum observed key-usage delta.
 An independent guard polls OpenRouter's authenticated, cumulative key usage
 every 10 seconds and stops the process group at a USD 0.90 delta, leaving a
-buffer for the single in-flight Harbor trial and any auxiliary request. Three
+buffer for the single in-flight Harbor trial and its task-scoped request. Three
 consecutive usage-check failures also stop execution fail-closed. MiMoCode
 additionally binds each trial to the
 validated harness policy's bounded agent-step limit. The frozen baseline sets

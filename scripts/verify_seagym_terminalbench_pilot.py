@@ -42,8 +42,75 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-08-30T10:04:18Z",
+    "benchmark_effect_claimed": False,
+    "change": "isolate_mimocode_root_session_model_call_surface",
+    "diagnostic": {
+        "artifact_id": 9730177730,
+        "artifact_zip_sha256": "819d535de948bc3a8d2ecda62af647901d4fa4f82b309ac130a250930126b0bb",
+        "controller_commit": "cc54328af922aed15093687f654383c2cf88f5e5",
+        "evoagent_public_commit": "25ee0721f7d206b6168a6d7d642bebb1700d9b41",
+        "job_id": 99239368341,
+        "job_log_sha256": "217028db03c83c93e90577aceea539825babeea93a18deb5c0ea28def13f7051",
+        "lifecycle_budget_guard_delta_usd": 0.004855739,
+        "observed_key_usage_delta_usd": 0.005334952,
+        "proxy": {
+            "completed_requests": 12,
+            "forwarded_requests": 12,
+            "inbound_tool_choice_absent": 1,
+            "inbound_tool_choice_auto": 11,
+            "rejected_requests": 0,
+            "upstream_attempts": 12,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+        },
+        "run_id": 33304816856,
+        "score_produced": False,
+        "status": "invalid_evidence",
+    },
+    "evidence_boundary": {
+        "exact_atif_model_call_count_available": False,
+        "inference": "one_unattested_auxiliary_title_request",
+        "inference_confidence": "high",
+        "raw_event_or_response_content_persisted": False,
+        "support": "one_absent_tool_choice_request_plus_eleven_auto_requests_and_mimocode_v0.1.13_title_source_contract",
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "seagym_config_sha256": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "generated_runtime_config_change": {
+        "actor_subsessions_enabled": False,
+        "automatic_checkpoint_enabled": False,
+        "automatic_cron_enabled": False,
+        "automatic_distill_enabled": False,
+        "automatic_dream_enabled": False,
+        "disposable_home_bound": True,
+        "fixed_session_title": "evoagent-seagym-trial",
+        "inherited_config_overlay_cleared": True,
+        "mcp_sampling_enabled": False,
+        "next_prompt_prediction_enabled": False,
+        "proxy_session_affinity_required": True,
+        "proxy_to_atif_model_call_equality_required": True,
+        "pure_mode_enabled": True,
+        "root_compaction_enabled": True,
+        "small_model_route_changed": False,
+        "task_scoped_rollout_requests_only": True,
+        "title_agent_enabled": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 13,
+    "prior_observed_usage_delta_usd": 0.272736272,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7",
+    "score_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V7 = {
     "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
     "amended_at": "2026-08-30T06:39:29Z",
     "compatibility_normalization": {
@@ -214,7 +281,7 @@ EXPECTED_RETRY_POLICY = {
     "same_model_provider_endpoint": True,
 }
 EXPECTED_GUARD_PROXY_RUNTIME = {
-    "health_schema_version": "openrouter-guard-proxy-health-v4",
+    "health_schema_version": "openrouter-guard-proxy-health-v5",
     "limits": {
         "client_timeout_seconds": 30.0,
         "max_concurrency": 2,
@@ -224,7 +291,17 @@ EXPECTED_GUARD_PROXY_RUNTIME = {
         "max_response_bytes": 16 * 1024 * 1024,
         "upstream_timeout_seconds": 300.0,
     },
-    "source_sha256": "14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754",
+    "root_session_binding": {
+        "enabled": True,
+        "full_pilot_limit": 24,
+        "header": "x-session-affinity",
+        "health_schema_version": "openrouter-guard-proxy-health-v5",
+        "lifecycle_canary_limit": 1,
+        "parent_header_forbidden": "x-parent-session-id",
+        "payload_binding": "prompt_cache_key",
+        "route_canary_limit": 1,
+    },
+    "source_sha256": "e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29",
     "telemetry": {
         "normalization_counters": ["tool_choice_none_to_no_tools"],
         "raw_request_content_persisted": False,
@@ -305,6 +382,29 @@ EXPECTED_MIMOCODE = {
     "version": "0.1.13",
     "commit": "67c9cf1e26288d03c65fb844be71f39581ffc1de",
     "asset_sha256": "0997a43647a99969d0194fad71af1fd6112aa8220e24a4562aea63953b1e1ada",
+    "auxiliary_model_calls": {
+        "actor_subsessions_enabled": False,
+        "automatic_checkpoint_enabled": False,
+        "automatic_cron_enabled": False,
+        "automatic_distill_enabled": False,
+        "automatic_dream_enabled": False,
+        "mcp_sampling_enabled": False,
+        "next_prompt_prediction_enabled": False,
+        "title_agent_enabled": False,
+        "unattested_model_calls_allowed": False,
+    },
+    "execution_isolation": {
+        "build_tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"],
+        "compaction_auto_enabled": True,
+        "config_content_overlay": "{}",
+        "disposable_home_environment": ["HOME", "MIMOCODE_HOME", "USERPROFILE"],
+        "fixed_session_title": "evoagent-seagym-trial",
+        "mcp_servers_configured": False,
+        "proxy_session_affinity_header": "x-session-affinity",
+        "proxy_session_affinity_required": True,
+        "pure_mode_enabled": True,
+        "root_session_only": True,
+    },
 }
 SECRET_PATTERNS = (
     re.compile(r"sk-or-v1-[A-Za-z0-9_-]{16,}"),
@@ -509,6 +609,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v7") != EXPECTED_PRIOR_AMENDMENT_V7:
+        raise VerificationError("preserved v7 protocol amendment drifted")
     repo_root = _repo_root(protocol_path)
     if protocol.get("upstream") != EXPECTED_UPSTREAM:
         raise VerificationError("upstream commit lock drifted")
@@ -1793,6 +1895,10 @@ def _validate_guard_proxy_health(
         "remaining_requests",
         "request_profiles",
         "request_limit",
+        "root_session_binding_enabled",
+        "root_session_rejections",
+        "root_sessions_limit",
+        "root_sessions_observed",
         "retry_policy",
         "schema_version",
         "upstream_attempt_error_classes",
@@ -1824,6 +1930,19 @@ def _validate_guard_proxy_health(
     upstream_retries = _proxy_counter(health.get("upstream_retries"), "upstream_retries")
     request_limit = _proxy_counter(health.get("request_limit"), "request_limit")
     remaining_requests = _proxy_counter(health.get("remaining_requests"), "remaining_requests")
+    root_binding = EXPECTED_GUARD_PROXY_RUNTIME["root_session_binding"]
+    root_session_rejections = _proxy_counter(
+        health.get("root_session_rejections"),
+        "root_session_rejections",
+    )
+    root_sessions_limit = _proxy_counter(
+        health.get("root_sessions_limit"),
+        "root_sessions_limit",
+    )
+    root_sessions_observed = _proxy_counter(
+        health.get("root_sessions_observed"),
+        "root_sessions_observed",
+    )
     if (
         active != 0
         or forwarded <= 0
@@ -1835,6 +1954,10 @@ def _validate_guard_proxy_health(
         or remaining_requests != request_limit - forwarded
         or upstream_attempts != forwarded + upstream_retries
         or upstream_retries > forwarded * EXPECTED_RETRY_POLICY["max_retries_per_client_request"]
+        or health.get("root_session_binding_enabled") is not True
+        or root_session_rejections != 0
+        or root_sessions_limit != root_binding["full_pilot_limit"]
+        or root_sessions_observed != root_binding["full_pilot_limit"]
     ):
         raise VerificationError("guard-proxy completed-run counters are inconsistent")
 

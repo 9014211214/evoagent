@@ -29,8 +29,10 @@ from seagym_evoagent.mimocode import (
     MIMOCODE_ARCHIVE_ENV,
     MIMOCODE_ARCHIVE_SHA256,
     MIMOCODE_ARCHIVE_URL,
+    MIMOCODE_SESSION_TITLE,
     MIMOCODE_VERSION,
     locked_mimocode_config,
+    runtime_env,
 )
 from seagym_evoagent.models import (
     CANONICAL_MODEL_ID,
@@ -1088,6 +1090,7 @@ class HarborAgentTests(unittest.TestCase):
             command,
         )
         self.assertIn(f"--model {HARBOR_MODEL_ID}", command)
+        self.assertIn(f"--title {MIMOCODE_SESSION_TITLE}", command)
         self.assertIn("--mimocode-exit-code \"$mimo_status\"", command)
         self.assertIn(f"--failure-receipt /logs/agent/{FAILURE_RECEIPT_FILENAME}", command)
         self.assertIn(f"exit {MIMOCODE_PROCESS_EXIT}", command)
@@ -1106,7 +1109,29 @@ class HarborAgentTests(unittest.TestCase):
         model_options = config["provider"]["openrouter"]["models"][UPDATE_MODEL_ID]["options"]
         self.assertEqual(model_options["provider"], expected_route_contract()["provider"])
         self.assertEqual(model_options["reasoning"], {"enabled": False})
-        self.assertEqual(config["agent"]["build"]["steps"], agent.snapshot.components.policy.max_iterations)
+        self.assertEqual(
+            config["agent"]["build"],
+            {
+                "permission": {"actor": "deny"},
+                "steps": agent.snapshot.components.policy.max_iterations,
+                "tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"],
+            },
+        )
+        self.assertEqual(config["agent"]["title"], {"disable": True})
+        self.assertEqual(config["experimental"], {"predict_next_prompt": False})
+        self.assertEqual(config["compaction"], {"auto": True, "prune": True})
+        self.assertEqual(config["dream"], {"auto": False})
+        self.assertEqual(config["distill"], {"auto": False})
+        self.assertEqual(config["mcp"], {})
+        self.assertEqual(
+            config["permission"],
+            {
+                "actor": "deny",
+                "cron": "deny",
+                "mcp_sampling": "deny",
+                "mcp_tool_search": "deny",
+            },
+        )
 
         with self.assertRaises(TypeError):
             locked_mimocode_config(expected_route_contract())
@@ -1121,6 +1146,121 @@ class HarborAgentTests(unittest.TestCase):
         self.assertEqual(run_call["env"]["MIMOCODE_DISABLE_CLAUDE_CODE_COMMANDS"], "1")
         self.assertEqual(run_call["env"]["MIMOCODE_DISABLE_CLAUDE_IMPORT"], "1")
         self.assertEqual(run_call["env"]["OPENROUTER_API_KEY"], PROXY_TOKEN)
+        self.assertEqual(
+            {
+                key: run_call["env"][key]
+                for key in (
+                    "HOME",
+                    "USERPROFILE",
+                    "MIMOCODE_HOME",
+                    "MIMOCODE_CONFIG_CONTENT",
+                    "MIMOCODE_PURE",
+                    "MIMOCODE_EXPERIMENTAL",
+                    "MIMOCODE_EXPERIMENTAL_CRON",
+                    "MIMOCODE_DISABLE_CRON",
+                    "MIMOCODE_DISABLE_CHECKPOINT",
+                    "MIMOCODE_EXPERIMENTAL_ORCHESTRATOR",
+                    "MIMOCODE_EXPERIMENTAL_WORKFLOW_TOOL",
+                    "MIMOCODE_EXPERIMENTAL_MCP_TOOL_SEARCH",
+                    "MIMOCODE_ENABLE_EXEC_TOOL",
+                )
+            },
+            {
+                "HOME": "/tmp/evoagent-mimo-runtime/home",
+                "USERPROFILE": "/tmp/evoagent-mimo-runtime/home",
+                "MIMOCODE_HOME": "/tmp/evoagent-mimo-runtime/home",
+                "MIMOCODE_CONFIG_CONTENT": "{}",
+                "MIMOCODE_PURE": "1",
+                "MIMOCODE_EXPERIMENTAL": "0",
+                "MIMOCODE_EXPERIMENTAL_CRON": "0",
+                "MIMOCODE_DISABLE_CRON": "1",
+                "MIMOCODE_DISABLE_CHECKPOINT": "1",
+                "MIMOCODE_EXPERIMENTAL_ORCHESTRATOR": "0",
+                "MIMOCODE_EXPERIMENTAL_WORKFLOW_TOOL": "0",
+                "MIMOCODE_EXPERIMENTAL_MCP_TOOL_SEARCH": "0",
+                "MIMOCODE_ENABLE_EXEC_TOOL": "0",
+            },
+        )
+
+    def test_locked_config_disables_unattested_auxiliary_and_actor_model_calls(self) -> None:
+        for max_iterations in (1, 12, 32):
+            with self.subTest(max_iterations=max_iterations):
+                config = locked_mimocode_config(
+                    expected_route_contract(),
+                    max_iterations=max_iterations,
+                )
+                self.assertEqual(
+                    config["agent"],
+                    {
+                        "build": {
+                            "permission": {"actor": "deny"},
+                            "steps": max_iterations,
+                            "tool_allowlist": ["bash", "read", "write", "edit", "glob", "grep"],
+                        },
+                        "checkpoint-writer": {"disable": True},
+                        "distill": {"disable": True},
+                        "dream": {"disable": True},
+                        "max": {"disable": True},
+                        "orchestrator": {"disable": True},
+                        "summary": {"disable": True},
+                        "title": {"disable": True},
+                    },
+                )
+                self.assertEqual(
+                    config["experimental"],
+                    {"predict_next_prompt": False},
+                )
+                self.assertEqual(config["compaction"], {"auto": True, "prune": True})
+                self.assertEqual(config["memory"], {"disable_write": True})
+                self.assertEqual(config["dream"], {"auto": False})
+                self.assertEqual(config["distill"], {"auto": False})
+                self.assertEqual(config["mcp"], {})
+                self.assertEqual(
+                    config["permission"],
+                    {
+                        "actor": "deny",
+                        "cron": "deny",
+                        "mcp_sampling": "deny",
+                        "mcp_tool_search": "deny",
+                    },
+                )
+                self.assertEqual(config["small_model"], config["model"])
+
+    def test_runtime_environment_exactly_isolates_mimocode_state_and_features(self) -> None:
+        self.assertEqual(
+            runtime_env("/runtime/mimocode.json", "/runtime/home", proxy_token=PROXY_TOKEN),
+            {
+                "HOME": "/runtime/home",
+                "OPENROUTER_API_KEY": PROXY_TOKEN,
+                "USERPROFILE": "/runtime/home",
+                "MIMOCODE_CONFIG": "/runtime/mimocode.json",
+                "MIMOCODE_CONFIG_CONTENT": "{}",
+                "MIMOCODE_HOME": "/runtime/home",
+                "MIMOCODE_PURE": "1",
+                "MIMOCODE_EXPERIMENTAL": "0",
+                "MIMOCODE_EXPERIMENTAL_CRON": "0",
+                "MIMOCODE_DISABLE_CRON": "1",
+                "MIMOCODE_DISABLE_CHECKPOINT": "1",
+                "MIMOCODE_EXPERIMENTAL_ORCHESTRATOR": "0",
+                "MIMOCODE_EXPERIMENTAL_WORKFLOW_TOOL": "0",
+                "MIMOCODE_EXPERIMENTAL_MCP_TOOL_SEARCH": "0",
+                "MIMOCODE_ENABLE_EXEC_TOOL": "0",
+                "MIMOCODE_DISABLE_PROVIDER_ENV": "1",
+                "MIMOCODE_DISABLE_EXTERNAL_SKILLS": "1",
+                "MIMOCODE_DISABLE_BUILTIN_SKILLS": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE_COMMANDS": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE_ENV": "1",
+                "MIMOCODE_DISABLE_CLAUDE_IMPORT": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE_MCP": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE_PROMPT": "1",
+                "MIMOCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+                "MIMOCODE_DISABLE_PROJECT_CONFIG": "1",
+                "MIMOCODE_AUTO_SHARE": "0",
+                "MIMOCODE_DISABLE_AUTOUPDATE": "1",
+                "NO_COLOR": "1",
+            },
+        )
 
     def test_timeout_must_leave_the_frozen_sanitization_margin(self) -> None:
         with self.assertRaisesRegex(ValueError, "sanitization margin"):

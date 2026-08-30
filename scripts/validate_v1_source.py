@@ -620,6 +620,7 @@ if (
     or pilot_config["backend"]["n_concurrent"] != 1
     or protocol["resources"]["harbor_concurrency"] != 1
     or protocol["resources"].get("mimocode_force_kill_grace_seconds") != 15
+    or protocol["resources"].get("mimocode_route_canary_timeout_seconds") != 600
     or protocol["resources"].get("mimocode_sanitization_margin_seconds") != 120
     or pilot_config["backend"]["agent_override_timeout_sec"] != 1800
     or pilot_config["backend"]["verifier_override_timeout_sec"] != 600

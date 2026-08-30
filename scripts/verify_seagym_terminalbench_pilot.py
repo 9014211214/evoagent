@@ -545,6 +545,7 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         or resources.get("budget_guard") != expected_budget_guard
         or resources.get("harbor_concurrency") != 1
         or resources.get("mimocode_force_kill_grace_seconds") != 15
+        or resources.get("mimocode_route_canary_timeout_seconds") != 600
         or resources.get("mimocode_sanitization_margin_seconds") != 120
         or resources.get("non_full_pilot_workflow_reserve_seconds") != 5100
     ):

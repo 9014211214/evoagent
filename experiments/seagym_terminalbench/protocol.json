@@ -296,6 +296,7 @@
     "global_workflow_timeout_minutes": 355,
     "harbor_concurrency": 1,
     "mimocode_force_kill_grace_seconds": 15,
+    "mimocode_route_canary_timeout_seconds": 600,
     "mimocode_sanitization_margin_seconds": 120,
     "non_full_pilot_workflow_reserve_seconds": 5100,
     "host_profile": {

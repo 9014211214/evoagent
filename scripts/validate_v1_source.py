@@ -322,6 +322,12 @@ if model_route != {
     "route_contract": expected_route_contract,
     "provider_rollout_sampling_determinism_claimed": False,
     "provider_update_sampling_determinism_claimed": False,
+    "reasoning_semantics": {
+        "absence_of_internal_reasoning_claimed": False,
+        "reasoning_content_persisted": False,
+        "reasoning_request_enabled": False,
+        "safe_provider_usage_count_may_be_reported": True,
+    },
     "router_audit": {
         "accepted_strategies": ["alias", "direct"],
         "cache_enabled": False,
@@ -333,11 +339,11 @@ if model_route != {
     "update_model_seed_parameter_sent": False,
 }:
     raise SystemExit("SEAGym pilot model route changed")
-if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6" or protocol.get(
+if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7" or protocol.get(
     "amendment"
 ) != {
-    "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-30T04:03:18Z",
+    "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
+    "amended_at": "2026-08-30T06:39:29Z",
     "compatibility_normalization": {
         "applies_only_when": "inbound_tool_choice_none_with_nonempty_local_function_tools",
         "benchmark_effect_claimed": False,
@@ -350,38 +356,46 @@ if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed
     },
     "config_sha256_unchanged": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9725879182,
-    "diagnostic_artifact_sha256": "d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54",
-    "diagnostic_controller_run_id": 33289924348,
+    "diagnostic_artifact_id": 9727486245,
+    "diagnostic_artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+    "diagnostic_controller_run_id": 33295415122,
     "diagnostic_job_log": {
         "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
-        "job_id": 99199651435,
+        "job_id": 99214123678,
         "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
         "safe_fixed_phrase_occurrences": 2,
-        "sha256": "88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a",
+        "sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181",
     },
     "diagnostic_observation": {
-        "completed_requests": 106,
-        "final_upstream_http_404_errors": 5,
-        "forwarded_requests": 106,
+        "completed_requests": 111,
+        "final_upstream_http_404_errors": 0,
+        "forwarded_requests": 111,
         "rejected_requests": 0,
+        "tool_choice_none_normalizations": 7,
         "train_batches_without_usable_atif": 1,
-        "upstream_attempts": 126,
-        "upstream_http_404_attempts": 25,
+        "upstream_attempts": 111,
+        "upstream_http_404_attempts": 0,
         "upstream_other_attempt_errors": 0,
-        "upstream_retries": 20,
+        "upstream_retries": 0,
     },
-    "execution_resilience_change": "normalize_mimocode_final_text_requests_for_the_pinned_xiaomi_endpoint_without_changing_model_provider_tasks_seed_or_config_while_preserving_the_no_tool_action_authorization_boundary",
+    "execution_resilience_change": "classify_mimocode_and_sanitizer_failures_before_harbor_post_run_recovery_and_skip_an_update_only_when_every_missing_atif_has_a_valid_content_free_hash_bound_failure_receipt",
+    "leaf_cause_status": {
+        "exact_failed_run_reasoning_token_value_available": False,
+        "highest_probability_hypothesis": "provider_reported_reasoning_token_usage_was_rejected_as_reasoning_content_by_the_frozen_runtime_sanitizer",
+        "hypothesis_confirmed_for_run_33295415122": False,
+        "raw_event_or_response_content_persisted": False,
+    },
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 11,
+    "prior_controller_attempts_total": 12,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
     "prior_v4_controller_attempts": 1,
     "prior_v5_controller_attempts": 1,
+    "prior_v6_controller_attempts": 1,
     "prior_model_inference_completed": True,
-    "prior_observed_usage_delta_usd": 0.217105791,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5",
+    "prior_observed_usage_delta_usd": 0.26740132,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6",
     "prior_v2_run_evidence": [
         {
             "artifact_id": 9710915384,
@@ -451,19 +465,38 @@ if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed
             "score_produced": False,
         }
     ],
+    "prior_v6_run_evidence": [
+        {
+            "artifact_id": 9727486245,
+            "artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+            "blocker_code": "seagym_execution_failed",
+            "controller_commit": "2a44abedde490fc3d6d602a372284db030357eb4",
+            "evoagent_public_commit": "9889fee8888baca681311a3c10880a7144f5736d",
+            "job_id": 99214123678,
+            "job_log_sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181",
+            "observed_usage_delta_usd": 0.050295529,
+            "run_id": 33295415122,
+            "score_produced": False,
+        }
+    ],
     "prior_score_produced": False,
-    "reason_code": "mimocode_final_step_tool_choice_none_is_unsupported_by_the_pinned_xiaomi_endpoint",
+    "reason_code": "harbor_post_run_missing_atif_masked_an_inner_mimocode_or_runtime_sanitizer_failure",
     "root_cause_evidence": {
         "benchmark_result_claimed": False,
-        "confidence": "high",
+        "confidence": "high_for_two_layer_failure_and_unconfirmed_for_exact_leaf_cause",
         "frozen_mimocode_local_capture": {
             "capture_content_persisted": False,
-            "observed_final_step_shape": "tool_choice_none_with_nonempty_local_function_tools",
+            "observable_contract": "completion_tokens_details_reasoning_tokens_maps_to_step_finish_part_tokens_reasoning",
             "runtime": "mimocode-v0.1.13",
         },
-        "xiaomi_endpoint_parameter_metadata": {
-            "endpoint": "xiaomi/fp8",
-            "tool_choice_none_supported": False,
+        "harbor_recovery_contract": {
+            "classified_nonzero_agent_failure_is_contained": True,
+            "generic_runtime_error_can_be_masked_by_a_second_missing_atif_error": True,
+        },
+        "run_observation": {
+            "completed_requests": 111,
+            "proxy_or_upstream_errors": 0,
+            "train_batch_without_usable_atif": True,
         },
     },
     "score_blind": True,
@@ -530,12 +563,15 @@ if protocol["runtime"]["privacy_sanitizer"] != {
     "raw_persisted": False,
     "raw_record_max_bytes": 16 * 1024 * 1024,
     "raw_string_max_chars": 16 * 1024 * 1024,
+    "reasoning_content_persisted": False,
+    "reasoning_token_count_telemetry_allowed": True,
 }:
     raise SystemExit("SEAGym pilot privacy sanitizer bounds changed")
 if protocol["runtime"]["token_semantics"] != {
     "harbor_cached_tokens": "cache_read_subset_of_harbor_input_tokens",
     "harbor_input_tokens": "non_cached_input_plus_cache_read",
-    "reported_attested_total_tokens": "harbor_input_tokens_plus_output_tokens",
+    "harbor_reasoning_tokens": "provider_reported_usage_count_only_not_reasoning_content",
+    "reported_attested_total_tokens": "harbor_input_tokens_plus_visible_output_tokens_plus_reasoning_tokens",
     "seagym_total_tokens": "harbor_input_tokens_plus_harbor_cached_tokens_plus_output_tokens",
 }:
     raise SystemExit("SEAGym pilot token semantics changed")
@@ -587,6 +623,14 @@ if (
     or pilot_config["backend"]["verifier_override_timeout_sec"] != 600
 ):
     raise SystemExit("SEAGym pilot Harbor resource identity changed")
+if protocol["resources"].get("lifecycle_canary") != {
+    "budget_stop_threshold_usd": 0.15,
+    "must_complete_before_full_pilot": True,
+    "purpose": "integration_only_no_benchmark_score",
+    "seed": 42,
+    "task_id": "terminal-bench/fix-git",
+}:
+    raise SystemExit("SEAGym lifecycle canary resource identity changed")
 baseline = pilot_config["baseline"]
 rollout = pilot_config["rollout_agent"]
 if baseline["class_path"] != "seagym_evoagent.baseline:EvoAgentSEAGymBaseline":

@@ -198,7 +198,14 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
             "seagym_commit": "9e61e14db1f1355de944cd7c5b10c244fc74e82d",
             "harbor_commit": "f7110f1a240c6a50589b90c4d69714763946d088",
         },
-        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "cached_tokens": 1, "cost_usd": 0.001},
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "cached_tokens": 1,
+            "reasoning_tokens": 0,
+            "cost_usd": 0.001,
+        },
+        "runtime_failure_receipt_sha256": None,
         "raw_prompt_persisted": False,
         "raw_response_persisted": False,
         "reasoning_persisted": False,
@@ -246,6 +253,99 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
     return trial / "result.json", checksum
 
 
+def _replace_trial_with_receipted_runtime_failure(
+    result_path: Path,
+    snapshot: dict[str, object],
+) -> None:
+    agent_dir = result_path.parent / "agent"
+    (agent_dir / "trajectory.json").unlink()
+    (agent_dir / "evoagent-attestation.json").unlink()
+    unsigned = {
+        "schema_version": "evoagent-runtime-failure-v1",
+        "failure_class": "runtime_sanitization_failed",
+        "failure_stage": "sanitize",
+        "mimocode_exit_class": "success",
+        "snapshot_sha256": snapshot["snapshot_sha256"],
+        "component_sha256": snapshot["component_sha256"],
+        "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+        "model": {
+            "api_id": "xiaomi/mimo-v2.5",
+            "harbor_id": "openrouter/xiaomi/mimo-v2.5",
+        },
+        "seed": 42,
+        "runtime": {"name": "mimocode", "version": "0.1.13"},
+        "atif_present": False,
+        "raw_prompt_persisted": False,
+        "raw_response_persisted": False,
+        "reasoning_content_persisted": False,
+    }
+    _write_json(
+        agent_dir / "evoagent-runtime-failure.json",
+        {**unsigned, "receipt_sha256": _canonical_sha(unsigned)},
+    )
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["agent_result"] = {
+        "n_input_tokens": 0,
+        "n_cache_tokens": 0,
+        "n_output_tokens": 0,
+        "cost_usd": 0.0,
+        "metadata": {"runtime_failure": True},
+    }
+    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["exception_info"] = {"type": "RuntimeFailure", "message": "classified_failure"}
+    _write_json(result_path, payload)
+
+
+def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    row = rows[row_index]
+    result_path = Path(row["refs"]["result_path"])
+    attestation_path = result_path.parent / "agent" / "evoagent-attestation.json"
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    unsigned = {
+        "schema_version": "evoagent-runtime-failure-v1",
+        "failure_class": "mimocode_process_failed",
+        "failure_stage": "mimocode",
+        "mimocode_exit_class": "nonzero",
+        "snapshot_sha256": attestation["snapshot_sha256"],
+        "component_sha256": attestation["component_sha256"],
+        "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+        "model": {
+            "api_id": "xiaomi/mimo-v2.5",
+            "harbor_id": "openrouter/xiaomi/mimo-v2.5",
+        },
+        "seed": 42,
+        "runtime": {"name": "mimocode", "version": "0.1.13"},
+        "atif_present": True,
+        "raw_prompt_persisted": False,
+        "raw_response_persisted": False,
+        "reasoning_content_persisted": False,
+    }
+    receipt_hash = _canonical_sha(unsigned)
+    _write_json(
+        result_path.parent / "agent" / "evoagent-runtime-failure.json",
+        {**unsigned, "receipt_sha256": receipt_hash},
+    )
+    attestation["runtime_failure_receipt_sha256"] = receipt_hash
+    attestation_unsigned = dict(attestation)
+    attestation_unsigned.pop("attestation_sha256")
+    attestation["attestation_sha256"] = _canonical_sha(attestation_unsigned)
+    _write_json(attestation_path, attestation)
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["exception_info"] = {"type": "RuntimeFailure", "message": "classified_failure"}
+    _write_json(result_path, payload)
+    row["error"] = "mimocode_process_failed"
+    row["rewards"] = {"reward": 0.0}
+    row["score"] = 0.0
+    row["success"] = False
+    rows_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _usage(path: Path, value: float) -> None:
     _write_json(
         path,
@@ -267,7 +367,7 @@ def _usage(path: Path, value: float) -> None:
     )
 
 
-def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path, Path, Path]:
     run = tmp_path / "run"
     shutil.copyfile(CONFIG, run / "inputs" / "experiment_config.json") if (run / "inputs").mkdir(parents=True, exist_ok=True) is None else None
     shutil.copyfile(SPLIT, run / "inputs" / "split_manifest.json")
@@ -286,10 +386,11 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     at = _snapshot(2, str(e1["snapshot_sha256"]), "at")
     _checkpoint(run, "initial", a0, a0, 0)
     _checkpoint(run, "E_1", a0, e1, 1)
-    _checkpoint(run, "final", a0, at, 2)
+    final_candidate = e1 if skip_second_update else at
+    _checkpoint(run, "final", a0, final_candidate, 2)
     updates = [
         (1, e1),
-        (2, at),
+        (2, final_candidate),
     ]
     for index, snapshot in updates:
         _append_jsonl(
@@ -304,12 +405,22 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 "summary": {
                     "type": "baseline_update",
                     "update_index": index,
-                    "changed": True,
-                    "status": "updated",
-                    "metrics": {"input_tokens": 5, "output_tokens": 1, "cost_usd": 0.001},
+                    "changed": not (skip_second_update and index == 2),
+                    "status": "unchanged" if skip_second_update and index == 2 else "updated",
+                    "metrics": (
+                        {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+                        if skip_second_update and index == 2
+                        else {"input_tokens": 5, "output_tokens": 1, "cost_usd": 0.001}
+                    ),
                     "logs": {
+                        "model_call_executed": not (skip_second_update and index == 2),
                         "candidate_sha256": snapshot["snapshot_sha256"],
                         "evidence_sha256": hashlib.sha256(f"batch-{index}".encode()).hexdigest(),
+                        **(
+                            {"skip_code": "no_usable_harbor_atif_evidence"}
+                            if skip_second_update and index == 2
+                            else {}
+                        ),
                         "causal_attribution_claimed": False,
                         "promotion_claimed": False,
                     },
@@ -323,10 +434,10 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         ("validation", "update_validation", None, 0, split["val"], [1, 1, 0], a0),
         ("train", "train", None, 1, split["train"][:3], [1, 0, 1], a0),
         ("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1),
-        ("train", "train", None, 2, split["train"][3:], [0, 1, 1], e1),
-        ("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], at),
-        ("validation", "update_validation", None, 2, split["val"], [1, 1, 0], at),
-        ("final", "id_test", "A_T", 2, split["test"], [1, 0, 1], at),
+        ("train", "train", None, 2, split["train"][3:], [0, 0, 0] if skip_second_update else [0, 1, 1], e1),
+        ("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], final_candidate),
+        ("validation", "update_validation", None, 2, split["val"], [1, 1, 0], final_candidate),
+        ("final", "id_test", "A_T", 2, split["test"], [1, 0, 1], final_candidate),
         ("final", "id_test", "A_0", 2, split["test"], [0, 0, 1], a0),
     ]
     task_domains = {
@@ -338,6 +449,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         for task_id, score in zip(task_ids, scores, strict=True):
             trial_index += 1
             result_path, checksum = _trial(run, trial_index, task_id, score, snapshot)
+            runtime_failure = skip_second_update and mode == "train" and batch == 2
+            if runtime_failure:
+                _replace_trial_with_receipted_runtime_failure(result_path, snapshot)
             point = "E_T" if role else ("E_0" if mode == "validation" and batch == 0 else f"E_{batch}" if mode in {"validation", "replay"} else None)
             _append_jsonl(
                 run / "records" / "task_results.jsonl",
@@ -346,8 +460,12 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                     "agent_id": "evoagent",
                     "attributes": {"domain": task_domains[task_id]},
                     "baseline_role": role,
-                    "cost": {"n_input_tokens": 10, "n_cache_tokens": 1, "n_output_tokens": 2, "cost_usd": 0.001},
-                    "error": None,
+                    "cost": (
+                        {}
+                        if runtime_failure
+                        else {"n_input_tokens": 10, "n_cache_tokens": 1, "n_output_tokens": 2, "cost_usd": 0.001}
+                    ),
+                    "error": "runtime_sanitization_failed" if runtime_failure else None,
                     "evaluation_point_id": point,
                     "experiment_id": plan["experiment_id"],
                     "global_update_index": batch if mode == "train" else None,
@@ -375,30 +493,30 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         "tokens": {
             "rollout": {
                 "num_records": 24,
-                "num_records_with_tokens": 24,
-                "input_tokens": 240.0,
-                "cache_tokens": 24.0,
-                "output_tokens": 48.0,
-                "total_tokens": 312.0,
-                "cost_usd": 0.024,
+                "num_records_with_tokens": 21 if skip_second_update else 24,
+                "input_tokens": 210.0 if skip_second_update else 240.0,
+                "cache_tokens": 21.0 if skip_second_update else 24.0,
+                "output_tokens": 42.0 if skip_second_update else 48.0,
+                "total_tokens": 273.0 if skip_second_update else 312.0,
+                "cost_usd": 0.021 if skip_second_update else 0.024,
             },
             "update": {
                 "num_records": 2,
-                "num_records_with_tokens": 2,
-                "input_tokens": 10.0,
+                "num_records_with_tokens": 1 if skip_second_update else 2,
+                "input_tokens": 5.0 if skip_second_update else 10.0,
                 "cache_tokens": 0.0,
-                "output_tokens": 2.0,
-                "total_tokens": 12.0,
-                "cost_usd": 0.002,
+                "output_tokens": 1.0 if skip_second_update else 2.0,
+                "total_tokens": 6.0 if skip_second_update else 12.0,
+                "cost_usd": 0.001 if skip_second_update else 0.002,
             },
             "overall": {
                 "num_records": 26,
-                "num_records_with_tokens": 26,
-                "input_tokens": 250.0,
-                "cache_tokens": 24.0,
-                "output_tokens": 50.0,
-                "total_tokens": 324.0,
-                "cost_usd": 0.026,
+                "num_records_with_tokens": 22 if skip_second_update else 26,
+                "input_tokens": 215.0 if skip_second_update else 250.0,
+                "cache_tokens": 21.0 if skip_second_update else 24.0,
+                "output_tokens": 43.0 if skip_second_update else 50.0,
+                "total_tokens": 279.0 if skip_second_update else 324.0,
+                "cost_usd": 0.022 if skip_second_update else 0.026,
             },
         },
     }
@@ -536,6 +654,148 @@ def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -
     assert "prompt_template_path" not in combined
     assert "result_path" not in combined
     assert "exception_traceback" not in combined
+
+
+def test_accepts_receipted_error_batch_as_incomplete_without_counting_a_model_update(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["results_status"] == "completed_with_incomplete_training_evidence"
+    assert result["comparison"]["errors"] == 3
+    assert result["comparison"]["runtime_failure_classes"] == {
+        "runtime_sanitization_failed": 3
+    }
+    assert result["comparison"]["runtime_failure_stages"] == {"sanitize": 3}
+    assert result["comparison"]["mimocode_exit_classes"] == {"success": 3}
+    assert result["evidence"]["runtime_failure_receipt_trials"] == 3
+    assert result["evidence"]["missing_atif_failure_receipt_trials"] == 3
+    assert result["evidence"]["attested_rollout_model_calls"] == 21
+    assert result["evidence"]["verified_rollout_model_calls"] == 24
+    assert result["evidence"]["verified_update_model_calls"] == 1
+    assert result["evidence"]["skipped_update_attempts"] == 1
+    assert result["evidence"]["verified_total_logical_model_requests"] == 25
+    failed = [row for row in rows if row["failure_receipt_sha256"] is not None]
+    assert len(failed) == 3
+    assert all(row["score"] == 0.0 and row["error_present"] for row in failed)
+    assert updates[1]["model_call_executed"] is False
+    assert updates[1]["skip_code"] == "no_usable_harbor_atif_evidence"
+
+
+def test_accepts_atif_present_failure_receipt_but_marks_result_incomplete(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    _add_atif_present_failure_receipt(run, 3)
+
+    result, rows, _updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["results_status"] == "completed_with_incomplete_training_evidence"
+    assert result["comparison"]["errors"] == 1
+    assert result["comparison"]["runtime_failure_classes"] == {"mimocode_process_failed": 1}
+    assert result["evidence"]["runtime_failure_receipt_trials"] == 1
+    assert result["evidence"]["missing_atif_failure_receipt_trials"] == 0
+    assert result["evidence"]["attested_rollout_model_calls"] == 24
+    assert result["evidence"]["verified_update_model_calls"] == 2
+    assert rows[3]["training_evidence_complete"] is True
+    assert rows[3]["score"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["hash", "schema", "snapshot", "classification", "privacy", "atif_present"],
+)
+def test_rejects_malformed_or_tampered_runtime_failure_receipt(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    path = next((run / "harbor" / "jobs").rglob("evoagent-runtime-failure.json"))
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if tamper == "hash":
+        value["receipt_sha256"] = "0" * 64
+    elif tamper == "schema":
+        value["unexpected"] = False
+    elif tamper == "snapshot":
+        value["snapshot_sha256"] = "0" * 64
+    elif tamper == "classification":
+        value["mimocode_exit_class"] = "nonzero"
+    elif tamper == "privacy":
+        value["raw_response_persisted"] = True
+    else:
+        value["atif_present"] = True
+    if tamper != "hash":
+        unsigned = dict(value)
+        unsigned.pop("receipt_sha256")
+        value["receipt_sha256"] = _canonical_sha(unsigned)
+    _write_json(path, value)
+
+    with pytest.raises(VerificationError, match="failure receipt"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_missing_or_escaped_runtime_failure_receipt(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    path = next((run / "harbor" / "jobs").rglob("evoagent-runtime-failure.json"))
+    path.unlink()
+    with pytest.raises(VerificationError):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+    run, before, after = _fixture(tmp_path / "escape", skip_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed_index = next(index for index, row in enumerate(rows) if row.get("error"))
+    outside = tmp_path / "outside" / "evoagent-runtime-failure.json"
+    outside.parent.mkdir()
+    source = next((run / "harbor" / "jobs").rglob("evoagent-runtime-failure.json"))
+    outside.write_bytes(source.read_bytes())
+    rows[failed_index]["refs"]["failure_receipt_path"] = str(outside)
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(VerificationError, match="path escapes"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_symlinked_runtime_failure_receipt(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    path = next((run / "harbor" / "jobs").rglob("evoagent-runtime-failure.json"))
+    target = path.with_name("receipt-target.json")
+    path.replace(target)
+    try:
+        path.symlink_to(target.name)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this host")
+    with pytest.raises(VerificationError, match="symlinked evidence path"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_no_call_update_when_train_batch_has_usable_atif(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    path = run / "records" / "agent_updates.jsonl"
+    updates = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    updates[1]["summary"]["changed"] = False
+    updates[1]["summary"]["status"] = "unchanged"
+    updates[1]["summary"]["metrics"] = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    updates[1]["summary"]["logs"]["model_call_executed"] = False
+    updates[1]["summary"]["logs"]["skip_code"] = "no_usable_harbor_atif_evidence"
+    path.write_text(
+        "\n".join(json.dumps(update, sort_keys=True, separators=(",", ":")) for update in updates) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(VerificationError):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
 def test_rejects_score_tampering(tmp_path: Path) -> None:

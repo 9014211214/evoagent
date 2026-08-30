@@ -13,20 +13,27 @@ from unittest.mock import patch
 
 from seagym_evoagent.baseline import EvoAgentSEAGymBaseline
 from seagym_evoagent.canonical import atomic_write_json, read_json, sha256_file, sha256_json
-from seagym_evoagent.harbor_agent import ATTESTATION_FILENAME, EvoAgentMiMo
+from seagym_evoagent.evidence import NO_USABLE_ATIF_SKIP_CODE
+from seagym_evoagent._compat import NonZeroAgentExitCodeError
+from seagym_evoagent.harbor_agent import (
+    ATTESTATION_FILENAME,
+    FAILURE_RECEIPT_FILENAME,
+    MIMOCODE_AND_SANITIZER_EXIT,
+    MIMOCODE_PROCESS_EXIT,
+    SANITIZER_REJECT_EXIT,
+    EvoAgentMiMo,
+)
 from seagym_evoagent.mimocode import (
     MIMOCODE_ARCHIVE_ENV,
     MIMOCODE_ARCHIVE_SHA256,
     MIMOCODE_ARCHIVE_URL,
     MIMOCODE_VERSION,
-    install_command,
     locked_mimocode_config,
 )
 from seagym_evoagent.models import (
     CANONICAL_MODEL_ID,
     HARBOR_MODEL_ID,
     UPDATE_MODEL_ID,
-    HarnessComponents,
     HarnessSnapshot,
     default_a0,
 )
@@ -37,7 +44,10 @@ from seagym_evoagent.openrouter import (
     safe_probe_failure_code,
 )
 from seagym_evoagent.routing import expected_route_contract
-from seagym_evoagent.runtime_sanitizer import sanitize_runtime_jsonl
+from seagym_evoagent.runtime_sanitizer import (
+    sanitize_runtime_jsonl,
+    write_runtime_failure_receipt,
+)
 
 try:
     from harbor.models.agent.context import AgentContext as HarborAgentContext
@@ -154,6 +164,51 @@ def failed_train_trajectory(*, refs: dict[str, object] | None = None) -> SimpleN
     )
 
 
+def write_failure_receipt(
+    root: Path,
+    *,
+    snapshot: HarnessSnapshot | None = None,
+    seed: int = 43,
+    trial_name: str = "failed-trial",
+    atif_present: bool = False,
+    tamper: str | None = None,
+) -> tuple[Path, Path]:
+    snapshot = snapshot or default_a0()
+    trial = root / trial_name
+    result_path = trial / "result.json"
+    unsigned: dict[str, object] = {
+        "schema_version": "evoagent-runtime-failure-v1",
+        "failure_class": "runtime_sanitization_failed",
+        "failure_stage": "sanitize",
+        "mimocode_exit_class": "success",
+        "snapshot_sha256": snapshot.snapshot_sha256,
+        "component_sha256": dict(snapshot.component_sha256),
+        "route_contract_sha256": sha256_json(expected_route_contract()),
+        "model": {"api_id": UPDATE_MODEL_ID, "harbor_id": HARBOR_MODEL_ID},
+        "seed": seed,
+        "runtime": {"name": "mimocode", "version": MIMOCODE_VERSION},
+        "atif_present": atif_present,
+        "raw_prompt_persisted": False,
+        "raw_response_persisted": False,
+        "reasoning_content_persisted": False,
+    }
+    receipt: dict[str, object] = {**unsigned, "receipt_sha256": sha256_json(unsigned)}
+    if tamper == "hash":
+        receipt["failure_stage"] = "mimocode"
+    elif tamper == "snapshot":
+        receipt["snapshot_sha256"] = "0" * 64
+        receipt["receipt_sha256"] = sha256_json({key: value for key, value in receipt.items() if key != "receipt_sha256"})
+    elif tamper == "atif_present":
+        receipt["atif_present"] = True
+        receipt["receipt_sha256"] = sha256_json({key: value for key, value in receipt.items() if key != "receipt_sha256"})
+    elif tamper == "classification":
+        receipt["mimocode_exit_class"] = "nonzero"
+        receipt["receipt_sha256"] = sha256_json({key: value for key, value in receipt.items() if key != "receipt_sha256"})
+    receipt_path = trial / "agent" / FAILURE_RECEIPT_FILENAME
+    atomic_write_json(receipt_path, receipt)
+    return result_path, receipt_path
+
+
 class BaselineTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -254,7 +309,8 @@ class BaselineTests(unittest.TestCase):
         )
         state = baseline.initialize(self.root / "run")
         batch = train_batch(self.root / "harbor")
-        failed = failed_train_trajectory(refs={"job_dir": str(self.root / "harbor" / "job")})
+        result_path, _receipt_path = write_failure_receipt(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
         batch.trajectories.append(failed)
         batch.task_ids.append(failed.task_id)
 
@@ -268,6 +324,11 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(evidence["atif"]["documents"], 1)
         self.assertEqual(evidence["atif"]["missing_error_documents"], 1)
         self.assertEqual(evidence["atif"]["steps"], 2)
+        self.assertEqual(evidence["runtime_failures"]["documents"], 1)
+        self.assertEqual(
+            evidence["runtime_failures"]["failure_classes"],
+            {"runtime_sanitization_failed": 1},
+        )
         self.assertNotIn(SECRET, json.dumps(client.calls[0], sort_keys=True))
         persisted = "".join(
             path.read_text(encoding="utf-8")
@@ -275,6 +336,47 @@ class BaselineTests(unittest.TestCase):
             if path.is_file()
         )
         self.assertNotIn(SECRET, persisted)
+
+    def test_errored_trial_with_real_atif_validates_matching_failure_receipt(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        batch = train_batch(self.root / "harbor")
+        write_failure_receipt(
+            self.root / "harbor",
+            trial_name="trial-a",
+            atif_present=True,
+        )
+        state = baseline.initialize(self.root / "run")
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "updated")
+        evidence = client.calls[0]["evidence"]
+        self.assertEqual(evidence["atif"]["documents"], 1)
+        self.assertEqual(evidence["runtime_failures"]["documents"], 1)
+
+    def test_errored_trial_receipt_atif_bit_must_match_existing_atif(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        batch = train_batch(self.root / "harbor")
+        write_failure_receipt(self.root / "harbor", trial_name="trial-a", atif_present=False)
+        state = baseline.initialize(self.root / "run")
+
+        with self.assertRaisesRegex(ValueError, "ATIF state"):
+            baseline.update(batch, state)
+
+        self.assertEqual(client.calls, [])
 
     def test_all_missing_error_atif_batch_stops_before_model_call(self) -> None:
         client = FakeClient(candidate_payload())
@@ -299,6 +401,137 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(client.calls, [])
         self.assertEqual(baseline.update_index, 0)
+
+    def test_all_receipted_error_batch_persists_no_call_skip_and_advances_update(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        (self.root / "harbor").mkdir()
+        state = baseline.initialize(self.root / "run")
+        before = state.metadata["evaluation_candidate_sha256"]
+        result_path, _receipt_path = write_failure_receipt(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "unchanged")
+        self.assertFalse(result.changed)
+        self.assertFalse(result.logs["model_call_executed"])
+        self.assertEqual(result.logs["skip_code"], NO_USABLE_ATIF_SKIP_CODE)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 1)
+        report = baseline.report(state)
+        self.assertEqual(report["evaluation_candidate_sha256"], before)
+        self.assertEqual(report["update_model_calls"], 0)
+        self.assertEqual(report["skipped_updates"], 1)
+        attempt = read_json(next((self.root / "state" / "attempts").glob("*.json")))
+        self.assertEqual(attempt["status"], "skipped_no_usable_atif")
+        self.assertFalse(attempt["model_call_executed"])
+        self.assertEqual(attempt["skip_code"], NO_USABLE_ATIF_SKIP_CODE)
+        self.assertIsNone(attempt["response_sha256"])
+        self.assertEqual(attempt["usage"]["total_tokens"], 0)
+
+        restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        restored_state = restored.initialize(self.root / "run")
+        self.assertEqual(restored.report(restored_state)["skipped_updates"], 1)
+
+        attempt["model_call_executed"] = True
+        atomic_write_json(next((self.root / "state" / "attempts").glob("*.json")), attempt)
+        tampered = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+        )
+        with self.assertRaises(ValueError):
+            tampered.initialize(self.root / "run")
+
+    def test_receipted_error_batch_rejects_tamper_identity_and_false_atif_claims(self) -> None:
+        for tamper in ("hash", "snapshot", "atif_present", "classification"):
+            with self.subTest(tamper=tamper):
+                case_root = self.root / tamper
+                harbor_root = case_root / "harbor"
+                harbor_root.mkdir(parents=True)
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=FakeClient(candidate_payload()),
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                result_path, _receipt_path = write_failure_receipt(harbor_root, tamper=tamper)
+                failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+                batch = SimpleNamespace(
+                    trajectories=[failed],
+                    task_ids=[failed.task_id],
+                    view_name="train",
+                    mode="train",
+                )
+
+                with self.assertRaises(ValueError):
+                    baseline.update(batch, state)
+
+                self.assertEqual(baseline.update_index, 0)
+                self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_failure_receipt_path_escape_and_link_fail_closed(self) -> None:
+        harbor_root = self.root / "harbor"
+        harbor_root.mkdir()
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=harbor_root,
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        _result_path, receipt_path = write_failure_receipt(harbor_root)
+        outside = self.root / "outside" / FAILURE_RECEIPT_FILENAME
+        outside.parent.mkdir()
+        outside.write_bytes(receipt_path.read_bytes())
+        failed = failed_train_trajectory(refs={"failure_receipt_path": str(outside)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+        with self.assertRaises(ValueError):
+            baseline.update(batch, state)
+
+        link = harbor_root / "linked" / FAILURE_RECEIPT_FILENAME
+        link.parent.mkdir()
+        try:
+            link.symlink_to(receipt_path)
+        except OSError:
+            return
+        linked = failed_train_trajectory(refs={"failure_receipt_path": str(link)})
+        linked_batch = SimpleNamespace(
+            trajectories=[linked],
+            task_ids=[linked.task_id],
+            view_name="train",
+            mode="train",
+        )
+        with self.assertRaises(ValueError):
+            baseline.update(linked_batch, state)
 
     def test_completed_unsuccessful_trial_still_requires_atif(self) -> None:
         client = FakeClient(candidate_payload())
@@ -771,13 +1004,14 @@ class FakeExecResult:
 
 
 class FakeEnvironment:
-    def __init__(self) -> None:
+    def __init__(self, return_codes: list[int] | None = None) -> None:
         self.commands: list[dict[str, object]] = []
         self.uploads: dict[str, bytes] = {}
+        self.return_codes = list(return_codes or [])
 
     async def exec(self, **kwargs: object) -> FakeExecResult:
         self.commands.append(kwargs)
-        return FakeExecResult()
+        return FakeExecResult(self.return_codes.pop(0) if self.return_codes else 0)
 
     async def upload_file(self, source: Path, target: str) -> None:
         self.uploads[target] = Path(source).read_bytes()
@@ -845,6 +1079,12 @@ class HarborAgentTests(unittest.TestCase):
         self.assertNotIn(SECRET, command)
         self.assertNotIn("--thinking", command)
         self.assertIn(f"--model {HARBOR_MODEL_ID}", command)
+        self.assertIn("--mimocode-exit-code \"$mimo_status\"", command)
+        self.assertIn(f"--failure-receipt /logs/agent/{FAILURE_RECEIPT_FILENAME}", command)
+        self.assertIn(f"exit {MIMOCODE_PROCESS_EXIT}", command)
+        self.assertIn(f"exit {SANITIZER_REJECT_EXIT}", command)
+        self.assertIn(f"exit {MIMOCODE_AND_SANITIZER_EXIT}", command)
+        self.assertNotIn("mimo_status=$?; set -e", command)
         config = json.loads(environment.uploads["/tmp/evoagent-mimo-runtime/mimocode.json"])
         self.assertEqual(
             config,
@@ -886,6 +1126,143 @@ class HarborAgentTests(unittest.TestCase):
         agent = self._agent(extra_env={"OPENROUTER_API_KEY": SECRET})
         with self.assertRaisesRegex(RuntimeError, "local proxy capability"):
             asyncio.run(agent.run("complete the official task", FakeEnvironment(), SimpleNamespace()))
+
+    def test_classified_shell_failures_raise_harbor_nonzero_agent_error(self) -> None:
+        cases = {
+            MIMOCODE_PROCESS_EXIT: "mimocode_process_failed",
+            SANITIZER_REJECT_EXIT: "runtime_sanitization_failed",
+            MIMOCODE_AND_SANITIZER_EXIT: "mimocode_and_sanitization_failed",
+        }
+        for return_code, failure_class in cases.items():
+            with self.subTest(failure_class=failure_class):
+                agent = self._agent(extra_env={"OPENROUTER_API_KEY": PROXY_TOKEN})
+                environment = FakeEnvironment(return_codes=[0, return_code])
+                with self.assertRaisesRegex(NonZeroAgentExitCodeError, failure_class):
+                    asyncio.run(
+                        agent.run(
+                            "complete the official task",
+                            environment,
+                            SimpleNamespace(),
+                        )
+                    )
+
+    def test_missing_atif_requires_valid_receipt_then_populates_only_safe_failure_metadata(self) -> None:
+        agent = self._agent()
+        logs = self.root / "logs"
+        logs.mkdir()
+        context = SimpleNamespace(metadata=None)
+        with self.assertRaisesRegex(RuntimeError, "ATIF output and runtime failure receipt are missing"):
+            agent.populate_context_post_run(context)
+
+        receipt = write_runtime_failure_receipt(
+            logs / FAILURE_RECEIPT_FILENAME,
+            mimocode_exit_code=1,
+            sanitization_failed=True,
+            atif_present=False,
+            metadata={
+                "snapshot_hash": agent.snapshot.snapshot_sha256,
+                "component_hashes": dict(agent.snapshot.component_sha256),
+                "runtime_identity": {"name": "mimocode", "version": MIMOCODE_VERSION},
+                "route_contract_sha256": sha256_json(expected_route_contract()),
+            },
+            model=HARBOR_MODEL_ID,
+            seed=43,
+        )
+        agent.populate_context_post_run(context)
+        self.assertEqual(context.metadata["runtime_failure_class"], "mimocode_and_sanitization_failed")
+        self.assertEqual(context.metadata["runtime_failure_receipt_sha256"], receipt["receipt_sha256"])
+        self.assertEqual(context.n_input_tokens, 0)
+        self.assertEqual(context.n_output_tokens, 0)
+        self.assertEqual(context.cost_usd, 0.0)
+        self.assertFalse((logs / ATTESTATION_FILENAME).exists())
+        rendered = json.dumps(context.metadata, sort_keys=True)
+        self.assertNotIn(CANARY, rendered)
+        self.assertNotIn(SECRET, rendered)
+
+        tampered_receipts: list[dict[str, object]] = []
+        stale_hash = dict(receipt)
+        stale_hash["failure_stage"] = "mimocode"
+        tampered_receipts.append(stale_hash)
+        atif_drift = dict(receipt)
+        atif_drift["atif_present"] = True
+        atif_drift["receipt_sha256"] = sha256_json(
+            {key: value for key, value in atif_drift.items() if key != "receipt_sha256"}
+        )
+        tampered_receipts.append(atif_drift)
+        privacy_drift = dict(receipt)
+        privacy_drift["raw_response_persisted"] = True
+        privacy_drift["receipt_sha256"] = sha256_json(
+            {key: value for key, value in privacy_drift.items() if key != "receipt_sha256"}
+        )
+        tampered_receipts.append(privacy_drift)
+        extra_field = dict(receipt)
+        extra_field["message"] = "MUST-NOT-BE-ACCEPTED"
+        tampered_receipts.append(extra_field)
+        for index, tampered in enumerate(tampered_receipts):
+            with self.subTest(tamper=index):
+                atomic_write_json(logs / FAILURE_RECEIPT_FILENAME, tampered)
+                with self.assertRaises(RuntimeError):
+                    agent.populate_context_post_run(SimpleNamespace())
+
+    def test_atif_with_mimocode_failure_receipt_binds_reasoning_usage_to_attestation(self) -> None:
+        agent = self._agent()
+        logs = self.root / "logs"
+        logs.mkdir()
+        raw = self.root / "raw-reasoning.jsonl"
+        raw.write_text(
+            json.dumps(
+                {
+                    "type": "step_finish",
+                    "part": {
+                        "type": "step-finish",
+                        "cost": 0.001,
+                        "tokens": {
+                            "input": 5,
+                            "output": 3,
+                            "reasoning": 1,
+                            "cache": {"read": 2, "write": 0},
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        metadata = {
+            "snapshot_hash": agent.snapshot.snapshot_sha256,
+            "component_hashes": dict(agent.snapshot.component_sha256),
+            "runtime_identity": {"name": "mimocode", "version": MIMOCODE_VERSION},
+            "route_contract_sha256": sha256_json(expected_route_contract()),
+        }
+        sanitize_runtime_jsonl(
+            raw,
+            logs / "trajectory.json",
+            model=HARBOR_MODEL_ID,
+            seed=43,
+            snapshot_metadata_json=json.dumps(metadata),
+        )
+        receipt = write_runtime_failure_receipt(
+            logs / FAILURE_RECEIPT_FILENAME,
+            mimocode_exit_code=1,
+            sanitization_failed=False,
+            atif_present=True,
+            metadata=metadata,
+            model=HARBOR_MODEL_ID,
+            seed=43,
+        )
+        context = SimpleNamespace()
+        agent.populate_context_post_run(context)
+        attestation = read_json(logs / ATTESTATION_FILENAME)
+        self.assertEqual(attestation["usage"]["completion_tokens"], 3)
+        self.assertEqual(attestation["usage"]["reasoning_tokens"], 1)
+        self.assertEqual(
+            attestation["runtime_failure_receipt_sha256"],
+            receipt["receipt_sha256"],
+        )
+        self.assertEqual(
+            context.metadata["runtime_failure_receipt_sha256"],
+            receipt["receipt_sha256"],
+        )
 
     def test_post_run_attestation_binds_snapshot_atif_model_seed_runtime_and_usage(self) -> None:
         agent = self._agent()
@@ -937,6 +1314,8 @@ class HarborAgentTests(unittest.TestCase):
         self.assertEqual(attestation["route_contract_sha256"], sha256_json(expected_route_contract()))
         self.assertEqual(attestation["runtime"]["mimocode_archive_sha256"], MIMOCODE_ARCHIVE_SHA256)
         self.assertEqual(attestation["usage"]["cost_usd"], 0.001)
+        self.assertEqual(attestation["usage"]["reasoning_tokens"], 0)
+        self.assertIsNone(attestation["runtime_failure_receipt_sha256"])
         unsigned = dict(attestation)
         digest = unsigned.pop("attestation_sha256")
         self.assertEqual(digest, sha256_json(unsigned))

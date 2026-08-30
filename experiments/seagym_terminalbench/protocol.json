@@ -21,8 +21,8 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
-    "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-30T04:03:18Z",
+    "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
+    "amended_at": "2026-08-30T06:39:29Z",
     "compatibility_normalization": {
       "applies_only_when": "inbound_tool_choice_none_with_nonempty_local_function_tools",
       "benchmark_effect_claimed": false,
@@ -35,38 +35,46 @@
     },
     "config_sha256_unchanged": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9725879182,
-    "diagnostic_artifact_sha256": "d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54",
-    "diagnostic_controller_run_id": 33289924348,
+    "diagnostic_artifact_id": 9727486245,
+    "diagnostic_artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+    "diagnostic_controller_run_id": 33295415122,
     "diagnostic_job_log": {
       "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
-      "job_id": 99199651435,
+      "job_id": 99214123678,
       "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
       "safe_fixed_phrase_occurrences": 2,
-      "sha256": "88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a"
+      "sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181"
     },
     "diagnostic_observation": {
-      "completed_requests": 106,
-      "final_upstream_http_404_errors": 5,
-      "forwarded_requests": 106,
+      "completed_requests": 111,
+      "final_upstream_http_404_errors": 0,
+      "forwarded_requests": 111,
       "rejected_requests": 0,
+      "tool_choice_none_normalizations": 7,
       "train_batches_without_usable_atif": 1,
-      "upstream_attempts": 126,
-      "upstream_http_404_attempts": 25,
+      "upstream_attempts": 111,
+      "upstream_http_404_attempts": 0,
       "upstream_other_attempt_errors": 0,
-      "upstream_retries": 20
+      "upstream_retries": 0
     },
-    "execution_resilience_change": "normalize_mimocode_final_text_requests_for_the_pinned_xiaomi_endpoint_without_changing_model_provider_tasks_seed_or_config_while_preserving_the_no_tool_action_authorization_boundary",
+    "execution_resilience_change": "classify_mimocode_and_sanitizer_failures_before_harbor_post_run_recovery_and_skip_an_update_only_when_every_missing_atif_has_a_valid_content_free_hash_bound_failure_receipt",
+    "leaf_cause_status": {
+      "exact_failed_run_reasoning_token_value_available": false,
+      "highest_probability_hypothesis": "provider_reported_reasoning_token_usage_was_rejected_as_reasoning_content_by_the_frozen_runtime_sanitizer",
+      "hypothesis_confirmed_for_run_33295415122": false,
+      "raw_event_or_response_content_persisted": false
+    },
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 11,
+    "prior_controller_attempts_total": 12,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
     "prior_v4_controller_attempts": 1,
     "prior_v5_controller_attempts": 1,
+    "prior_v6_controller_attempts": 1,
     "prior_model_inference_completed": true,
-    "prior_observed_usage_delta_usd": 0.217105791,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5",
+    "prior_observed_usage_delta_usd": 0.26740132,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6",
     "prior_v2_run_evidence": [
       {
         "artifact_id": 9710915384,
@@ -136,19 +144,38 @@
         "score_produced": false
       }
     ],
+    "prior_v6_run_evidence": [
+      {
+        "artifact_id": 9727486245,
+        "artifact_sha256": "84dcd2eb4a08a24144e50290afc5aacb373ce4f1adb30703d5cd7e3ea79a53c9",
+        "blocker_code": "seagym_execution_failed",
+        "controller_commit": "2a44abedde490fc3d6d602a372284db030357eb4",
+        "evoagent_public_commit": "9889fee8888baca681311a3c10880a7144f5736d",
+        "job_id": 99214123678,
+        "job_log_sha256": "b02d75dfe3e7591af55577c917185b55823eedca6590f52de7eda9911310f181",
+        "observed_usage_delta_usd": 0.050295529,
+        "run_id": 33295415122,
+        "score_produced": false
+      }
+    ],
     "prior_score_produced": false,
-    "reason_code": "mimocode_final_step_tool_choice_none_is_unsupported_by_the_pinned_xiaomi_endpoint",
+    "reason_code": "harbor_post_run_missing_atif_masked_an_inner_mimocode_or_runtime_sanitizer_failure",
     "root_cause_evidence": {
       "benchmark_result_claimed": false,
-      "confidence": "high",
+      "confidence": "high_for_two_layer_failure_and_unconfirmed_for_exact_leaf_cause",
       "frozen_mimocode_local_capture": {
         "capture_content_persisted": false,
-        "observed_final_step_shape": "tool_choice_none_with_nonempty_local_function_tools",
+        "observable_contract": "completion_tokens_details_reasoning_tokens_maps_to_step_finish_part_tokens_reasoning",
         "runtime": "mimocode-v0.1.13"
       },
-      "xiaomi_endpoint_parameter_metadata": {
-        "endpoint": "xiaomi/fp8",
-        "tool_choice_none_supported": false
+      "harbor_recovery_contract": {
+        "classified_nonzero_agent_failure_is_contained": true,
+        "generic_runtime_error_can_be_masked_by_a_second_missing_atif_error": true
+      },
+      "run_observation": {
+        "completed_requests": 111,
+        "proxy_or_upstream_errors": 0,
+        "train_batch_without_usable_atif": true
       }
     },
     "score_blind": true,
@@ -175,6 +202,11 @@
       "source_split": "val"
     },
     "interpretation_rule": {
+      "incomplete_training_evidence_if": [
+        "any planned update is skipped because every train trajectory lacks valid ATIF",
+        "any errored trial lacks a valid hash-bound runtime failure receipt",
+        "verified rollout or update model-call accounting is incomplete"
+      ],
       "negative_signal_if": [
         "final.id_test.gain_vs_A_0 < 0",
         "final frozen-validation score is below initial frozen-validation score",
@@ -222,6 +254,12 @@
     },
     "provider_rollout_sampling_determinism_claimed": false,
     "provider_update_sampling_determinism_claimed": false,
+    "reasoning_semantics": {
+      "absence_of_internal_reasoning_claimed": false,
+      "reasoning_content_persisted": false,
+      "reasoning_request_enabled": false,
+      "safe_provider_usage_count_may_be_reported": true
+    },
     "router_audit": {
       "accepted_strategies": [
         "alias",
@@ -235,7 +273,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v6",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,
@@ -245,6 +283,13 @@
       "poll_seconds": 10,
       "stop_threshold_usd": 0.9,
       "usage_check_failures_before_stop": 3
+    },
+    "lifecycle_canary": {
+      "budget_stop_threshold_usd": 0.15,
+      "must_complete_before_full_pilot": true,
+      "purpose": "integration_only_no_benchmark_score",
+      "seed": 42,
+      "task_id": "terminal-bench/fix-git"
     },
     "global_workflow_timeout_minutes": 355,
     "harbor_concurrency": 1,
@@ -338,13 +383,16 @@
       "raw_jsonl_max_bytes": 67108864,
       "raw_persisted": false,
       "raw_record_max_bytes": 16777216,
-      "raw_string_max_chars": 16777216
+      "raw_string_max_chars": 16777216,
+      "reasoning_content_persisted": false,
+      "reasoning_token_count_telemetry_allowed": true
     },
     "secret_environment_variable": "OPENROUTER_API_KEY",
     "token_semantics": {
       "harbor_cached_tokens": "cache_read_subset_of_harbor_input_tokens",
       "harbor_input_tokens": "non_cached_input_plus_cache_read",
-      "reported_attested_total_tokens": "harbor_input_tokens_plus_output_tokens",
+      "harbor_reasoning_tokens": "provider_reported_usage_count_only_not_reasoning_content",
+      "reported_attested_total_tokens": "harbor_input_tokens_plus_visible_output_tokens_plus_reasoning_tokens",
       "seagym_total_tokens": "harbor_input_tokens_plus_harbor_cached_tokens_plus_output_tokens"
     }
   },

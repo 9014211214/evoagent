@@ -11,7 +11,7 @@ import shlex
 import tempfile
 from typing import Any
 
-from ._compat import BaseAgent
+from ._compat import BaseAgent, NonZeroAgentExitCodeError
 from .canonical import atomic_write_json, canonical_bytes, contained_path, read_json, sha256_file, sha256_json
 from .mimocode import (
     HARBOR_RUNTIME_COMMIT,
@@ -26,6 +26,7 @@ from .mimocode import (
 )
 from .models import HARBOR_MODEL_ID, UPDATE_MODEL_ID, HarnessSnapshot, SECRET_PATTERNS
 from .routing import expected_route_contract, validate_route_contract
+from .runtime_sanitizer import FAILURE_RECEIPT_FILENAME, FAILURE_RECEIPT_SCHEMA
 
 
 ATTESTATION_SCHEMA = "evoagent-harbor-attestation-v1"
@@ -33,7 +34,11 @@ ATTESTATION_FILENAME = "evoagent-attestation.json"
 ATIF_FILENAME = "trajectory.json"
 REMOTE_RUNTIME_DIR = "/tmp/evoagent-mimo-runtime"
 REMOTE_ATIF_PATH = f"/logs/agent/{ATIF_FILENAME}"
+REMOTE_FAILURE_RECEIPT_PATH = f"/logs/agent/{FAILURE_RECEIPT_FILENAME}"
 ADAPTER_VERSION = "0.1.0"
+MIMOCODE_PROCESS_EXIT = 80
+SANITIZER_REJECT_EXIT = 81
+MIMOCODE_AND_SANITIZER_EXIT = 82
 PROXY_TOKEN_PATTERN = re.compile(r"evoagent-local-proxy-v1-[0-9a-f]{64}")
 SAFE_TOOL_NAMES = {
     "apply_patch",
@@ -69,6 +74,20 @@ SAFE_OBSERVATIONS = {
     "status:timeout",
     "status:cancelled",
     "status:unknown",
+}
+FAILURE_RECEIPT_CLASSES = {
+    "mimocode_process_failed",
+    "runtime_sanitization_failed",
+    "mimocode_and_sanitization_failed",
+}
+FAILURE_RECEIPT_STAGES = {"mimocode", "sanitize"}
+MIMOCODE_EXIT_CLASSES = {
+    "nonzero",
+    "signal",
+    "timeout",
+    "spawn_failed",
+    "success",
+    "unknown",
 }
 
 
@@ -215,8 +234,17 @@ class EvoAgentMiMo(BaseAgent):
         )
         command = _run_command(metadata, self.seed)
         result = await environment.exec(command=command, env=env, timeout_sec=self.timeout_seconds)
+        classified_failure = {
+            MIMOCODE_PROCESS_EXIT: "mimocode_process_failed",
+            SANITIZER_REJECT_EXIT: "runtime_sanitization_failed",
+            MIMOCODE_AND_SANITIZER_EXIT: "mimocode_and_sanitization_failed",
+        }.get(result.return_code)
+        if classified_failure is not None:
+            raise NonZeroAgentExitCodeError(
+                f"EvoAgentMiMo classified runtime failure: {classified_failure}"
+            )
         if result.return_code != 0:
-            raise RuntimeError("MiMoCode run or privacy sanitization failed")
+            raise RuntimeError("EvoAgentMiMo runtime exited without a classified failure receipt")
         # Harbor calls populate_context_post_run only when this object is still
         # completely empty after it has synchronized the safe ATIF file.
         # Writing even provisional metadata here would suppress that hook.
@@ -224,8 +252,26 @@ class EvoAgentMiMo(BaseAgent):
 
     def populate_context_post_run(self, context: Any) -> None:
         atif_path = self.logs_dir / ATIF_FILENAME
-        if not atif_path.is_file() or atif_path.is_symlink():
-            raise RuntimeError("privacy-preserving ATIF output is missing")
+        receipt_path = self.logs_dir / FAILURE_RECEIPT_FILENAME
+        if atif_path.exists() and (not atif_path.is_file() or atif_path.is_symlink()):
+            raise RuntimeError("privacy-preserving ATIF output is invalid")
+        atif_present = atif_path.is_file() and not atif_path.is_symlink()
+        receipt = None
+        if receipt_path.exists() or receipt_path.is_symlink():
+            if not receipt_path.is_file() or receipt_path.is_symlink():
+                raise RuntimeError("runtime failure receipt is invalid")
+            receipt = _validate_failure_receipt(
+                read_json(receipt_path, max_bytes=64 * 1024),
+                snapshot=self.snapshot,
+                seed=self.seed,
+                route_contract_sha256=sha256_json(self.route_contract),
+                atif_present=atif_present,
+            )
+        if not atif_present:
+            if receipt is None:
+                raise RuntimeError("privacy-preserving ATIF output and runtime failure receipt are missing")
+            _populate_failure_context(context, receipt)
+            return
         atif = read_json(atif_path, max_bytes=8 * 1024 * 1024)
         usage = _validate_sanitized_atif(atif, self.snapshot, self.seed)
         atif_hash = sha256_file(atif_path, max_bytes=8 * 1024 * 1024)
@@ -252,6 +298,7 @@ class EvoAgentMiMo(BaseAgent):
                 "harbor_commit": HARBOR_RUNTIME_COMMIT,
             },
             "usage": usage,
+            "runtime_failure_receipt_sha256": None,
             "raw_prompt_persisted": False,
             "raw_response_persisted": False,
             "reasoning_persisted": False,
@@ -259,6 +306,8 @@ class EvoAgentMiMo(BaseAgent):
             "promotion_claimed": False,
             "activation_claimed": False,
         }
+        if receipt is not None:
+            unsigned["runtime_failure_receipt_sha256"] = receipt["receipt_sha256"]
         attestation = {**unsigned, "attestation_sha256": sha256_json(unsigned)}
         atomic_write_json(self.logs_dir / ATTESTATION_FILENAME, attestation)
         context.n_input_tokens = usage["prompt_tokens"]
@@ -266,7 +315,7 @@ class EvoAgentMiMo(BaseAgent):
         context.n_output_tokens = usage["completion_tokens"]
         context.cost_usd = usage["cost_usd"]
         context.rollout_details = None
-        context.metadata = {
+        context_metadata = {
             "attestation_sha256": attestation["attestation_sha256"],
             "atif_sha256": atif_hash,
             "snapshot_sha256": self.snapshot.snapshot_sha256,
@@ -275,6 +324,104 @@ class EvoAgentMiMo(BaseAgent):
             "route_contract_sha256": sha256_json(self.route_contract),
             "privacy_projection": True,
         }
+        if receipt is not None:
+            context_metadata["runtime_failure_receipt_sha256"] = receipt["receipt_sha256"]
+        context.metadata = context_metadata
+
+
+def _validate_failure_receipt(
+    raw: Any,
+    *,
+    snapshot: HarnessSnapshot,
+    seed: int,
+    route_contract_sha256: str,
+    atif_present: bool,
+) -> dict[str, Any]:
+    expected_keys = {
+        "schema_version",
+        "failure_class",
+        "failure_stage",
+        "mimocode_exit_class",
+        "snapshot_sha256",
+        "component_sha256",
+        "route_contract_sha256",
+        "model",
+        "seed",
+        "runtime",
+        "atif_present",
+        "raw_prompt_persisted",
+        "raw_response_persisted",
+        "reasoning_content_persisted",
+        "receipt_sha256",
+    }
+    if not isinstance(raw, dict) or set(raw) != expected_keys:
+        raise RuntimeError("runtime failure receipt shape is invalid")
+    if raw.get("schema_version") != FAILURE_RECEIPT_SCHEMA:
+        raise RuntimeError("runtime failure receipt schema is invalid")
+    failure_class = raw.get("failure_class")
+    failure_stage = raw.get("failure_stage")
+    exit_class = raw.get("mimocode_exit_class")
+    if failure_class not in FAILURE_RECEIPT_CLASSES:
+        raise RuntimeError("runtime failure receipt class is invalid")
+    if failure_stage not in FAILURE_RECEIPT_STAGES:
+        raise RuntimeError("runtime failure receipt stage is invalid")
+    if exit_class not in MIMOCODE_EXIT_CLASSES:
+        raise RuntimeError("runtime failure receipt exit class is invalid")
+    expected_pair = {
+        "mimocode_process_failed": ("mimocode", False),
+        "runtime_sanitization_failed": ("sanitize", True),
+        "mimocode_and_sanitization_failed": ("sanitize", False),
+    }[failure_class]
+    if failure_stage != expected_pair[0] or (exit_class == "success") != expected_pair[1]:
+        raise RuntimeError("runtime failure receipt classification is inconsistent")
+    if raw.get("snapshot_sha256") != snapshot.snapshot_sha256:
+        raise RuntimeError("runtime failure receipt snapshot is invalid")
+    if raw.get("component_sha256") != dict(snapshot.component_sha256):
+        raise RuntimeError("runtime failure receipt components are invalid")
+    if raw.get("route_contract_sha256") != route_contract_sha256:
+        raise RuntimeError("runtime failure receipt route is invalid")
+    if raw.get("model") != {"api_id": UPDATE_MODEL_ID, "harbor_id": HARBOR_MODEL_ID}:
+        raise RuntimeError("runtime failure receipt model is invalid")
+    if raw.get("seed") != seed:
+        raise RuntimeError("runtime failure receipt seed is invalid")
+    if raw.get("runtime") != {"name": "mimocode", "version": MIMOCODE_VERSION}:
+        raise RuntimeError("runtime failure receipt runtime is invalid")
+    if raw.get("atif_present") is not atif_present:
+        raise RuntimeError("runtime failure receipt ATIF state is invalid")
+    for key in (
+        "raw_prompt_persisted",
+        "raw_response_persisted",
+        "reasoning_content_persisted",
+    ):
+        if raw.get(key) is not False:
+            raise RuntimeError("runtime failure receipt privacy flags are invalid")
+    digest = raw.get("receipt_sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise RuntimeError("runtime failure receipt digest is invalid")
+    unsigned = dict(raw)
+    unsigned.pop("receipt_sha256")
+    if sha256_json(unsigned) != digest or _contains_secret(raw):
+        raise RuntimeError("runtime failure receipt self-attestation is invalid")
+    return dict(raw)
+
+
+def _populate_failure_context(context: Any, receipt: dict[str, Any]) -> None:
+    context.n_input_tokens = 0
+    context.n_cache_tokens = 0
+    context.n_output_tokens = 0
+    context.cost_usd = 0.0
+    context.rollout_details = None
+    context.metadata = {
+        "runtime_failure_receipt_sha256": receipt["receipt_sha256"],
+        "runtime_failure_class": receipt["failure_class"],
+        "runtime_failure_stage": receipt["failure_stage"],
+        "mimocode_exit_class": receipt["mimocode_exit_class"],
+        "snapshot_sha256": receipt["snapshot_sha256"],
+        "model_id": receipt["model"]["api_id"],
+        "seed": receipt["seed"],
+        "route_contract_sha256": receipt["route_contract_sha256"],
+        "privacy_projection": True,
+    }
 
 
 def _snapshot_for_prompt(prompt_path: Path) -> HarnessSnapshot:
@@ -315,18 +462,26 @@ def _run_command(metadata: dict[str, Any], seed: int) -> str:
             REMOTE_RUNTIME_DIR,
         )
     )
+    sanitizer_args += (
+        ' --mimocode-exit-code "$mimo_status"'
+        f" --failure-receipt {REMOTE_FAILURE_RECEIPT_PATH}"
+    )
     # The raw task never appears in the command. stdout/stderr and MiMoCode state
     # remain under the disposable runtime directory until the sanitizer removes it.
     return (
-        f"trap 'rm -rf {REMOTE_RUNTIME_DIR}' EXIT; set +e; "
+        f"trap 'rm -rf {REMOTE_RUNTIME_DIR}' EXIT; "
+        f"rm -f {REMOTE_ATIF_PATH} {REMOTE_FAILURE_RECEIPT_PATH}; set +e; "
         f"/usr/local/bin/mimo run --model {shlex.quote(HARBOR_MODEL_ID)} --agent build --format json "
         f"--file {REMOTE_RUNTIME_DIR}/projected-task.md --dangerously-skip-permissions "
         "'Complete the attached task under its stated constraints.' "
         f"> {REMOTE_RUNTIME_DIR}/events.jsonl 2> {REMOTE_RUNTIME_DIR}/stderr.log; "
-        "mimo_status=$?; set -e; "
+        "mimo_status=$?; "
         f"{sanitizer_args}; "
         "sanitize_status=$?; "
-        "test $sanitize_status -eq 0; test $mimo_status -eq 0"
+        "if [ \"$mimo_status\" -eq 0 ] && [ \"$sanitize_status\" -eq 0 ]; then exit 0; fi; "
+        f"if [ \"$mimo_status\" -ne 0 ] && [ \"$sanitize_status\" -eq 0 ]; then exit {MIMOCODE_PROCESS_EXIT}; fi; "
+        f"if [ \"$mimo_status\" -eq 0 ] && [ \"$sanitize_status\" -ne 0 ]; then exit {SANITIZER_REJECT_EXIT}; fi; "
+        f"exit {MIMOCODE_AND_SANITIZER_EXIT}"
     )
 
 
@@ -378,8 +533,10 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
         "completion_tokens": 0,
         "cached_tokens": 0,
         "cost_usd": 0.0,
+        "reasoning_tokens": 0,
     }
     seen_metrics: set[str] = set()
+    saw_reasoning_telemetry = False
     for expected, step in enumerate(steps, start=1):
         if not isinstance(step, dict) or step.get("step_id") != expected:
             raise ValueError("ATIF step sequence is invalid")
@@ -415,10 +572,15 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
                 "completion_tokens",
                 "cached_tokens",
                 "cost_usd",
+                "extra",
             }:
                 raise ValueError("ATIF step metrics shape is invalid")
             _validated_metric_dict(step_metrics)
             for key, value in step_metrics.items():
+                if key == "extra":
+                    aggregate_metrics["reasoning_tokens"] += value["reasoning_tokens"]
+                    saw_reasoning_telemetry = True
+                    continue
                 aggregate_metrics[key] += value
                 seen_metrics.add(key)
             if step.get("llm_call_count") != 1:
@@ -460,6 +622,8 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
         ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
         for name in seen_metrics
     }
+    if saw_reasoning_telemetry:
+        expected_metric_keys.add("extra")
     if not isinstance(metrics, dict) or set(metrics) != expected_metric_keys:
         raise ValueError("ATIF final_metrics are missing")
     if metrics.get("total_steps") != len(steps):
@@ -468,14 +632,24 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
         "prompt_tokens": _metric_int(metrics.get("total_prompt_tokens", 0), "prompt tokens"),
         "completion_tokens": _metric_int(metrics.get("total_completion_tokens", 0), "completion tokens"),
         "cached_tokens": _metric_int(metrics.get("total_cached_tokens", 0), "cached tokens"),
+        "reasoning_tokens": 0,
         "cost_usd": _metric_cost(metrics.get("total_cost_usd", 0.0)),
     }
+    if saw_reasoning_telemetry:
+        final_extra = metrics.get("extra")
+        if not isinstance(final_extra, dict) or set(final_extra) != {"total_reasoning_tokens"}:
+            raise ValueError("ATIF final reasoning telemetry is invalid")
+        usage["reasoning_tokens"] = _metric_int(
+            final_extra["total_reasoning_tokens"],
+            "reasoning tokens",
+        )
     if usage["cached_tokens"] > usage["prompt_tokens"]:
         raise ValueError("ATIF cached tokens exceed prompt tokens")
     expected_usage = {
         "prompt_tokens": int(aggregate_metrics["prompt_tokens"]),
         "completion_tokens": int(aggregate_metrics["completion_tokens"]),
         "cached_tokens": int(aggregate_metrics["cached_tokens"]),
+        "reasoning_tokens": int(aggregate_metrics["reasoning_tokens"]),
         "cost_usd": float(aggregate_metrics["cost_usd"]),
     }
     if usage != expected_usage:
@@ -492,6 +666,19 @@ def _validated_metric_dict(metrics: dict[str, Any]) -> None:
         _metric_int(metrics["cached_tokens"], "cached tokens")
     if "cost_usd" in metrics:
         _metric_cost(metrics["cost_usd"])
+    if "extra" in metrics:
+        if set(metrics) != {
+            "prompt_tokens",
+            "completion_tokens",
+            "cached_tokens",
+            "cost_usd",
+            "extra",
+        }:
+            raise ValueError("ATIF MiMo step usage is incomplete")
+        extra = metrics["extra"]
+        if not isinstance(extra, dict) or set(extra) != {"reasoning_tokens"}:
+            raise ValueError("ATIF step reasoning telemetry is invalid")
+        _metric_int(extra["reasoning_tokens"], "reasoning tokens")
     if metrics.get("cached_tokens", 0) > metrics.get("prompt_tokens", 0):
         raise ValueError("ATIF step cached tokens exceed prompt tokens")
 

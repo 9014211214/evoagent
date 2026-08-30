@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import math
 import os
 from pathlib import Path
@@ -14,7 +13,7 @@ from typing import Any
 
 from ._compat import BaseBaseline, BaselineState, Checkpoint, UpdateResult
 from .canonical import atomic_write_json, contained_path, read_json, sha256_file, sha256_json
-from .evidence import project_train_batch
+from .evidence import NO_USABLE_ATIF_SKIP_CODE, NoUsableHarborATIFEvidence, project_train_batch
 from .models import HarnessComponents, HarnessSnapshot, UPDATE_MODEL_ID, default_a0
 from .openrouter import OPENROUTER_ENDPOINT, OpenRouterStructuredClient, StructuredCompletion
 from .routing import expected_route_contract, validate_route_contract
@@ -168,12 +167,76 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             projection = project_train_batch(
                 trajectories,
                 atif_root=self.atif_root,
+                expected_snapshot_sha256=before.snapshot_sha256,
+                expected_component_sha256=dict(before.component_sha256),
+                expected_route_contract_sha256=ROUTE_CONTRACT_SHA256,
+                expected_seed=self.seed,
                 max_trajectories=self.max_trajectories,
             )
+        except NoUsableHarborATIFEvidence as exc:
+            projection = exc.projection
+            skipped = _skipped_attempt_record(
+                attempt_index=attempt_index,
+                before=before,
+                projection_sha256=projection.evidence_sha256,
+                seed=self.seed,
+            )
+            attempt_ref = self._persist_attempt(skipped)
+            new_refs = [*self._attempt_refs, attempt_ref]
+            prompt_path = self._prompt_path(before.snapshot_sha256)
+            self._write_state_manifest(
+                prompt_path,
+                candidate=before,
+                update_index=attempt_index,
+                attempt_refs=new_refs,
+            )
+            self._candidate = before
+            self.update_index = attempt_index
+            self._attempt_refs = new_refs
+            return UpdateResult(
+                update_index=attempt_index,
+                changed=False,
+                status="unchanged",
+                metrics={
+                    "num_trajectories": projection.summary["num_trajectories"],
+                    "success_count": projection.summary["success_count"],
+                    "failure_count": projection.summary["failure_count"],
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cost_usd": 0.0,
+                },
+                logs={
+                    "model_call_executed": False,
+                    "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+                    "evidence_sha256": projection.evidence_sha256,
+                    "candidate_sha256": before.snapshot_sha256,
+                    "causal_attribution_claimed": False,
+                    "promotion_claimed": False,
+                },
+                artifacts={
+                    "candidate_path": str(self._snapshot_path(before.snapshot_sha256)),
+                    "prompt_template_path": str(prompt_path),
+                },
+            )
+        except Exception as exc:
+            result = UpdateResult(
+                update_index=attempt_index,
+                changed=False,
+                status="failed",
+                metrics={"candidate_unchanged": True},
+                logs={"error_code": _safe_error_code(exc), "model_call_executed": False},
+            )
+            if self.fail_on_update_error:
+                raise
+            return result
+
+        model_call_executed = False
+        try:
             client = self.model_client or OpenRouterStructuredClient(
                 timeout_seconds=self.timeout_seconds,
                 route_contract=self.route_contract,
             )
+            model_call_executed = True
             completion: StructuredCompletion = client.complete(
                 evidence=projection.summary,
                 current_components=before.components.to_dict(),
@@ -185,7 +248,10 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             )
         except Exception as exc:
             metrics: dict[str, Any] = {"candidate_unchanged": True}
-            logs: dict[str, Any] = {"error_code": _safe_error_code(exc)}
+            logs: dict[str, Any] = {
+                "error_code": _safe_error_code(exc),
+                "model_call_executed": model_call_executed,
+            }
             if projection is not None and completion is not None:
                 rejected = _rejected_attempt_record(
                     attempt_index=attempt_index,
@@ -281,6 +347,7 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
                 "cost_usd": completion.usage.cost_usd,
             },
             logs={
+                "model_call_executed": True,
                 "request_sha256": completion.request_sha256,
                 "response_sha256": completion.response_sha256,
                 "evidence_sha256": projection.evidence_sha256,
@@ -416,6 +483,8 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             "evaluation_candidate_sha256": self._candidate.snapshot_sha256,
             "evaluation_candidate_generation": self._candidate.generation,
             "attempts": len(attempts),
+            "update_model_calls": sum(item.get("model_call_executed") is True for item in attempts),
+            "skipped_updates": sum(item.get("status") == "skipped_no_usable_atif" for item in attempts),
             "update_cost_usd": round(total_cost, 12),
             "causal_attribution_claimed": False,
             "promotion_claimed": False,
@@ -604,6 +673,7 @@ def _attempt_record(
         "schema_version": ATTEMPT_SCHEMA,
         "attempt_index": attempt_index,
         "status": "accepted" if changed else "accepted_unchanged",
+        "model_call_executed": True,
         "model_id": UPDATE_MODEL_ID,
         "route_contract_sha256": ROUTE_CONTRACT_SHA256,
         "seed": seed,
@@ -633,6 +703,7 @@ def _rejected_attempt_record(
         "schema_version": ATTEMPT_SCHEMA,
         "attempt_index": attempt_index,
         "status": "rejected",
+        "model_call_executed": True,
         "error_code": error_code,
         "model_id": UPDATE_MODEL_ID,
         "route_contract_sha256": ROUTE_CONTRACT_SHA256,
@@ -645,6 +716,49 @@ def _rejected_attempt_record(
         "served_model_id": completion.served_model_id,
         "provider": completion.provider,
         "usage": completion.usage.to_dict(),
+        "causal_attribution_claimed": False,
+        "promotion_claimed": False,
+    }
+
+
+def _skipped_attempt_record(
+    *,
+    attempt_index: int,
+    before: HarnessSnapshot,
+    projection_sha256: str,
+    seed: int,
+) -> dict[str, Any]:
+    request_sha256 = sha256_json(
+        {
+            "schema_version": "evoagent-seagym-no-model-call-v1",
+            "attempt_index": attempt_index,
+            "before_snapshot_sha256": before.snapshot_sha256,
+            "evidence_sha256": projection_sha256,
+            "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+        }
+    )
+    return {
+        "schema_version": ATTEMPT_SCHEMA,
+        "attempt_index": attempt_index,
+        "status": "skipped_no_usable_atif",
+        "model_call_executed": False,
+        "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+        "model_id": UPDATE_MODEL_ID,
+        "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+        "seed": seed,
+        "before_snapshot_sha256": before.snapshot_sha256,
+        "candidate_snapshot_sha256": before.snapshot_sha256,
+        "evidence_sha256": projection_sha256,
+        "request_sha256": request_sha256,
+        "response_sha256": None,
+        "served_model_id": None,
+        "provider": None,
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost_usd": 0.0,
+        },
         "causal_attribution_claimed": False,
         "promotion_claimed": False,
     }
@@ -818,6 +932,7 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         "schema_version",
         "attempt_index",
         "status",
+        "model_call_executed",
         "model_id",
         "route_contract_sha256",
         "seed",
@@ -832,9 +947,18 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         "causal_attribution_claimed",
         "promotion_claimed",
     }
-    if not isinstance(raw, dict) or raw.get("status") not in {"accepted", "accepted_unchanged", "rejected"}:
+    if not isinstance(raw, dict) or raw.get("status") not in {
+        "accepted",
+        "accepted_unchanged",
+        "rejected",
+        "skipped_no_usable_atif",
+    }:
         raise ValueError("attempt record has an invalid status or shape")
-    expected = common | ({"error_code"} if raw["status"] == "rejected" else set())
+    expected = common
+    if raw["status"] == "rejected":
+        expected |= {"error_code"}
+    elif raw["status"] == "skipped_no_usable_atif":
+        expected |= {"skip_code"}
     if set(raw) != expected:
         raise ValueError("attempt record has an invalid shape")
     if raw["schema_version"] != ATTEMPT_SCHEMA or raw["model_id"] != UPDATE_MODEL_ID:
@@ -852,13 +976,33 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         "candidate_snapshot_sha256",
         "evidence_sha256",
         "request_sha256",
-        "response_sha256",
     ):
         if not _is_hash(raw[key]):
             raise ValueError("attempt contains an invalid hash")
     route = expected_route_contract()
-    if raw["served_model_id"] not in route["accepted_response_models"] or raw["provider"] != route["response_provider"]:
-        raise ValueError("attempt served model or provider drifted")
+    if raw["status"] == "skipped_no_usable_atif":
+        if raw["model_call_executed"] is not False:
+            raise ValueError("skipped attempt cannot claim a model call")
+        if raw["skip_code"] != NO_USABLE_ATIF_SKIP_CODE:
+            raise ValueError("skipped attempt code drifted")
+        expected_request_sha256 = sha256_json(
+            {
+                "schema_version": "evoagent-seagym-no-model-call-v1",
+                "attempt_index": raw["attempt_index"],
+                "before_snapshot_sha256": raw["before_snapshot_sha256"],
+                "evidence_sha256": raw["evidence_sha256"],
+                "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+            }
+        )
+        if raw["request_sha256"] != expected_request_sha256:
+            raise ValueError("skipped attempt no-call digest is invalid")
+        if raw["response_sha256"] is not None or raw["served_model_id"] is not None or raw["provider"] is not None:
+            raise ValueError("skipped attempt contains fabricated model evidence")
+    else:
+        if raw["model_call_executed"] is not True or not _is_hash(raw["response_sha256"]):
+            raise ValueError("model attempt execution evidence is invalid")
+        if raw["served_model_id"] not in route["accepted_response_models"] or raw["provider"] != route["response_provider"]:
+            raise ValueError("attempt served model or provider drifted")
     usage = raw["usage"]
     if not isinstance(usage, dict) or set(usage) != {"prompt_tokens", "completion_tokens", "total_tokens", "cost_usd"}:
         raise ValueError("attempt usage has an invalid shape")
@@ -872,6 +1016,8 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         raise ValueError("attempt cost accounting is invalid")
     if raw["causal_attribution_claimed"] is not False or raw["promotion_claimed"] is not False:
         raise ValueError("attempt cannot claim causality or promotion")
+    if raw["status"] == "skipped_no_usable_atif" and (prompt != 0 or completion != 0 or total != 0 or float(cost) != 0.0):
+        raise ValueError("skipped attempt cannot contain model usage")
     if raw["status"] == "accepted" and raw["candidate_snapshot_sha256"] == raw["before_snapshot_sha256"]:
         raise ValueError("accepted attempt must change the candidate")
     if raw["status"] != "accepted" and raw["candidate_snapshot_sha256"] != raw["before_snapshot_sha256"]:

@@ -56,6 +56,10 @@ bit-for-bit deterministic.
   `evoagent-attestation.json`, schema `evoagent-harbor-attestation-v1`. It binds
   the ATIF hash, snapshot and four component hashes, route-contract hash,
   model/seed, MiMoCode archive hash, and SEAGym/Harbor runtime commits.
+- Classified runtime failure: the same directory contains
+  `evoagent-runtime-failure.json`, schema `evoagent-runtime-failure-v1`. This
+  content-free, self-hashed receipt binds a bounded failure class/stage, the
+  actual ATIF-presence bit, snapshot/components, route, model, seed, and runtime.
 
 ## Privacy and claim boundary
 
@@ -65,14 +69,23 @@ bounded tool-name/status counts from privacy-preserving ATIF. Task IDs,
 instructions, model text, reasoning, tool arguments, tool output, canaries,
 secrets, and raw trajectories are neither sent nor persisted.
 
-SEAGym represents a Harbor trial that never produced `result.json` as a real
-zero-score trajectory with a non-empty error and no ATIF reference. Such a
-trajectory contributes to the failure/error and `missing_error_documents`
-counts but never receives a fabricated ATIF digest, step, or Tool summary. A
-completed unsuccessful or successful trajectory still requires a contained,
-regular, valid ATIF file, and every update batch must contain at least one real
-ATIF document. Path escapes, links, malformed files, and all-missing batches
-fail before the update-model call.
+An errored Harbor trial may lack ATIF only when its own contained, regular
+failure receipt is present, self-hashed, identity-bound, and declares
+`atif_present=false`. It contributes a real zero to the experiment and bounded
+failure-class counts, but never receives a fabricated ATIF digest, step, Tool
+summary, or model usage. If every trajectory in a train batch meets that narrow
+condition, the baseline persists an immutable `no_usable_harbor_atif_evidence`
+skip, advances the update index with the candidate unchanged, and records
+`model_call_executed=false`. This is not a successful learning update.
+
+A non-errored trial without ATIF, a missing/malformed/tampered receipt, a
+receipt whose ATIF bit disagrees with disk, malformed ATIF already on disk,
+path escape, symlink, or junction fails before the update-model call. When a
+classified MiMoCode failure still produced valid sanitized ATIF, the real ATIF
+remains usable and the accompanying `atif_present=true` receipt is independently
+validated. The pilot verifier keeps all errored trials in the denominator at
+zero and labels any receipt-bearing result
+`completed_with_incomplete_training_evidence`.
 
 The generated snapshot is not an activation or promotion. The adapter records
 `causal_attribution_claimed=false` and `promotion_claimed=false`; a later frozen

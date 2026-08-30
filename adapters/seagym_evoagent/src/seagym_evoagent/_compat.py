@@ -73,3 +73,10 @@ except ImportError:  # pragma: no cover - concrete fallback is covered indirectl
         @property
         def extra_env(self) -> dict[str, str]:
             return dict(self._extra_env)
+
+
+try:  # pragma: no cover - exercised only with the optional dependency installed
+    from harbor.agents.installed.base import NonZeroAgentExitCodeError  # type: ignore
+except ImportError:  # pragma: no cover - concrete fallback is covered indirectly
+    class NonZeroAgentExitCodeError(RuntimeError):
+        """Fallback matching Harbor's classified non-zero agent failure."""

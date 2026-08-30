@@ -293,6 +293,8 @@
     },
     "global_workflow_timeout_minutes": 355,
     "harbor_concurrency": 1,
+    "mimocode_force_kill_grace_seconds": 15,
+    "mimocode_sanitization_margin_seconds": 120,
     "host_profile": {
       "logical_cpus": 4,
       "memory_gib": 16,

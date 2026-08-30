@@ -3,7 +3,11 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -472,6 +476,7 @@ class RuntimeSanitizerTests(unittest.TestCase):
         metadata = sanitizer._load_metadata(METADATA)
         cases = (
             (1, False, True, "mimocode_process_failed", "mimocode", "nonzero"),
+            (124, False, False, "mimocode_process_failed", "mimocode", "timeout"),
             (0, True, False, "runtime_sanitization_failed", "sanitize", "success"),
             (137, True, False, "mimocode_and_sanitization_failed", "sanitize", "signal"),
         )
@@ -527,6 +532,37 @@ class RuntimeSanitizerTests(unittest.TestCase):
                 persisted = path.read_text(encoding="utf-8")
                 for forbidden in ("message", "stderr", "command", "task", "raw_hash"):
                     self.assertNotIn(forbidden, persisted)
+
+    @unittest.skipIf(os.name == "nt", "GNU timeout is exercised by Linux CI")
+    def test_real_gnu_timeout_exit_is_bound_into_a_timeout_receipt(self) -> None:
+        timeout_binary = shutil.which("timeout")
+        if timeout_binary is None:
+            self.skipTest("GNU timeout is unavailable")
+        completed = subprocess.run(
+            [
+                timeout_binary,
+                "--signal=TERM",
+                "--kill-after=1s",
+                "0.05s",
+                sys.executable,
+                "-c",
+                "import time; time.sleep(1)",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=3,
+        )
+        self.assertEqual(completed.returncode, 124)
+        receipt = sanitizer.build_runtime_failure_receipt(
+            mimocode_exit_code=completed.returncode,
+            sanitization_failed=False,
+            atif_present=False,
+            metadata=sanitizer._load_metadata(METADATA),
+            model=sanitizer.MODEL_NAME,
+            seed=43,
+        )
+        self.assertEqual(receipt["failure_class"], "mimocode_process_failed")
+        self.assertEqual(receipt["mimocode_exit_class"], "timeout")
 
     def test_cli_emits_receipt_for_sanitizer_reject_and_mimocode_only_failure(self) -> None:
         malformed = self._write_input(raw="not-json\n")

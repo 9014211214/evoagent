@@ -39,7 +39,8 @@ ADAPTER_VERSION = "0.1.0"
 MIMOCODE_PROCESS_EXIT = 80
 SANITIZER_REJECT_EXIT = 81
 MIMOCODE_AND_SANITIZER_EXIT = 82
-MIMOCODE_SANITIZATION_MARGIN_SECONDS = 60
+MIMOCODE_SANITIZATION_MARGIN_SECONDS = 120
+MIMOCODE_FORCE_KILL_GRACE_SECONDS = 15
 PROXY_TOKEN_PATTERN = re.compile(r"evoagent-local-proxy-v1-[0-9a-f]{64}")
 SAFE_TOOL_NAMES = {
     "apply_patch",
@@ -125,8 +126,14 @@ class EvoAgentMiMo(BaseAgent):
             raise ValueError("prompt_template_path is required")
         if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2**63 - 1:
             raise ValueError("seed must be a non-negative signed 64-bit integer")
-        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 60 <= timeout_seconds <= 7200:
-            raise ValueError("timeout_seconds must be an integer in [60, 7200]")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not MIMOCODE_SANITIZATION_MARGIN_SECONDS < timeout_seconds <= 7200
+        ):
+            raise ValueError(
+                "timeout_seconds must leave the pinned runtime sanitization margin"
+            )
         self.route_contract = validate_route_contract(route_contract or expected_route_contract())
         if mimocode_asset_sha256 != MIMOCODE_ARCHIVE_SHA256:
             raise ValueError("mimocode_asset_sha256 does not match the frozen artifact")
@@ -479,13 +486,14 @@ def _run_command(
     # Harbor's outer timeout must not terminate the shell before the privacy
     # sanitizer can emit ATIF or a classified failure receipt.  The inner
     # command therefore expires first and leaves a fixed cleanup margin.
-    mimocode_timeout = max(1, timeout_seconds - MIMOCODE_SANITIZATION_MARGIN_SECONDS)
+    mimocode_timeout = timeout_seconds - MIMOCODE_SANITIZATION_MARGIN_SECONDS
     # The raw task never appears in the command. stdout/stderr and MiMoCode state
     # remain under the disposable runtime directory until the sanitizer removes it.
     return (
         f"trap 'rm -rf {REMOTE_RUNTIME_DIR}' EXIT; "
         f"rm -f {REMOTE_ATIF_PATH} {REMOTE_FAILURE_RECEIPT_PATH}; set +e; "
-        f"timeout --signal=TERM --kill-after=15s {mimocode_timeout}s "
+        f"timeout --signal=TERM --kill-after={MIMOCODE_FORCE_KILL_GRACE_SECONDS}s "
+        f"{mimocode_timeout}s "
         f"/usr/local/bin/mimo run --model {shlex.quote(HARBOR_MODEL_ID)} --agent build --format json "
         f"--file {REMOTE_RUNTIME_DIR}/projected-task.md --dangerously-skip-permissions "
         "'Complete the attached task under its stated constraints.' "

@@ -37,9 +37,10 @@ non-empty reasoning fails closed. MiMoCode's `agent.build.steps` is bound to the
 validated snapshot policy (`max_iterations`, 1--32) so a task has a real
 agentic-step limit in addition to the wall-clock timeout.
 
-The MiMoCode process expires 60 seconds before Harbor's outer Agent timeout.
-That fixed window lets the sanitizer either write valid ATIF or emit a
-content-free, identity-bound failure receipt before Harbor terminates the shell.
+The MiMoCode deadline reserves 120 seconds inside Harbor's outer Agent timeout.
+Its bounded 15-second forced-kill grace is part of that reserve, leaving at
+least 105 seconds at the command layer for the sanitizer to write valid ATIF or
+emit a content-free, identity-bound failure receipt.
 
 The Xiaomi endpoint does not advertise the API `seed` parameter, so the
 host-side update request omits it instead of weakening `require_parameters`.

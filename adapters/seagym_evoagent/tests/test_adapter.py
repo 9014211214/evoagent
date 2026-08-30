@@ -19,6 +19,7 @@ from seagym_evoagent.harbor_agent import (
     ATTESTATION_FILENAME,
     FAILURE_RECEIPT_FILENAME,
     MIMOCODE_AND_SANITIZER_EXIT,
+    MIMOCODE_FORCE_KILL_GRACE_SECONDS,
     MIMOCODE_PROCESS_EXIT,
     MIMOCODE_SANITIZATION_MARGIN_SECONDS,
     SANITIZER_REJECT_EXIT,
@@ -1070,6 +1071,7 @@ class HarborAgentTests(unittest.TestCase):
         setup_command = environment.commands[1]["command"]
         self.assertIn(MIMOCODE_ARCHIVE_SHA256, setup_command)
         self.assertNotIn(MIMOCODE_ARCHIVE_URL, setup_command)
+        self.assertIn("command -v timeout >/dev/null", setup_command)
         self.assertEqual(
             environment.uploads["/tmp/evoagent-mimocode-install/archive.tar.gz"],
             b"locked-test-archive",
@@ -1080,7 +1082,8 @@ class HarborAgentTests(unittest.TestCase):
         self.assertNotIn(SECRET, command)
         self.assertNotIn("--thinking", command)
         self.assertIn(
-            "timeout --signal=TERM --kill-after=15s "
+            "timeout --signal=TERM "
+            f"--kill-after={MIMOCODE_FORCE_KILL_GRACE_SECONDS}s "
             f"{agent.timeout_seconds - MIMOCODE_SANITIZATION_MARGIN_SECONDS}s ",
             command,
         )
@@ -1104,6 +1107,7 @@ class HarborAgentTests(unittest.TestCase):
         self.assertEqual(model_options["provider"], expected_route_contract()["provider"])
         self.assertEqual(model_options["reasoning"], {"enabled": False})
         self.assertEqual(config["agent"]["build"]["steps"], agent.snapshot.components.policy.max_iterations)
+
         with self.assertRaises(TypeError):
             locked_mimocode_config(expected_route_contract())
         for invalid in (True, 0, 33):
@@ -1117,6 +1121,10 @@ class HarborAgentTests(unittest.TestCase):
         self.assertEqual(run_call["env"]["MIMOCODE_DISABLE_CLAUDE_CODE_COMMANDS"], "1")
         self.assertEqual(run_call["env"]["MIMOCODE_DISABLE_CLAUDE_IMPORT"], "1")
         self.assertEqual(run_call["env"]["OPENROUTER_API_KEY"], PROXY_TOKEN)
+
+    def test_timeout_must_leave_the_frozen_sanitization_margin(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sanitization margin"):
+            self._agent(timeout_seconds=MIMOCODE_SANITIZATION_MARGIN_SECONDS)
 
     @unittest.skipIf(HarborAgentContext is None, "optional pinned Harbor is not installed")
     def test_run_leaves_real_harbor_context_empty_for_post_run_hook(self) -> None:

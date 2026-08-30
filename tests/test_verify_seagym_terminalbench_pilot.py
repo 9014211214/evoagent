@@ -423,9 +423,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         },
     )
     attempt_error_classes = {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES}
-    attempt_error_classes["http_4xx"] = 1
+    attempt_error_classes["http_4xx"] = 4
     status_buckets = {name: 0 for name in pilot_verifier.PROXY_HTTP_STATUS_BUCKETS}
-    status_buckets["404"] = 1
+    status_buckets["404"] = 4
     _write_json(
         run / "evidence" / "guard-proxy-health.json",
         {
@@ -435,7 +435,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
             "forwarded_requests": 24,
             "guard_proxy_source_sha256": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["source_sha256"],
             "limits": pilot_verifier.EXPECTED_GUARD_PROXY_RUNTIME["limits"],
-            "max_upstream_retries": 2,
+            "max_upstream_retries": 4,
             "ready": True,
             "rejected_requests": 0,
             "rejection_classes": {"concurrency_limit": 0, "request_limit": 0, "other": 0},
@@ -444,11 +444,11 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
             "retry_policy": pilot_verifier.EXPECTED_RETRY_POLICY,
             "schema_version": "openrouter-guard-proxy-health-v3",
             "upstream_attempt_error_classes": attempt_error_classes,
-            "upstream_attempts": 25,
+            "upstream_attempts": 28,
             "upstream_error_classes": {name: 0 for name in pilot_verifier.PROXY_ERROR_CLASSES},
             "upstream_errors": 0,
             "upstream_http_statuses": status_buckets,
-            "upstream_retries": 1,
+            "upstream_retries": 4,
         },
     )
     before = tmp_path / "before.json"
@@ -497,7 +497,7 @@ def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -
     assert result["usage"]["observed_key_usage_delta_usd"] == pytest.approx(0.03)
     assert len(rows) == 24
     assert len(updates) == 2
-    assert result["evidence"]["guard_proxy_health"]["upstream_retries"] == 1
+    assert result["evidence"]["guard_proxy_health"]["upstream_retries"] == 4
     assert result["evidence"]["verified_rollout_model_calls"] == 24
     assert result["evidence"]["verified_update_model_calls"] == 2
     assert result["evidence"]["verified_guard_proxy_logical_requests"] == 24
@@ -648,7 +648,7 @@ def test_rejects_retry_policy_drift(
         pilot_verifier._validate_protocol(path)
 
 
-def test_rejects_score_blind_v4_diagnostic_evidence_drift(
+def test_rejects_score_blind_v5_diagnostic_evidence_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -658,6 +658,19 @@ def test_rejects_score_blind_v4_diagnostic_evidence_drift(
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError, match="score-blind protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_harbor_concurrency_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["resources"]["harbor_concurrency"] = 2
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="protocol resource or budget guard drifted"):
         pilot_verifier._validate_protocol(path)
 
 

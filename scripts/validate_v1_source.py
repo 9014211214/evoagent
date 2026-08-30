@@ -258,7 +258,7 @@ protocol = json.loads(
 expected_pilot_artifacts = {
     "config": (
         "experiments/seagym_terminalbench/configs/evoagent_mimo_v2_5_seed42.json",
-        "b298c9ab579616554d5b22d6077b1eb8fe86ff490ac21df175f729b01647fb17",
+        "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
     ),
     "task_index": (
         "experiments/seagym_terminalbench/tasks/task_index.json",
@@ -333,31 +333,43 @@ if model_route != {
     "update_model_seed_parameter_sent": False,
 }:
     raise SystemExit("SEAGym pilot model route changed")
-if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4" or protocol.get(
+if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5" or protocol.get(
     "amendment"
 ) != {
     "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-29T17:41:19Z",
+    "amended_at": "2026-08-30T01:43:46Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9718565501,
-    "diagnostic_artifact_sha256": "25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec",
-    "diagnostic_controller_run_id": 33265128690,
-    "diagnostic_observation": {
-        "completed_requests": 102,
-        "forwarded_requests": 102,
-        "missing_atif_error_trajectories_in_failing_train_batch": 1,
-        "rejected_requests": 0,
-        "upstream_http_404": 6,
-        "upstream_other_errors": 0,
+    "diagnostic_artifact_id": 9724445260,
+    "diagnostic_artifact_sha256": "9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee",
+    "diagnostic_controller_run_id": 33285475794,
+    "diagnostic_job_log": {
+        "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
+        "job_id": 99187817660,
+        "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
+        "safe_fixed_phrase_occurrences": 2,
+        "sha256": "546e3619370df2bd34758b74cb1b7e271c4158c06142197839943b4f1e23cbc1",
     },
+    "diagnostic_observation": {
+        "completed_requests": 100,
+        "final_upstream_http_404_errors": 5,
+        "forwarded_requests": 100,
+        "rejected_requests": 0,
+        "train_batches_without_usable_atif": 1,
+        "upstream_attempts": 110,
+        "upstream_http_404_attempts": 15,
+        "upstream_other_attempt_errors": 0,
+        "upstream_retries": 10,
+    },
+    "execution_resilience_change": "serialize_harbor_trials_and_expand_byte_identical_same_route_backoff_without_changing_model_provider_tasks_or_request_bytes",
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 9,
+    "prior_controller_attempts_total": 10,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
+    "prior_v4_controller_attempts": 1,
     "prior_model_inference_completed": True,
-    "prior_observed_usage_delta_usd": 0.131973138,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3",
+    "prior_observed_usage_delta_usd": 0.174437779,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4",
     "prior_v2_run_evidence": [
         {
             "artifact_id": 9710915384,
@@ -403,8 +415,20 @@ if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed
             "score_produced": False,
         }
     ],
+    "prior_v4_run_evidence": [
+        {
+            "artifact_id": 9724445260,
+            "artifact_sha256": "9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee",
+            "blocker_code": "seagym_execution_failed",
+            "controller_commit": "9c25f473e8054bac76d7128f0ac025dd3e154080",
+            "evoagent_public_commit": "09018d7b4bdfcdc11f61f8c302c857d7f5dfd7f7",
+            "observed_usage_delta_usd": 0.042464641,
+            "run_id": 33285475794,
+            "score_produced": False,
+        }
+    ],
     "prior_score_produced": False,
-    "reason_code": "errored_trial_missing_atif_and_intermittent_upstream_404_on_verified_route",
+    "reason_code": "persistent_intermittent_upstream_404_exhausted_short_retries_and_left_a_train_batch_without_usable_atif",
     "score_blind": True,
     "transport_only_change": False,
 }:
@@ -434,7 +458,7 @@ if protocol["runtime"]["guard_proxy"] != {
     "health_schema_version": "openrouter-guard-proxy-health-v3",
     "limits": {
         "client_timeout_seconds": 30.0,
-        "max_concurrency": 4,
+        "max_concurrency": 2,
         "max_output_tokens": 16_000,
         "max_request_bytes": 2 * 1024 * 1024,
         "max_requests": 768,
@@ -446,9 +470,9 @@ if protocol["runtime"]["guard_proxy"] != {
     raise SystemExit("SEAGym pilot guard-proxy identity changed")
 if protocol["runtime"]["openrouter_retry_policy"] != {
     "ambiguous_transport_failures_retried": False,
-    "backoff_seconds": [1.0, 2.0],
+    "backoff_seconds": [5.0, 10.0, 20.0, 40.0],
     "fallbacks_enabled": False,
-    "max_retries_per_client_request": 2,
+    "max_retries_per_client_request": 4,
     "request_body_changed_between_attempts": False,
     "retryable_http_statuses": [404, 408, 409, 425, 429, 500, 502, 503, 504, 524, 529],
     "same_model_provider_endpoint": True,
@@ -510,7 +534,8 @@ if pilot_config["schedule"] != {
     raise SystemExit("SEAGym pilot schedule changed")
 if (
     pilot_config["backend"]["env"] != "docker"
-    or pilot_config["backend"]["n_concurrent"] != 2
+    or pilot_config["backend"]["n_concurrent"] != 1
+    or protocol["resources"]["harbor_concurrency"] != 1
     or pilot_config["backend"]["agent_override_timeout_sec"] != 1800
     or pilot_config["backend"]["verifier_override_timeout_sec"] != 600
 ):

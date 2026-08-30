@@ -3,7 +3,7 @@
     "agent_override_timeout_sec": 1800,
     "env": "docker",
     "extra_args": [],
-    "n_concurrent": 2,
+    "n_concurrent": 1,
     "name": "harbor",
     "verifier_override_timeout_sec": 600,
     "yes": true

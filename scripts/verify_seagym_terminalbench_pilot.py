@@ -32,30 +32,42 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v5"
 EXPECTED_AMENDMENT = {
     "adapter_evidence_change": "count_only_errored_zero_score_trajectories_without_atif_while_requiring_real_atif_in_the_batch",
-    "amended_at": "2026-08-29T17:41:19Z",
+    "amended_at": "2026-08-30T01:43:46Z",
     "diagnostic_artifact_digest_kind": "github_actions_artifact_zip_sha256",
-    "diagnostic_artifact_id": 9718565501,
-    "diagnostic_artifact_sha256": "25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec",
-    "diagnostic_controller_run_id": 33265128690,
-    "diagnostic_observation": {
-        "completed_requests": 102,
-        "forwarded_requests": 102,
-        "missing_atif_error_trajectories_in_failing_train_batch": 1,
-        "rejected_requests": 0,
-        "upstream_http_404": 6,
-        "upstream_other_errors": 0,
+    "diagnostic_artifact_id": 9724445260,
+    "diagnostic_artifact_sha256": "9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee",
+    "diagnostic_controller_run_id": 33285475794,
+    "diagnostic_job_log": {
+        "digest_kind": "github_actions_job_log_download_raw_bytes_sha256",
+        "job_id": 99187817660,
+        "safe_fixed_phrase": "train batch contains no usable Harbor ATIF evidence",
+        "safe_fixed_phrase_occurrences": 2,
+        "sha256": "546e3619370df2bd34758b74cb1b7e271c4158c06142197839943b4f1e23cbc1",
     },
+    "diagnostic_observation": {
+        "completed_requests": 100,
+        "final_upstream_http_404_errors": 5,
+        "forwarded_requests": 100,
+        "rejected_requests": 0,
+        "train_batches_without_usable_atif": 1,
+        "upstream_attempts": 110,
+        "upstream_http_404_attempts": 15,
+        "upstream_other_attempt_errors": 0,
+        "upstream_retries": 10,
+    },
+    "execution_resilience_change": "serialize_harbor_trials_and_expand_byte_identical_same_route_backoff_without_changing_model_provider_tasks_or_request_bytes",
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 9,
+    "prior_controller_attempts_total": 10,
     "prior_pre_v2_controller_attempts": 4,
     "prior_v2_controller_attempts": 4,
     "prior_v3_controller_attempts": 1,
+    "prior_v4_controller_attempts": 1,
     "prior_model_inference_completed": True,
-    "prior_observed_usage_delta_usd": 0.131973138,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v3",
+    "prior_observed_usage_delta_usd": 0.174437779,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v4",
     "prior_v2_run_evidence": [
         {
             "artifact_id": 9710915384,
@@ -101,16 +113,28 @@ EXPECTED_AMENDMENT = {
             "score_produced": False,
         }
     ],
+    "prior_v4_run_evidence": [
+        {
+            "artifact_id": 9724445260,
+            "artifact_sha256": "9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee",
+            "blocker_code": "seagym_execution_failed",
+            "controller_commit": "9c25f473e8054bac76d7128f0ac025dd3e154080",
+            "evoagent_public_commit": "09018d7b4bdfcdc11f61f8c302c857d7f5dfd7f7",
+            "observed_usage_delta_usd": 0.042464641,
+            "run_id": 33285475794,
+            "score_produced": False,
+        }
+    ],
     "prior_score_produced": False,
-    "reason_code": "errored_trial_missing_atif_and_intermittent_upstream_404_on_verified_route",
+    "reason_code": "persistent_intermittent_upstream_404_exhausted_short_retries_and_left_a_train_batch_without_usable_atif",
     "score_blind": True,
     "transport_only_change": False,
 }
 EXPECTED_RETRY_POLICY = {
     "ambiguous_transport_failures_retried": False,
-    "backoff_seconds": [1.0, 2.0],
+    "backoff_seconds": [5.0, 10.0, 20.0, 40.0],
     "fallbacks_enabled": False,
-    "max_retries_per_client_request": 2,
+    "max_retries_per_client_request": 4,
     "request_body_changed_between_attempts": False,
     "retryable_http_statuses": [404, 408, 409, 425, 429, 500, 502, 503, 504, 524, 529],
     "same_model_provider_endpoint": True,
@@ -119,7 +143,7 @@ EXPECTED_GUARD_PROXY_RUNTIME = {
     "health_schema_version": "openrouter-guard-proxy-health-v3",
     "limits": {
         "client_timeout_seconds": 30.0,
-        "max_concurrency": 4,
+        "max_concurrency": 2,
         "max_output_tokens": 16_000,
         "max_request_bytes": 2 * 1024 * 1024,
         "max_requests": 768,
@@ -420,8 +444,9 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         not isinstance(resources, dict)
         or resources.get("authorized_max_observed_key_usage_delta_usd") != 1.2
         or resources.get("budget_guard") != expected_budget_guard
+        or resources.get("harbor_concurrency") != 1
     ):
-        raise VerificationError("protocol budget guard drifted")
+        raise VerificationError("protocol resource or budget guard drifted")
     route = protocol.get("model_route")
     if not isinstance(route, dict):
         raise VerificationError("protocol route is missing")
@@ -523,6 +548,14 @@ def _validate_frozen_inputs(protocol: dict[str, Any], repo_root: Path, run_dir: 
         raise VerificationError("executed split differs from the frozen split")
     if not isinstance(config, dict) or config.get("seed") != 42:
         raise VerificationError("frozen config seed drifted")
+    backend_config = config.get("backend") or {}
+    if (
+        not isinstance(backend_config, dict)
+        or backend_config.get("n_concurrent") != 1
+        or backend_config.get("n_concurrent")
+        != protocol["resources"]["harbor_concurrency"]
+    ):
+        raise VerificationError("frozen Harbor concurrency drifted")
     baseline_config = ((config.get("baseline") or {}).get("config") or {})
     rollout_kwargs = (((config.get("rollout_agent") or {}).get("config") or {}).get("kwargs") or {})
     for value in (baseline_config, rollout_kwargs):

@@ -39,6 +39,7 @@ ADAPTER_VERSION = "0.1.0"
 MIMOCODE_PROCESS_EXIT = 80
 SANITIZER_REJECT_EXIT = 81
 MIMOCODE_AND_SANITIZER_EXIT = 82
+MIMOCODE_SANITIZATION_MARGIN_SECONDS = 60
 PROXY_TOKEN_PATTERN = re.compile(r"evoagent-local-proxy-v1-[0-9a-f]{64}")
 SAFE_TOOL_NAMES = {
     "apply_patch",
@@ -232,7 +233,11 @@ class EvoAgentMiMo(BaseAgent):
             f"{REMOTE_RUNTIME_DIR}/home",
             proxy_token=proxy_token,
         )
-        command = _run_command(metadata, self.seed)
+        command = _run_command(
+            metadata,
+            self.seed,
+            timeout_seconds=self.timeout_seconds,
+        )
         result = await environment.exec(command=command, env=env, timeout_sec=self.timeout_seconds)
         classified_failure = {
             MIMOCODE_PROCESS_EXIT: "mimocode_process_failed",
@@ -440,7 +445,12 @@ def _snapshot_for_prompt(prompt_path: Path) -> HarnessSnapshot:
     return snapshot
 
 
-def _run_command(metadata: dict[str, Any], seed: int) -> str:
+def _run_command(
+    metadata: dict[str, Any],
+    seed: int,
+    *,
+    timeout_seconds: int,
+) -> str:
     metadata_json = canonical_bytes(metadata).decode("utf-8")
     sanitizer_args = " ".join(
         (
@@ -466,11 +476,16 @@ def _run_command(metadata: dict[str, Any], seed: int) -> str:
         ' --mimocode-exit-code "$mimo_status"'
         f" --failure-receipt {REMOTE_FAILURE_RECEIPT_PATH}"
     )
+    # Harbor's outer timeout must not terminate the shell before the privacy
+    # sanitizer can emit ATIF or a classified failure receipt.  The inner
+    # command therefore expires first and leaves a fixed cleanup margin.
+    mimocode_timeout = max(1, timeout_seconds - MIMOCODE_SANITIZATION_MARGIN_SECONDS)
     # The raw task never appears in the command. stdout/stderr and MiMoCode state
     # remain under the disposable runtime directory until the sanitizer removes it.
     return (
         f"trap 'rm -rf {REMOTE_RUNTIME_DIR}' EXIT; "
         f"rm -f {REMOTE_ATIF_PATH} {REMOTE_FAILURE_RECEIPT_PATH}; set +e; "
+        f"timeout --signal=TERM --kill-after=15s {mimocode_timeout}s "
         f"/usr/local/bin/mimo run --model {shlex.quote(HARBOR_MODEL_ID)} --agent build --format json "
         f"--file {REMOTE_RUNTIME_DIR}/projected-task.md --dangerously-skip-permissions "
         "'Complete the attached task under its stated constraints.' "

@@ -20,6 +20,7 @@ from seagym_evoagent.harbor_agent import (
     FAILURE_RECEIPT_FILENAME,
     MIMOCODE_AND_SANITIZER_EXIT,
     MIMOCODE_PROCESS_EXIT,
+    MIMOCODE_SANITIZATION_MARGIN_SECONDS,
     SANITIZER_REJECT_EXIT,
     EvoAgentMiMo,
 )
@@ -1078,6 +1079,11 @@ class HarborAgentTests(unittest.TestCase):
         self.assertNotIn(CANARY, command)
         self.assertNotIn(SECRET, command)
         self.assertNotIn("--thinking", command)
+        self.assertIn(
+            "timeout --signal=TERM --kill-after=15s "
+            f"{agent.timeout_seconds - MIMOCODE_SANITIZATION_MARGIN_SECONDS}s ",
+            command,
+        )
         self.assertIn(f"--model {HARBOR_MODEL_ID}", command)
         self.assertIn("--mimocode-exit-code \"$mimo_status\"", command)
         self.assertIn(f"--failure-receipt /logs/agent/{FAILURE_RECEIPT_FILENAME}", command)

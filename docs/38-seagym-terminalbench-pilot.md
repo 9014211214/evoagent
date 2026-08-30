@@ -196,6 +196,10 @@ trial with a valid receipt; it performs no update-model call and remains visible
 in the denominator. Any such skip or incomplete trial prevents a positive pilot
 classification even if the outer run reaches final reporting.
 
+MiMoCode's command timeout expires 60 seconds before Harbor's outer Agent
+timeout, leaving a deterministic sanitization window in which ATIF or the
+classified failure receipt can be persisted before the outer process ends.
+
 The public protocol also pins guard-proxy source SHA-256
 `14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754`, health schema v4, and all request, response,
 concurrency, token and timeout limits. Schema v4 adds only fixed aggregate

@@ -115,7 +115,7 @@
     "prior_score_produced": false,
     "reason_code": "persistent_intermittent_upstream_404_exhausted_short_retries_and_left_a_train_batch_without_usable_atif",
     "score_blind": true,
-    "transport_only_change": true
+    "transport_only_change": false
   },
   "claim_boundary": {
     "automatic_promotion": false,

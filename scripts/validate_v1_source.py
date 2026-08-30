@@ -430,7 +430,7 @@ if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed
     "prior_score_produced": False,
     "reason_code": "persistent_intermittent_upstream_404_exhausted_short_retries_and_left_a_train_batch_without_usable_atif",
     "score_blind": True,
-    "transport_only_change": True,
+    "transport_only_change": False,
 }:
     raise SystemExit("SEAGym pilot score-blind amendment changed")
 if protocol["runtime"]["mimocode"] != {

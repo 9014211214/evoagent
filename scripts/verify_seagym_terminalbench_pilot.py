@@ -534,6 +534,7 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     resources = protocol.get("resources")
     expected_budget_guard = {
         "accounting_scope": "entire_openrouter_key_between_before_and_after_checks",
+        "command_timeout_seconds": 13200,
         "poll_seconds": 10,
         "stop_threshold_usd": 0.9,
         "usage_check_failures_before_stop": 3,
@@ -543,10 +544,14 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         or resources.get("authorized_max_observed_key_usage_delta_usd") != 1.2
         or resources.get("budget_guard") != expected_budget_guard
         or resources.get("harbor_concurrency") != 1
+        or resources.get("mimocode_force_kill_grace_seconds") != 15
+        or resources.get("mimocode_sanitization_margin_seconds") != 120
+        or resources.get("non_full_pilot_workflow_reserve_seconds") != 5100
     ):
         raise VerificationError("protocol resource or budget guard drifted")
     if resources.get("lifecycle_canary") != {
         "budget_stop_threshold_usd": 0.15,
+        "command_timeout_seconds": 2400,
         "must_complete_before_full_pilot": True,
         "purpose": "integration_only_no_benchmark_score",
         "seed": 42,

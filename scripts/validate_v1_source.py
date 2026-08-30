@@ -627,12 +627,20 @@ if (
     raise SystemExit("SEAGym pilot Harbor resource identity changed")
 if protocol["resources"].get("lifecycle_canary") != {
     "budget_stop_threshold_usd": 0.15,
+    "command_timeout_seconds": 2400,
     "must_complete_before_full_pilot": True,
     "purpose": "integration_only_no_benchmark_score",
     "seed": 42,
     "task_id": "terminal-bench/fix-git",
 }:
     raise SystemExit("SEAGym lifecycle canary resource identity changed")
+if (
+    protocol["resources"].get("budget_guard", {}).get("command_timeout_seconds")
+    != 13200
+    or protocol["resources"].get("non_full_pilot_workflow_reserve_seconds")
+    != 5100
+):
+    raise SystemExit("SEAGym bounded workflow timing identity changed")
 baseline = pilot_config["baseline"]
 rollout = pilot_config["rollout_agent"]
 if baseline["class_path"] != "seagym_evoagent.baseline:EvoAgentSEAGymBaseline":

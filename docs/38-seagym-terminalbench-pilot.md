@@ -238,6 +238,12 @@ simultaneous requests so one trial can make its main and auxiliary model calls.
 Concurrency changes wall-clock scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
 
+The full pilot command is bounded to 13,200 seconds and the lifecycle gate to
+2,400 seconds. Together with the 600-second MiMo route canary, this reserves
+5,100 seconds of the GitHub job ceiling for checkout, installation, the Harbor
+oracle, usage capture, verification, cleanup, blocker generation, and artifact
+upload, so the job-level timeout should not pre-empt fail-closed reporting.
+
 The one-seed authorization has a USD 1.20 maximum observed key-usage delta.
 An independent guard polls OpenRouter's authenticated, cumulative key usage
 every 10 seconds and stops the process group at a USD 0.90 delta, leaving a

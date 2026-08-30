@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v3 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v5 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -104,34 +104,47 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v4, a score-blind amendment. Four pre-v2 controller attempts
-were infrastructure/preflight diagnostics. Four real v2 attempts and one real
-v3 attempt reached progressively deeper parts of the pinned external pipeline,
-but none completed the A_0/A_T comparison and none produced a score. The nine
-controller attempts had a cumulative observed key-usage delta of USD
-0.131973138 across their separately bounded observation windows.
+This is protocol v5, a score-blind amendment. Four pre-v2 controller attempts
+were infrastructure/preflight diagnostics. Four real v2 attempts, one real v3
+attempt, and one real v4 attempt reached progressively deeper parts of the
+pinned external pipeline, but none completed the A_0/A_T comparison and none
+produced a score. The ten controller attempts had a cumulative observed
+key-usage delta of USD 0.174437779 across their separately bounded observation
+windows.
 
-The latest diagnostic run `33265128690` forwarded and completed 102 requests,
-rejected none, and observed six intermittent upstream HTTP 404 responses on an
-otherwise preverified Xiaomi route. Its second train batch also included one
-legitimate SEAGym zero-score error trajectory without `result_path` or ATIF;
-the old adapter incorrectly aborted on that representation. Artifact
-`9718565501` is bound by the GitHub Actions artifact-ZIP SHA-256
-`25d933194a193b5b2c0a6f35049089c5dd7f70abeb9581600368ab9c960fe4ec`.
-The evidence contains no complete comparison or reportable effect score.
+The latest diagnostic run `33285475794`, against controller commit
+`9c25f473e8054bac76d7128f0ac025dd3e154080` and public EvoAgent commit
+`09018d7b4bdfcdc11f61f8c302c857d7f5dfd7f7`, forwarded and completed 100
+logical requests. Across 110 upstream attempts it observed 15 HTTP 404
+responses, made 10 byte-identical same-route retries, and ended with five final
+404 errors and zero proxy rejections. Route preflight had verified the exact
+Xiaomi endpoint. One train batch consequently contained no usable Harbor ATIF
+evidence, so the adapter correctly stopped instead of inventing evidence. The
+safe fixed phrase `train batch contains no usable Harbor ATIF evidence`
+occurred twice in downloaded job-log bytes whose SHA-256 is
+`546e3619370df2bd34758b74cb1b7e271c4158c06142197839943b4f1e23cbc1`.
+Artifact `9724445260` is bound by the GitHub Actions artifact-ZIP SHA-256
+`9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee`.
+That run used USD 0.042464641. The evidence contains no complete comparison or
+reportable effect score.
 
-Protocol v4 adds two bounded failure-handling corrections before any score was
-available. First, an errored zero-score trajectory may contribute to aggregate
-failure evidence without a fabricated ATIF, provided the batch contains at
-least one real valid ATIF; completed unsuccessful and successful trajectories
-still require ATIF. Second, HTTP 404 joins 408, 409, 425, 429, 500, 502, 503,
-504, 524, and 529 in the exact same-route retry set. The guard may retry the
-identical request at most twice after one and two seconds. The existing evidence
-does not expose private router metadata, so it does not claim a more specific
-404 cause. The model, Xiaomi-only provider endpoint, request body, Tool
-contract, no-fallback policy, 12 Tasks, split, order, budget, metrics, and
-interpretation rule remain unchanged. Ambiguous transport failures are not
-retried because the upstream may already have accepted the POST.
+Protocol v4 had already added two bounded failure-handling corrections before
+any score was available. First, an errored zero-score trajectory may contribute
+to aggregate failure evidence without a fabricated ATIF, provided the batch
+contains at least one real valid ATIF; completed unsuccessful and successful
+trajectories still require ATIF. Second, HTTP 404 joined 408, 409, 425, 429,
+500, 502, 503, 504, 524, and 529 in the exact same-route retry set.
+
+Protocol v5 responds only to the observed persistent 404 bursts: it serializes
+Harbor trials from two to one, limits the proxy to at most two simultaneous
+requests (one main and one auxiliary request), and expands retry delays to 5,
+10, 20, and 40 seconds, for at most four retries. Every retry preserves the
+request bytes, route, model, and provider. The existing evidence does not expose
+private router metadata, so it does not claim a more specific 404 cause. The
+Xiaomi-only endpoint, Tool contract, no-fallback policy, 12 Tasks, split, order,
+seed, budget, metrics, and interpretation rule remain unchanged. Ambiguous
+transport failures are not retried because the upstream may already have
+accepted the POST.
 
 The public protocol also pins guard-proxy source SHA-256
 `83afa0faf842ad91a72936da63b1b66b6c0d02f817520969dbe9fa68ac7c0804`,
@@ -160,16 +173,18 @@ proxy count.
 The expected host is a standard GitHub-hosted Ubuntu runner with four logical
 CPUs and 16 GiB memory. Each selected task declares one CPU, 2,048 MB memory,
 10,240 MB storage, and no GPU at the pinned Terminal-Bench commit. Harbor
-concurrency is two, with a 1,800-second Agent timeout, 600-second verifier
-timeout, and 355-minute workflow ceiling. Concurrency changes wall-clock
-scheduling only; it must not change task membership, batch boundaries, seed,
-model route, or comparison identity.
+concurrency is one, with a 1,800-second Agent timeout, 600-second verifier
+timeout, and 355-minute workflow ceiling. The proxy permits at most two
+simultaneous requests so one trial can make its main and auxiliary model calls.
+Concurrency changes wall-clock scheduling only; it must not change task
+membership, batch boundaries, seed, model route, or comparison identity.
 
 The one-seed authorization has a USD 1.20 maximum observed key-usage delta.
 An independent guard polls OpenRouter's authenticated, cumulative key usage
 every 10 seconds and stops the process group at a USD 0.90 delta, leaving a
-buffer for the two in-flight trials. Three consecutive usage-check failures
-also stop execution fail-closed. MiMoCode additionally binds each trial to the
+buffer for the single in-flight Harbor trial and any auxiliary request. Three
+consecutive usage-check failures also stop execution fail-closed. MiMoCode
+additionally binds each trial to the
 validated harness policy's bounded agent-step limit. The frozen baseline sets
 `fail_on_update_error=true`, so a failed update request stops the paid pilot
 instead of spending on later rollouts that cannot produce a verifiable update

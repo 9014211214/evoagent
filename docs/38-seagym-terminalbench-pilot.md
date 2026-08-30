@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v5 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v6 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -104,28 +104,29 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v5, a score-blind amendment. Four pre-v2 controller attempts
+This is protocol v6, a score-blind amendment. Four pre-v2 controller attempts
 were infrastructure/preflight diagnostics. Four real v2 attempts, one real v3
-attempt, and one real v4 attempt reached progressively deeper parts of the
-pinned external pipeline, but none completed the A_0/A_T comparison and none
-produced a score. The ten controller attempts had a cumulative observed
-key-usage delta of USD 0.174437779 across their separately bounded observation
-windows.
+attempt, one real v4 attempt, and one real v5 attempt reached progressively
+deeper parts of the pinned external pipeline, but none completed the A_0/A_T
+comparison and none produced a score. The eleven controller attempts had a
+cumulative observed key-usage delta of USD 0.217105791 across their separately
+bounded observation windows.
 
-The latest diagnostic run `33285475794`, against controller commit
-`9c25f473e8054bac76d7128f0ac025dd3e154080` and public EvoAgent commit
-`09018d7b4bdfcdc11f61f8c302c857d7f5dfd7f7`, forwarded and completed 100
-logical requests. Across 110 upstream attempts it observed 15 HTTP 404
-responses, made 10 byte-identical same-route retries, and ended with five final
-404 errors and zero proxy rejections. Route preflight had verified the exact
-Xiaomi endpoint. One train batch consequently contained no usable Harbor ATIF
-evidence, so the adapter correctly stopped instead of inventing evidence. The
-safe fixed phrase `train batch contains no usable Harbor ATIF evidence`
-occurred twice in downloaded job-log bytes whose SHA-256 is
-`546e3619370df2bd34758b74cb1b7e271c4158c06142197839943b4f1e23cbc1`.
-Artifact `9724445260` is bound by the GitHub Actions artifact-ZIP SHA-256
-`9b4d9465991ed5f9ef0bb5db5a3d56253751289917878b0a39a18f8e2359caee`.
-That run used USD 0.042464641. The evidence contains no complete comparison or
+The latest diagnostic run `33289924348`, against controller commit
+`8c2015febaabca2710e90805bb9ee95e0ec5a83c` and public EvoAgent commit
+`092ba665fd01450ee70446fe3f8e30cce4775c08`, forwarded and completed 106
+logical requests. Across 126 upstream attempts it observed 25 HTTP 404
+responses, made 20 retries of the same normalized outbound request on the same
+route, and ended with five final 404 errors and zero proxy rejections. Route
+preflight had verified the exact Xiaomi endpoint. One train batch consequently
+contained no usable Harbor ATIF evidence, so the adapter correctly stopped
+instead of inventing evidence. The safe fixed phrase
+`train batch contains no usable Harbor ATIF evidence` occurred twice in
+downloaded job-log bytes whose SHA-256 is
+`88034c6fd017f318cb51a35d5f8e3a2981bd79b9608dea71babae8f819daac1a`.
+Artifact `9725879182` is bound by the GitHub Actions artifact-ZIP SHA-256
+`d89cee0d82b57881d721179decf4bc06282adf6d77a511b3fd085469c0f3fa54`.
+That run used USD 0.042668012. The evidence contains no complete comparison or
 reportable effect score.
 
 Protocol v4 had already added two bounded failure-handling corrections before
@@ -135,22 +136,49 @@ contains at least one real valid ATIF; completed unsuccessful and successful
 trajectories still require ATIF. Second, HTTP 404 joined 408, 409, 425, 429,
 500, 502, 503, 504, 524, and 529 in the exact same-route retry set.
 
-Protocol v5 responds only to the observed persistent 404 bursts: it serializes
-Harbor trials from two to one, limits the proxy to at most two simultaneous
-requests (one main and one auxiliary request), and expands retry delays to 5,
+Protocol v5 responded only to the observed persistent 404 bursts: it serialized
+Harbor trials from two to one, limited the proxy to at most two simultaneous
+requests (one main and one auxiliary request), and expanded retry delays to 5,
 10, 20, and 40 seconds, for at most four retries. Every retry preserves the
-request bytes, route, model, and provider. The existing evidence does not expose
-private router metadata, so it does not claim a more specific 404 cause. The
-Xiaomi-only endpoint, Tool contract, no-fallback policy, 12 Tasks, split, order,
-seed, budget, metrics, and interpretation rule remain unchanged. Ambiguous
+normalized outbound request bytes, route, model, and provider. Ambiguous
 transport failures are not retried because the upstream may already have
 accepted the POST.
 
+After v5 failed and before any score existed, a bounded local capture of the
+frozen MiMoCode v0.1.13 runtime showed that its final text step sends non-empty
+local function `tools` together with `tool_choice: "none"`. The live OpenRouter
+parameter metadata for the only allowed `xiaomi/fp8` endpoint reported that
+`tool_choice: "none"` is unsupported. Together with the five logical requests
+that each exhausted all five same-route attempts, this is high-confidence
+diagnostic evidence for the 404 cause. It is not a benchmark result, and the
+compatibility correction has not yet been proven by a completed benchmark.
+
+Protocol v6 therefore applies one narrow action-authorization normalization: only an
+inbound request with non-empty validated local function tools and
+`tool_choice: "none"` loses both `tools` and `tool_choice` before forwarding.
+The inbound request disables Tool calls; the normalized outbound request has no
+Tool definitions. The proxy rejects an unexpected returned Tool call and makes
+the pilot incomplete instead of allowing it to execute. Retries remain
+byte-identical after this normalization. All other Tool choices remain
+unchanged. Removing the schemas can alter input Tokens, cache behavior, model
+conditioning, and the final-text distribution, so v6 claims preservation of
+the no-Tool action boundary rather than request-semantic equivalence. Its
+benchmark effect remains unproven. The model, Xiaomi endpoint, no-fallback policy, 12 Tasks, split,
+order, seed, budget, metrics, interpretation rule, and config bytes remain
+unchanged; the config SHA-256 remains
+`28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195`.
+No Task score or partial effect was inspected to select this amendment, and
+`benchmark_effect_claimed` remains false until a complete frozen run verifies it.
+
 The public protocol also pins guard-proxy source SHA-256
-`83afa0faf842ad91a72936da63b1b66b6c0d02f817520969dbe9fa68ac7c0804`,
-health schema v3, and all request, response, concurrency, token and timeout
-limits. A completed result is accepted only if its safe runtime health evidence
-matches that identity and proves the logical-request, attempt and retry counts.
+`14d9d96579cc70acb8a6bea9ef807a41648440052d3c19c9ac507505e9f7a754`, health schema v4, and all request, response,
+concurrency, token and timeout limits. Schema v4 adds only fixed aggregate
+counters for inbound/outbound Tool-choice profiles, final upstream errors by
+outbound Tool-choice profile, and the `tool_choice_none_to_no_tools`
+normalization. It records no request body, prompt, Tool definition, dynamic
+identifier, or request hash. A completed result is accepted only if its safe
+runtime health evidence matches that identity and proves the logical-request,
+attempt, retry, profile, and normalization counts.
 The controller repository remains private, so the digest binds the reviewed
 implementation used by this pilot but does not make that implementation
 publicly inspectable. This is an explicit controller trust boundary, not a

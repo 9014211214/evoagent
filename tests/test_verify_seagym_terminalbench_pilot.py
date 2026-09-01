@@ -171,7 +171,10 @@ def _atif(snapshot: dict[str, object]) -> dict[str, object]:
 
 
 def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, object]) -> tuple[Path, str]:
-    trial = run / "harbor" / "jobs" / f"job-{index:02d}" / f"trial-{index:02d}"
+    job_dir = run / "harbor" / "jobs" / f"job-{index:02d}"
+    job_id = f"00000000-0000-0000-0000-{index:012d}"
+    trial_id = f"10000000-0000-0000-0000-{index:012d}"
+    trial = job_dir / f"trial-{index:02d}"
     agent = trial / "agent"
     trajectory = _atif(snapshot)
     _write_json(agent / "trajectory.json", trajectory)
@@ -215,16 +218,36 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
     }
     _write_json(agent / "evoagent-attestation.json", {**unsigned, "attestation_sha256": _canonical_sha(unsigned)})
     checksum = hashlib.sha256(task_id.encode()).hexdigest()
+    task_name = task_id.rsplit("/", 1)[-1]
+    patched_job_dir = run / "harbor" / "jobs" / "_patched_tasksets" / job_dir.name
+    patched_task_dir = patched_job_dir / task_name
+    patched_task_dir.mkdir(parents=True, exist_ok=True)
+    task_path = patched_task_dir.resolve().as_posix()
+    trial_name = f"trial-{index:02d}"
+    source = job_dir.name
+    eval_key = f"evoagent-mimo__xiaomi/mimo-v2.5__{source}"
     result = {
-        "task_name": task_id.rsplit("/", 1)[-1],
-        "trial_name": f"trial-{index:02d}",
+        "id": trial_id,
+        "task_name": task_name,
+        "trial_name": trial_name,
         "trial_uri": trial.as_uri(),
+        "task_id": {"path": task_path},
         "task_checksum": checksum,
-        "source": "local",
+        "source": source,
         "config": {
-            "job_id": f"job-{index:02d}",
+            "task": {"path": task_path},
+            "trial_name": trial_name,
+            "trials_dir": job_dir.resolve().as_posix(),
+            "install_only": False,
+            "timeout_multiplier": 1.0,
+            "agent_timeout_multiplier": None,
+            "verifier_timeout_multiplier": None,
+            "agent_setup_timeout_multiplier": None,
+            "environment_build_timeout_multiplier": None,
+            "job_id": job_id,
             "agent": {
-                "name": "evoagent-mimo",
+                "import_path": "seagym_evoagent.harbor_agent:EvoAgentMiMo",
+                "model_name": "openrouter/xiaomi/mimo-v2.5",
                 "kwargs": {
                     "route_contract": {
                         "provider": {
@@ -236,20 +259,99 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
                     }
                 },
             },
+            "environment": {},
+            "verifier": {},
+            "artifacts": [],
+            "extra_instruction_paths": [],
+        },
+        "agent_info": {
+            "name": "evoagent-mimo",
+            "version": "0.1.0",
+            "model_info": {"name": "xiaomi/mimo-v2.5", "provider": "openrouter"},
         },
         "agent_result": {
             "n_input_tokens": 10,
             "n_cache_tokens": 1,
             "n_output_tokens": 2,
             "cost_usd": 0.001,
+            "rollout_details": None,
             "metadata": {"attestation_sha256": _canonical_sha(unsigned)},
         },
         "verifier_result": {"rewards": {"reward": float(score)}},
         "exception_info": None,
         "started_at": "2026-08-29T00:00:00Z",
         "finished_at": "2026-08-29T00:00:01Z",
+        "environment_setup": {
+            "started_at": "2026-08-29T00:00:00Z",
+            "finished_at": "2026-08-29T00:00:01Z",
+        },
+        "agent_setup": {
+            "started_at": "2026-08-29T00:00:00Z",
+            "finished_at": "2026-08-29T00:00:01Z",
+        },
+        "agent_execution": {
+            "started_at": "2026-08-29T00:00:00Z",
+            "finished_at": "2026-08-29T00:00:01Z",
+        },
+        "verifier": {
+            "started_at": "2026-08-29T00:00:00Z",
+            "finished_at": "2026-08-29T00:00:01Z",
+        },
+        "step_results": None,
     }
+    _write_json(trial / "config.json", result["config"])
     _write_json(trial / "result.json", result)
+    _write_json(
+        job_dir / "config.json",
+        {
+            "job_name": job_dir.name,
+            "jobs_dir": (run / "harbor" / "jobs").resolve().as_posix(),
+            "n_attempts": 1,
+            "n_concurrent_trials": 1,
+            "retry": {"max_retries": 0},
+            "tasks": [],
+            "datasets": [
+                {
+                    "path": patched_job_dir.resolve().as_posix(),
+                    "task_names": [task_name],
+                    "n_tasks": 1,
+                }
+            ],
+            "agents": [result["config"]["agent"]],
+        },
+    )
+    _write_json(
+        job_dir / "result.json",
+        {
+            "finished_at": "2026-08-29T00:00:01Z",
+            "id": job_id,
+            "n_total_trials": 1,
+            "started_at": "2026-08-29T00:00:00Z",
+            "stats": {
+                "cost_usd": 0.001,
+                "evals": {
+                    eval_key: {
+                        "exception_stats": {},
+                        "metrics": [{"mean": float(score)}],
+                        "n_errors": 0,
+                        "n_trials": 1,
+                        "pass_at_k": {},
+                        "reward_stats": {"reward": {str(float(score)): [trial_name]}},
+                    }
+                },
+                "n_cache_tokens": 1,
+                "n_cancelled_trials": 0,
+                "n_completed_trials": 1,
+                "n_errored_trials": 0,
+                "n_input_tokens": 10,
+                "n_output_tokens": 2,
+                "n_pending_trials": 0,
+                "n_retries": 0,
+                "n_running_trials": 0,
+            },
+            "updated_at": "2026-08-29T00:00:01Z",
+        },
+    )
     return trial / "result.json", checksum
 
 
@@ -289,11 +391,30 @@ def _replace_trial_with_receipted_runtime_failure(
         "n_cache_tokens": 0,
         "n_output_tokens": 0,
         "cost_usd": 0.0,
+        "rollout_details": None,
         "metadata": {"runtime_failure": True},
     }
     payload["verifier_result"] = {"rewards": {"reward": 0.0}}
-    payload["exception_info"] = {"type": "RuntimeFailure", "message": "classified_failure"}
+    payload["exception_info"] = {
+        "exception_type": "RuntimeFailure",
+        "exception_message": "classified_failure",
+        "exception_traceback": "",
+        "occurred_at": "2026-08-29T00:00:01Z",
+    }
     _write_json(result_path, payload)
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_errored_trials"] = 1
+    aggregate["stats"]["n_input_tokens"] = 0
+    aggregate["stats"]["n_cache_tokens"] = 0
+    aggregate["stats"]["n_output_tokens"] = 0
+    aggregate["stats"]["cost_usd"] = 0.0
+    eval_stats = next(iter(aggregate["stats"]["evals"].values()))
+    eval_stats["n_errors"] = 1
+    eval_stats["metrics"] = [{"mean": 0.0}]
+    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["exception_stats"] = {"RuntimeFailure": [payload["trial_name"]]}
+    _write_json(aggregate_path, aggregate)
 
 
 def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
@@ -334,8 +455,22 @@ def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
     _write_json(attestation_path, attestation)
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["verifier_result"] = {"rewards": {"reward": 0.0}}
-    payload["exception_info"] = {"type": "RuntimeFailure", "message": "classified_failure"}
+    payload["exception_info"] = {
+        "exception_type": "RuntimeFailure",
+        "exception_message": "classified_failure",
+        "exception_traceback": "",
+        "occurred_at": "2026-08-29T00:00:01Z",
+    }
     _write_json(result_path, payload)
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_errored_trials"] = 1
+    eval_stats = next(iter(aggregate["stats"]["evals"].values()))
+    eval_stats["n_errors"] = 1
+    eval_stats["metrics"] = [{"mean": 0.0}]
+    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["exception_stats"] = {"RuntimeFailure": [payload["trial_name"]]}
+    _write_json(aggregate_path, aggregate)
     row["error"] = "mimocode_process_failed"
     row["rewards"] = {"reward": 0.0}
     row["score"] = 0.0
@@ -435,10 +570,10 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
         ("train", "train", None, 1, split["train"][:3], [1, 0, 1], a0),
         ("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1),
         ("train", "train", None, 2, split["train"][3:], [0, 0, 0] if skip_second_update else [0, 1, 1], e1),
-        ("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], final_candidate),
         ("validation", "update_validation", None, 2, split["val"], [1, 1, 0], final_candidate),
+        ("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], final_candidate),
         ("final", "id_test", "A_T", 2, split["test"], [1, 0, 1], final_candidate),
-        ("final", "id_test", "A_0", 2, split["test"], [0, 0, 1], a0),
+        ("final_baseline", "id_test", "A_0", 2, split["test"], [0, 0, 1], a0),
     ]
     task_domains = {
         item["task_id"]: item["attributes"]["domain"]
@@ -453,10 +588,19 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
             if runtime_failure:
                 _replace_trial_with_receipted_runtime_failure(result_path, snapshot)
             point = "E_T" if role else ("E_0" if mode == "validation" and batch == 0 else f"E_{batch}" if mode in {"validation", "replay"} else None)
+            checkpoint_id = (
+                "final"
+                if role == "A_T"
+                else "initial"
+                if role == "A_0"
+                else f"E_{batch}"
+                if mode == "replay"
+                else None
+            )
             _append_jsonl(
                 run / "records" / "task_results.jsonl",
                 {
-                    "agent_checkpoint_id": role,
+                    "agent_checkpoint_id": checkpoint_id,
                     "agent_id": "evoagent",
                     "attributes": {"domain": task_domains[task_id]},
                     "baseline_role": role,
@@ -472,7 +616,12 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
                     "mode": mode,
                     "num_train_tasks_seen": batch * 3,
                     "num_updates_per_batch": 1 if mode == "train" else None,
-                    "refs": {"result_path": str(result_path), "task_checksum": checksum},
+                    "refs": {
+                        "harbor_returncode": 0,
+                        "job_dir": str(result_path.parent.parent),
+                        "result_path": str(result_path),
+                        "task_checksum": checksum,
+                    },
                     "rewards": {"reward": float(score)},
                     "run_id": plan["run_id"],
                     "runtime_seconds": 1.0,
@@ -894,6 +1043,268 @@ def test_rejects_incomplete_task_evidence(tmp_path: Path) -> None:
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
+def test_rejects_frozen_execution_block_swap(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    rows[0:6] = rows[3:6] + rows[0:3]
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="global frozen 24-slot execution order drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_pending_single_task_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_completed_trials"] = 0
+    aggregate["stats"]["n_pending_trials"] = 1
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="aggregate is incomplete"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_unreferenced_partial_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    partial = run / "harbor" / "jobs" / "job-25-partial"
+    _write_json(
+        partial / "config.json",
+        {
+            "job_name": partial.name,
+            "jobs_dir": partial.parent.resolve().as_posix(),
+            "n_attempts": 1,
+            "n_concurrent_trials": 1,
+            "retry": {"max_retries": 0},
+            "tasks": [{"path": "/tmp/fix-git"}],
+            "datasets": [],
+            "agents": [{}],
+        },
+    )
+
+    with pytest.raises(VerificationError, match="job inventory differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_unreferenced_partial_trial_in_referenced_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    _write_json(
+        run / "harbor" / "jobs" / "job-01" / "partial-trial" / "config.json",
+        {"trial_name": "partial-trial"},
+    )
+
+    with pytest.raises(VerificationError, match="exactly one child result/trial directory"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_missing_patched_taskset_support_tree(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    shutil.rmtree(run / "harbor" / "jobs" / "_patched_tasksets")
+
+    with pytest.raises(VerificationError, match="patched task path is missing"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_child_source_outside_its_patched_dataset(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["source"] = "local"
+    _write_json(child_path, child)
+
+    with pytest.raises(VerificationError, match="path/source is not bound"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_child_path_outside_its_patched_dataset(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    alternate_task = run / "alternate" / child["task_name"]
+    alternate_task.mkdir(parents=True)
+    child["task_id"]["path"] = alternate_task.resolve().as_posix()
+    child["config"]["task"]["path"] = alternate_task.resolve().as_posix()
+    _write_json(child_path, child)
+    _write_json(child_path.with_name("config.json"), child["config"])
+
+    with pytest.raises(VerificationError, match="path/source is not bound"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_direct_task_job_config_instead_of_patched_dataset(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    job_config_path = run / "harbor" / "jobs" / "job-01" / "config.json"
+    job_config = json.loads(job_config_path.read_text(encoding="utf-8"))
+    task_path = (
+        run
+        / "harbor"
+        / "jobs"
+        / "_patched_tasksets"
+        / "job-01"
+        / "cancel-async-tasks"
+    ).resolve().as_posix()
+    job_config["tasks"] = [{"path": task_path}]
+    job_config["datasets"] = []
+    _write_json(job_config_path, job_config)
+
+    with pytest.raises(VerificationError, match="exactly one patched dataset"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_job_agent_identity_drift_from_child(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    job_config_path = run / "harbor" / "jobs" / "job-01" / "config.json"
+    job_config = json.loads(job_config_path.read_text(encoding="utf-8"))
+    job_config["agents"][0]["model_name"] = "openrouter/another/model"
+    _write_json(job_config_path, job_config)
+
+    with pytest.raises(VerificationError, match="AgentConfig differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_nonzero_single_task_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["refs"]["harbor_returncode"] = 1
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="did not exit successfully"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_reused_single_task_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    rows[1]["refs"]["result_path"] = rows[0]["refs"]["result_path"]
+    rows[1]["refs"]["job_dir"] = rows[0]["refs"]["job_dir"]
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="child result was reused"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_extra_child_result_in_single_task_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    source = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    extra = run / "harbor" / "jobs" / "job-01" / "unreferenced-trial" / "result.json"
+    extra.parent.mkdir(parents=True)
+    shutil.copyfile(source, extra)
+
+    with pytest.raises(VerificationError, match="exactly one child result"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_incomplete_harbor_job_aggregate_schema(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate.pop("n_total_trials")
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="aggregate schema drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_child_result_with_different_harbor_job_id(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["config"]["job_id"] = "00000000-0000-0000-0000-999999999999"
+    _write_json(child_path, child)
+    _write_json(child_path.with_name("config.json"), child["config"])
+
+    with pytest.raises(VerificationError, match="not bound to its aggregate job"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_placeholder_shaped_harbor_child_result(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child.pop("id")
+    _write_json(child_path, child)
+
+    with pytest.raises(VerificationError, match="TrialResult schema drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_harbor_child_agent_info_drift(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["agent_info"]["name"] = "placeholder"
+    _write_json(child_path, child)
+
+    with pytest.raises(VerificationError, match="AgentInfo drifted"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_harbor_aggregate_usage_drift(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_input_tokens"] = 999999
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="token usage differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_harbor_aggregate_eval_placeholder(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["evals"] = {}
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="eval identity differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_non_iso_harbor_aggregate_timestamp(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["finished_at"] = "not-a-timestamp"
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="ISO-8601 timestamp"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_unreferenced_complete_harbor_job(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    source = run / "harbor" / "jobs" / "job-01"
+    extra = run / "harbor" / "jobs" / "job-25-unreferenced"
+    shutil.copytree(source, extra)
+    extra_job_id = "00000000-0000-0000-0000-999999999998"
+
+    aggregate_path = extra / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["id"] = extra_job_id
+    _write_json(aggregate_path, aggregate)
+
+    child_path = extra / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["config"]["job_id"] = extra_job_id
+    _write_json(child_path, child)
+
+    with pytest.raises(VerificationError, match="job inventory differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
 def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path)
     usage = json.loads(after.read_text(encoding="utf-8"))
@@ -902,6 +1313,25 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
 
     with pytest.raises(VerificationError, match="authorized USD 1.20 maximum"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_v9_attempt_ledger_includes_both_hosted_v8_runs() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v8"]
+    intervening = amendment["intervening_non_scoreable_runs"]
+
+    assert [item["run_id"] for item in intervening] == [33508167549]
+    assert amendment["diagnostic"]["run_id"] == 33517129366
+    assert amendment["prior_controller_attempts_total"] == (
+        prior["prior_controller_attempts_total"] + len(intervening) + 1
+    )
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + sum(item["observed_key_usage_delta_usd"] for item in intervening)
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
 
 
 @pytest.mark.parametrize(
@@ -944,13 +1374,13 @@ def test_rejects_score_blind_v8_auxiliary_call_policy_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-    protocol["amendment"]["generated_runtime_config_change"][
+    protocol["prior_amendment_v8"]["generated_runtime_config_change"][
         "title_agent_enabled"
     ] = True
     path = tmp_path / "protocol.json"
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
-    with pytest.raises(VerificationError, match="score-blind protocol amendment drifted"):
+    with pytest.raises(VerificationError, match="preserved v8 protocol amendment drifted"):
         pilot_verifier._validate_protocol(path)
 
 

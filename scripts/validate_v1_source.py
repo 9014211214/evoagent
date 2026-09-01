@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from evoagent.lab import DEFAULT_THIRD_PARTY_LOCK_HASH
+import verify_seagym_terminalbench_pilot as pilot_verifier
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -258,7 +259,7 @@ protocol = json.loads(
 expected_pilot_artifacts = {
     "config": (
         "experiments/seagym_terminalbench/configs/evoagent_mimo_v2_5_seed42.json",
-        "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
+        "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
     ),
     "task_index": (
         "experiments/seagym_terminalbench/tasks/task_index.json",
@@ -272,6 +273,10 @@ expected_pilot_artifacts = {
         "experiments/seagym_terminalbench/patches/seagym-token-count-redaction.patch",
         "0c5302339bdcbeec076796b38f6ffd81803ce7f40cec1922c410294e8472018c",
     ),
+    "seagym_job_isolation_patch": (
+        "experiments/seagym_terminalbench/patches/seagym-one-task-per-harbor-job.patch",
+        "3e72ac2e9d2979d6a595a9ebc8fc5135c036e52e0bfe7f31db43d5be2a93f02f",
+    ),
 }
 for artifact_name, (artifact_path, expected_sha256) in (
     expected_pilot_artifacts.items()
@@ -282,6 +287,36 @@ for artifact_name, (artifact_path, expected_sha256) in (
     actual_sha256 = hashlib.sha256(require_file(artifact_path).read_bytes()).hexdigest()
     if actual_sha256 != expected_sha256:
         raise SystemExit(f"SEAGym pilot {artifact_name} bytes changed")
+if protocol["artifacts"]["seagym_redaction_patch"] != {
+    "path": "experiments/seagym_terminalbench/patches/seagym-token-count-redaction.patch",
+    "sha256": "0c5302339bdcbeec076796b38f6ffd81803ce7f40cec1922c410294e8472018c",
+    "target_blob_sha": "daa4fe84a28c63b68aaaffa6318e82a54b7be2df",
+    "target_path": "seagym/logging/redaction.py",
+}:
+    raise SystemExit("SEAGym redaction patch target lock changed")
+if protocol["artifacts"]["seagym_job_isolation_patch"]["targets"] != [
+    {
+        "blob_sha": "a63073693ae1d39da914f251518e68615991916c",
+        "path": "seagym/envs/harbor_env/env.py",
+    },
+    {
+        "blob_sha": "2edf535f3d06210f35002ca27f883175bb547a6f",
+        "path": "seagym/trainers/builder.py",
+    },
+    {
+        "blob_sha": "7f5743412a8a4c60fe723ccc9eba6c05c8b2658b",
+        "path": "tests/test_harbor_results.py",
+    },
+    {
+        "blob_sha": "0a75953a67c0f34237005c0fa35632dbbf45ced8",
+        "path": "tests/test_trainer_reports.py",
+    },
+]:
+    raise SystemExit("SEAGym one-task Harbor patch target locks changed")
+try:
+    pilot_verifier._validate_protocol(pilot_root / "protocol.json")
+except pilot_verifier.VerificationError as exc:
+    raise SystemExit(f"SEAGym pilot verifier preflight failed: {exc}") from exc
 expected_third_party_lock_file_sha256 = (
     "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
 )
@@ -339,76 +374,13 @@ if model_route != {
     "update_model_seed_parameter_sent": False,
 }:
     raise SystemExit("SEAGym pilot model route changed")
-if protocol.get("protocol_id") != "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8" or protocol.get(
-    "amendment"
-) != {
-    "amended_at": "2026-08-30T10:04:18Z",
-    "benchmark_effect_claimed": False,
-    "change": "isolate_mimocode_root_session_model_call_surface",
-    "diagnostic": {
-        "artifact_id": 9730177730,
-        "artifact_zip_sha256": "819d535de948bc3a8d2ecda62af647901d4fa4f82b309ac130a250930126b0bb",
-        "controller_commit": "cc54328af922aed15093687f654383c2cf88f5e5",
-        "evoagent_public_commit": "25ee0721f7d206b6168a6d7d642bebb1700d9b41",
-        "job_id": 99239368341,
-        "job_log_sha256": "217028db03c83c93e90577aceea539825babeea93a18deb5c0ea28def13f7051",
-        "lifecycle_budget_guard_delta_usd": 0.004855739,
-        "observed_key_usage_delta_usd": 0.005334952,
-        "proxy": {
-            "completed_requests": 12,
-            "forwarded_requests": 12,
-            "inbound_tool_choice_absent": 1,
-            "inbound_tool_choice_auto": 11,
-            "rejected_requests": 0,
-            "upstream_attempts": 12,
-            "upstream_errors": 0,
-            "upstream_retries": 0,
-        },
-        "run_id": 33304816856,
-        "score_produced": False,
-        "status": "invalid_evidence",
-    },
-    "evidence_boundary": {
-        "exact_atif_model_call_count_available": False,
-        "inference": "one_unattested_auxiliary_title_request",
-        "inference_confidence": "high",
-        "raw_event_or_response_content_persisted": False,
-        "support": "one_absent_tool_choice_request_plus_eleven_auto_requests_and_mimocode_v0.1.13_title_source_contract",
-    },
-    "frozen_scientific_identity": {
-        "budgets_changed": False,
-        "metrics_changed": False,
-        "model_or_provider_changed": False,
-        "seagym_config_sha256": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
-        "seed_or_order_changed": False,
-        "tasks_or_split_changed": False,
-    },
-    "generated_runtime_config_change": {
-        "actor_subsessions_enabled": False,
-        "automatic_checkpoint_enabled": False,
-        "automatic_cron_enabled": False,
-        "automatic_distill_enabled": False,
-        "automatic_dream_enabled": False,
-        "disposable_home_bound": True,
-        "fixed_session_title": "evoagent-seagym-trial",
-        "inherited_config_overlay_cleared": True,
-        "mcp_sampling_enabled": False,
-        "next_prompt_prediction_enabled": False,
-        "proxy_session_affinity_required": True,
-        "proxy_to_atif_model_call_equality_required": True,
-        "pure_mode_enabled": True,
-        "root_compaction_enabled": True,
-        "small_model_route_changed": False,
-        "task_scoped_rollout_requests_only": True,
-        "title_agent_enabled": False,
-    },
-    "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 13,
-    "prior_observed_usage_delta_usd": 0.272736272,
-    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v7",
-    "score_blind": True,
-}:
-    raise SystemExit("SEAGym pilot score-blind v8 amendment changed")
+if (
+    protocol.get("protocol_id") != pilot_verifier.EXPECTED_PROTOCOL_ID
+    or protocol.get("amendment") != pilot_verifier.EXPECTED_AMENDMENT
+):
+    raise SystemExit("SEAGym pilot score-blind v9 amendment changed")
+if protocol.get("prior_amendment_v8") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V8:
+    raise SystemExit("SEAGym pilot preserved v8 amendment changed")
 if protocol.get("prior_amendment_v7") != {
     "adapter_evidence_change": "accept_only_bounded_numeric_reasoning_token_usage_telemetry_while_rejecting_reasoning_content_and_require_hash_bound_failure_receipts_for_errored_trials",
     "amended_at": "2026-08-30T06:39:29Z",
@@ -750,6 +722,7 @@ if pilot_config["schedule"] != {
 if (
     pilot_config["backend"]["env"] != "docker"
     or pilot_config["backend"]["n_concurrent"] != 1
+    or pilot_config["backend"].get("one_task_per_harbor_job") is not True
     or protocol["resources"]["harbor_concurrency"] != 1
     or protocol["resources"].get("mimocode_force_kill_grace_seconds") != 15
     or protocol["resources"].get("mimocode_route_canary_timeout_seconds") != 600
@@ -758,6 +731,13 @@ if (
     or pilot_config["backend"]["verifier_override_timeout_sec"] != 600
 ):
     raise SystemExit("SEAGym pilot Harbor resource identity changed")
+if protocol["resources"].get("harbor_job_isolation") != {
+    "expected_unique_jobs": 24,
+    "one_task_per_job": True,
+    "retries": 0,
+    "synthetic_failure_receipts": False,
+}:
+    raise SystemExit("SEAGym pilot Harbor job-isolation contract changed")
 if protocol["resources"].get("lifecycle_canary") != {
     "budget_stop_threshold_usd": 0.15,
     "command_timeout_seconds": 2400,

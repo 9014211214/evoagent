@@ -5,6 +5,7 @@
     "extra_args": [],
     "n_concurrent": 1,
     "name": "harbor",
+    "one_task_per_harbor_job": true,
     "verifier_override_timeout_sec": 600,
     "yes": true
   },

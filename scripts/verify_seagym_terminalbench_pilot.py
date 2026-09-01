@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -20,6 +21,7 @@ from pathlib import Path
 import re
 import tempfile
 from typing import Any, Iterable
+from uuid import UUID
 
 
 FORMAT_VERSION = "evoagent-seagym-terminalbench-result-v1"
@@ -42,8 +44,139 @@ EXPECTED_MODEL_HARBOR = "openrouter/xiaomi/mimo-v2.5"
 EXPECTED_CANONICAL_MODEL = "xiaomi/mimo-v2.5-20260422"
 EXPECTED_PROVIDER = "Xiaomi"
 EXPECTED_ENDPOINT = "xiaomi/fp8"
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8"
+EXPECTED_HARBOR_AGENT_INFO = {
+    "name": "evoagent-mimo",
+    "version": "0.1.0",
+    "model_info": {"name": "xiaomi/mimo-v2.5", "provider": "openrouter"},
+}
+EXPECTED_TRIAL_RESULT_KEYS = {
+    "id",
+    "task_name",
+    "trial_name",
+    "trial_uri",
+    "task_id",
+    "source",
+    "task_checksum",
+    "config",
+    "agent_info",
+    "agent_result",
+    "verifier_result",
+    "exception_info",
+    "started_at",
+    "finished_at",
+    "environment_setup",
+    "agent_setup",
+    "agent_execution",
+    "verifier",
+    "step_results",
+}
+EXPECTED_TRIAL_CONFIG_KEYS = {
+    "task",
+    "trial_name",
+    "trials_dir",
+    "install_only",
+    "timeout_multiplier",
+    "agent_timeout_multiplier",
+    "verifier_timeout_multiplier",
+    "agent_setup_timeout_multiplier",
+    "environment_build_timeout_multiplier",
+    "agent",
+    "environment",
+    "verifier",
+    "artifacts",
+    "extra_instruction_paths",
+    "job_id",
+}
+EXPECTED_AGENT_CONTEXT_KEYS = {
+    "n_input_tokens",
+    "n_cache_tokens",
+    "n_output_tokens",
+    "cost_usd",
+    "rollout_details",
+    "metadata",
+}
+EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
+HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v9"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-01T14:42:59Z",
+    "benchmark_effect_claimed": False,
+    "change": "isolate_each_planned_task_in_one_harbor_job",
+    "diagnostic": {
+        "artifact_id": 9804763525,
+        "artifact_zip_sha256": "4eeef84ae962913fdf91e842cba5b7282a933cf17f55fc9ef663bc05e6c8c756",
+        "controller_commit": "82f6ecc7f80961364d8ff6a233d344568b9a372b",
+        "evoagent_public_commit": "030179e57b012afa3d96623ee874292bc7128f2e",
+        "full_pilot_started": True,
+        "harbor_partial_jobs": [
+            {
+                "completed": 2,
+                "pending": 1,
+                "returncode": 1,
+                "trial_results": 2,
+                "view": "replay",
+            },
+            {
+                "completed": 1,
+                "pending": 2,
+                "returncode": 1,
+                "trial_results": 1,
+                "view": "train",
+            },
+        ],
+        "job_id": 99886869291,
+        "job_log_sha256": "933de87050003f8b0922408a1d55525164fec2e6eff0be9f2a3a2c19d2165e2d",
+        "lifecycle_passed": True,
+        "observed_key_usage_delta_usd": 0.028482794,
+        "proxy": {
+            "completed_requests": 87,
+            "forwarded_requests": 87,
+            "rejected_requests": 0,
+            "root_sessions_observed": 9,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+        },
+        "run_id": 33517129366,
+        "score_produced": False,
+        "status": "incomplete_harbor_orchestration",
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "logical_batch_size_changed": False,
+        "one_task_per_harbor_job": True,
+        "planned_slot_replacement_allowed": False,
+        "preserve_task_order": True,
+        "receipt_synthesis_allowed": False,
+        "task_attempts_changed": False,
+        "update_schedule_changed": False,
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "28f4c9078b36c78abdb72e31014629f47943f1bee1c2f94168004d62d8b0b195",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "incomplete_evidence_policy": {
+        "missing_real_child_result_is_model_failure": False,
+        "missing_real_child_result_is_scoreable": False,
+        "missing_real_child_result_may_update_agent": False,
+        "required_complete_unique_single_task_jobs": 24,
+    },
+    "leaf_cause_status": {
+        "source_supported_mechanism": "an_unhandled_per_trial_or_finalization_hook_exception_can_escape_harbor_taskgroup_and_cancel_pending_siblings; this matches but does not identify the observed leaf trigger",
+        "raw_harbor_error_content_persisted": False,
+        "triggering_exception_stage_or_type_confirmed": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 14,
+    "prior_observed_usage_delta_usd": 0.301219066,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8",
+    "score_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V8 = {
     "amended_at": "2026-08-30T10:04:18Z",
     "benchmark_effect_claimed": False,
     "change": "isolate_mimocode_root_session_model_call_surface",
@@ -609,6 +742,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v8") != EXPECTED_PRIOR_AMENDMENT_V8:
+        raise VerificationError("preserved v8 protocol amendment drifted")
     if protocol.get("prior_amendment_v7") != EXPECTED_PRIOR_AMENDMENT_V7:
         raise VerificationError("preserved v7 protocol amendment drifted")
     repo_root = _repo_root(protocol_path)
@@ -646,6 +781,13 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         or resources.get("authorized_max_observed_key_usage_delta_usd") != 1.2
         or resources.get("budget_guard") != expected_budget_guard
         or resources.get("harbor_concurrency") != 1
+        or resources.get("harbor_job_isolation")
+        != {
+            "expected_unique_jobs": 24,
+            "one_task_per_job": True,
+            "retries": 0,
+            "synthetic_failure_receipts": False,
+        }
         or resources.get("mimocode_force_kill_grace_seconds") != 15
         or resources.get("mimocode_route_canary_timeout_seconds") != 600
         or resources.get("mimocode_sanitization_margin_seconds") != 120
@@ -746,13 +888,39 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
     artifacts = protocol.get("artifacts")
     if not isinstance(artifacts, dict):
         raise VerificationError("protocol artifact lock is missing")
-    for name in ("config", "split", "task_index", "seagym_redaction_patch"):
+    for name in (
+        "config",
+        "split",
+        "task_index",
+        "seagym_redaction_patch",
+        "seagym_job_isolation_patch",
+    ):
         item = artifacts.get(name)
         if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not HEX64.fullmatch(str(item.get("sha256", ""))):
             raise VerificationError(f"invalid protocol artifact lock: {name}")
         actual = _sha256(_regular_file(repo_root / item["path"], root=repo_root))
         if actual != item["sha256"]:
             raise VerificationError(f"protocol artifact hash mismatch: {name}")
+    isolation_patch = artifacts["seagym_job_isolation_patch"]
+    if isolation_patch.get("targets") != [
+        {
+            "blob_sha": "a63073693ae1d39da914f251518e68615991916c",
+            "path": "seagym/envs/harbor_env/env.py",
+        },
+        {
+            "blob_sha": "2edf535f3d06210f35002ca27f883175bb547a6f",
+            "path": "seagym/trainers/builder.py",
+        },
+        {
+            "blob_sha": "7f5743412a8a4c60fe723ccc9eba6c05c8b2658b",
+            "path": "tests/test_harbor_results.py",
+        },
+        {
+            "blob_sha": "0a75953a67c0f34237005c0fa35632dbbf45ced8",
+            "path": "tests/test_trainer_reports.py",
+        },
+    ]:
+        raise VerificationError("SEAGym job-isolation patch target lock drifted")
     lock_hash = artifacts.get("third_party_lock_sha256")
     if not isinstance(lock_hash, str) or _sha256_git_text(repo_root / "THIRD_PARTY_LOCK.json") != lock_hash:
         raise VerificationError("THIRD_PARTY_LOCK hash mismatch")
@@ -776,6 +944,7 @@ def _validate_frozen_inputs(protocol: dict[str, Any], repo_root: Path, run_dir: 
     if (
         not isinstance(backend_config, dict)
         or backend_config.get("n_concurrent") != 1
+        or backend_config.get("one_task_per_harbor_job") is not True
         or backend_config.get("n_concurrent")
         != protocol["resources"]["harbor_concurrency"]
     ):
@@ -1024,6 +1193,192 @@ def _trial_payload(row: dict[str, Any], run_dir: Path) -> tuple[dict[str, Any], 
     # deleted inside the task container and the ATIF is checked separately.
     _reject_nonempty_reasoning(payload.get("agent_result"))
     return payload, result_path
+
+
+def _validate_harbor_timing(value: Any, label: str, *, required: bool) -> None:
+    if value is None:
+        if required:
+            raise VerificationError(f"completed Harbor trial lacks {label} timing")
+        return
+    if not isinstance(value, dict) or set(value) != EXPECTED_TIMING_KEYS:
+        raise VerificationError(f"Harbor {label} timing schema drifted")
+    started_at = value.get("started_at")
+    finished_at = value.get("finished_at")
+    _validate_iso_timestamp(started_at, f"Harbor {label} started_at")
+    if finished_at is not None:
+        _validate_iso_timestamp(finished_at, f"Harbor {label} finished_at")
+    if required and finished_at is None:
+        raise VerificationError(f"completed Harbor trial lacks {label} finished_at")
+
+
+def _validate_iso_timestamp(value: Any, label: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise VerificationError(f"{label} is missing")
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise VerificationError(f"{label} is not an ISO-8601 timestamp") from exc
+
+
+def _validate_harbor_trial_result_shape(
+    payload: dict[str, Any],
+    result_path: Path,
+    task_id: str,
+    *,
+    error_present: bool,
+) -> tuple[str, dict[str, Any]]:
+    if set(payload) != EXPECTED_TRIAL_RESULT_KEYS:
+        raise VerificationError("Harbor child TrialResult schema drifted")
+    try:
+        trial_id = str(UUID(str(payload.get("id"))))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise VerificationError("Harbor child trial id is invalid") from exc
+    if trial_id != payload.get("id"):
+        raise VerificationError("Harbor child trial id is non-canonical")
+
+    task_name = task_id.rsplit("/", 1)[-1]
+    if payload.get("task_name") != task_name:
+        raise VerificationError("Harbor child task name drifted")
+    trial_name = payload.get("trial_name")
+    if not isinstance(trial_name, str) or not trial_name or trial_name != result_path.parent.name:
+        raise VerificationError("Harbor child trial name is invalid")
+    trial_uri = payload.get("trial_uri")
+    if not isinstance(trial_uri, str) or not trial_uri.startswith("file://"):
+        raise VerificationError("Harbor child trial URI is invalid")
+    serialized_task_id = payload.get("task_id")
+    if not isinstance(serialized_task_id, dict) or set(serialized_task_id) != {"path"}:
+        raise VerificationError("Harbor child LocalTaskId schema drifted")
+    task_path = serialized_task_id.get("path")
+    if not isinstance(task_path, str) or not task_path or Path(task_path).name != task_name:
+        raise VerificationError("Harbor child LocalTaskId does not bind the frozen task")
+    if not isinstance(payload.get("source"), str) or not payload["source"]:
+        raise VerificationError("Harbor child task source is invalid")
+    if not isinstance(payload.get("task_checksum"), str) or not HEX64.fullmatch(payload["task_checksum"]):
+        raise VerificationError("Harbor child task checksum is invalid")
+
+    config = payload.get("config")
+    if not isinstance(config, dict) or set(config) != EXPECTED_TRIAL_CONFIG_KEYS:
+        raise VerificationError("Harbor child TrialConfig schema drifted")
+    if config.get("trial_name") != trial_name or config.get("install_only") is not False:
+        raise VerificationError("Harbor child TrialConfig identity drifted")
+    config_task = config.get("task")
+    if not isinstance(config_task, dict) or config_task.get("path") != task_path:
+        raise VerificationError("Harbor child TrialConfig task identity drifted")
+    config_agent = config.get("agent")
+    if (
+        not isinstance(config_agent, dict)
+        or config_agent.get("import_path") != "seagym_evoagent.harbor_agent:EvoAgentMiMo"
+        or config_agent.get("model_name") != EXPECTED_MODEL_HARBOR
+    ):
+        raise VerificationError("Harbor child TrialConfig agent identity drifted")
+    if payload.get("agent_info") != EXPECTED_HARBOR_AGENT_INFO:
+        raise VerificationError("Harbor child AgentInfo drifted")
+
+    agent_result = payload.get("agent_result")
+    if not isinstance(agent_result, dict) or set(agent_result) != EXPECTED_AGENT_CONTEXT_KEYS:
+        raise VerificationError("Harbor child AgentContext schema drifted")
+    if agent_result.get("rollout_details") is not None or not isinstance(agent_result.get("metadata"), dict):
+        raise VerificationError("Harbor child AgentContext contains unapproved rollout detail")
+    for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens"):
+        _bounded_int(agent_result.get(key), f"Harbor child {key}")
+    _finite_number(agent_result.get("cost_usd"), "Harbor child cost_usd")
+
+    verifier_result = payload.get("verifier_result")
+    if not isinstance(verifier_result, dict) or set(verifier_result) != {"rewards"}:
+        raise VerificationError("Harbor child VerifierResult schema drifted")
+    if not isinstance(verifier_result.get("rewards"), dict):
+        raise VerificationError("Harbor child rewards are invalid")
+    exception_info = payload.get("exception_info")
+    if error_present:
+        expected_exception_keys = {
+            "exception_type",
+            "exception_message",
+            "exception_traceback",
+            "occurred_at",
+        }
+        if not isinstance(exception_info, dict) or set(exception_info) != expected_exception_keys:
+            raise VerificationError("Harbor child ExceptionInfo schema drifted")
+        for key in ("exception_type", "exception_message", "exception_traceback", "occurred_at"):
+            if not isinstance(exception_info.get(key), str):
+                raise VerificationError("Harbor child ExceptionInfo field is invalid")
+        if not exception_info["exception_type"] or not exception_info["occurred_at"]:
+            raise VerificationError("Harbor child ExceptionInfo identity is missing")
+        _validate_iso_timestamp(exception_info["occurred_at"], "Harbor child exception occurred_at")
+    elif exception_info is not None:
+        raise VerificationError("non-errored Harbor child contains ExceptionInfo")
+
+    for key in ("started_at", "finished_at"):
+        _validate_iso_timestamp(payload.get(key), f"Harbor child {key}")
+    for timing_key in ("environment_setup", "agent_setup", "agent_execution", "verifier"):
+        _validate_harbor_timing(
+            payload.get(timing_key),
+            timing_key,
+            required=not error_present,
+        )
+    if payload.get("step_results") is not None:
+        raise VerificationError("single-step Terminal-Bench trial contains step_results")
+    return trial_id, agent_result
+
+
+def _validate_harbor_job_config_payload(
+    config: Any,
+    job_dir: Path,
+    jobs_root: Path,
+    task_id: str,
+    *,
+    require_retry: bool,
+) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        raise VerificationError("Harbor single-task job config is not an object")
+    if config.get("job_name") != job_dir.name:
+        raise VerificationError("Harbor job config name differs from its directory")
+    raw_jobs_dir = config.get("jobs_dir")
+    if not isinstance(raw_jobs_dir, str) or not raw_jobs_dir or not Path(raw_jobs_dir).is_absolute():
+        raise VerificationError("Harbor job config jobs_dir is invalid")
+    if Path(raw_jobs_dir).resolve() != jobs_root:
+        raise VerificationError("Harbor job config jobs_dir drifted")
+    if config.get("n_attempts") != 1 or config.get("n_concurrent_trials") != 1:
+        raise VerificationError("Harbor job config is not one-task/one-attempt serial execution")
+    retry = config.get("retry")
+    if (require_retry and not isinstance(retry, dict)) or (
+        retry is not None and (not isinstance(retry, dict) or retry.get("max_retries") != 0)
+    ):
+        raise VerificationError("Harbor job config enables retries")
+    agents = config.get("agents")
+    if not isinstance(agents, list) or len(agents) != 1 or not isinstance(agents[0], dict):
+        raise VerificationError("Harbor job config agent cardinality drifted")
+
+    task_name = task_id.rsplit("/", 1)[-1]
+    tasks = config.get("tasks")
+    datasets = config.get("datasets")
+    if not isinstance(tasks, list) or not isinstance(datasets, list):
+        raise VerificationError("Harbor job config task selection is invalid")
+    if tasks != [] or len(datasets) != 1 or not isinstance(datasets[0], dict):
+        raise VerificationError("Harbor job config must use exactly one patched dataset")
+    dataset = datasets[0]
+    patched_job_dir = jobs_root / "_patched_tasksets" / job_dir.name
+    raw_dataset_path = dataset.get("path")
+    if (
+        not isinstance(raw_dataset_path, str)
+        or not Path(raw_dataset_path).is_absolute()
+        or Path(raw_dataset_path).resolve() != patched_job_dir.resolve(strict=True)
+        or dataset.get("task_names") != [task_name]
+        or dataset.get("n_tasks") != 1
+    ):
+        raise VerificationError("Harbor job config patched dataset identity drifted")
+    return config
+
+
+def _validate_harbor_job_config(job_dir: Path, jobs_root: Path, task_id: str) -> dict[str, Any]:
+    config_path = job_dir / "config.json"
+    _scan_secret_bytes(config_path)
+    return _validate_harbor_job_config_payload(
+        _load_json(config_path, root=jobs_root),
+        job_dir,
+        jobs_root,
+        task_id,
+        require_retry=True,
+    )
 
 
 def _validate_atif(
@@ -1484,10 +1839,16 @@ def _validate_rows(
     expected_counts = Counter({"validation": 6, "train": 6, "replay": 6, "final": 3, "final_baseline": 3})
     actual_counts: Counter[str] = Counter()
     phase_tasks: dict[str, list[str]] = defaultdict(list)
+    actual_slot_order: list[tuple[Any, ...]] = []
     safe_rows: list[dict[str, Any]] = []
     attestation_hashes: list[str] = []
     failure_receipt_hashes: list[str] = []
     failure_receipt_paths: set[Path] = set()
+    harbor_job_dirs: set[Path] = set()
+    harbor_job_ids: set[str] = set()
+    harbor_trial_ids: set[str] = set()
+    harbor_result_paths: set[Path] = set()
+    harbor_task_by_job_dir: dict[Path, str] = {}
     missing_atif_receipt_count = 0
     rollout_llm_call_count = 0
     for row in rows:
@@ -1517,11 +1878,254 @@ def _validate_rows(
             raise VerificationError("task result phase is invalid")
         actual_counts[phase] += 1
         phase_tasks[phase].append(task_id)
+        actual_slot_order.append(
+            (
+                mode,
+                row.get("view_name"),
+                role,
+                row.get("train_batch_index"),
+                row.get("evaluation_point_id"),
+                row.get("agent_checkpoint_id"),
+                task_id,
+            )
+        )
         payload, result_path = _trial_payload(row, run_dir)
+        refs = row.get("refs") or {}
+        jobs_root = (run_dir / "harbor" / "jobs").resolve(strict=True)
+        if result_path in harbor_result_paths:
+            raise VerificationError("a Harbor child result was reused across planned trials")
+        harbor_result_paths.add(result_path)
+        trial_id, agent_context = _validate_harbor_trial_result_shape(
+            payload,
+            result_path,
+            task_id,
+            error_present=error_present,
+        )
+        if trial_id in harbor_trial_ids:
+            raise VerificationError("Harbor child trial id was reused")
+        harbor_trial_ids.add(trial_id)
+        job_dir = result_path.parent.parent.resolve(strict=True)
+        if job_dir in harbor_job_dirs:
+            raise VerificationError("a Harbor job was reused across planned trials")
+        harbor_job_dirs.add(job_dir)
+        harbor_task_by_job_dir[job_dir] = task_id
+        expected_patched_task = (
+            jobs_root
+            / "_patched_tasksets"
+            / job_dir.name
+            / task_id.rsplit("/", 1)[-1]
+        )
+        serialized_task_path = Path(payload["task_id"]["path"])
+        try:
+            resolved_serialized_task = serialized_task_path.resolve(strict=True)
+            resolved_patched_task = expected_patched_task.resolve(strict=True)
+        except OSError as exc:
+            raise VerificationError("Harbor patched task path is missing") from exc
+        if (
+            payload.get("source") != job_dir.name
+            or not serialized_task_path.is_absolute()
+            or resolved_serialized_task != resolved_patched_task
+        ):
+            raise VerificationError("Harbor child task path/source is not bound to its patched dataset")
+        raw_job_dir = refs.get("job_dir") if isinstance(refs, dict) else None
+        if not isinstance(raw_job_dir, str) or not raw_job_dir:
+            raise VerificationError("task row lacks a Harbor job_dir")
+        referenced_job_dir = Path(raw_job_dir)
+        if not referenced_job_dir.is_absolute():
+            referenced_job_dir = jobs_root / referenced_job_dir
+        try:
+            referenced_job_dir = referenced_job_dir.resolve(strict=True)
+        except OSError as exc:
+            raise VerificationError("referenced Harbor job directory is missing") from exc
+        if referenced_job_dir != job_dir or _is_linklike(referenced_job_dir) or not referenced_job_dir.is_dir():
+            raise VerificationError("Harbor job_dir does not bind the child result")
+        if refs.get("harbor_returncode") != 0:
+            raise VerificationError("Harbor single-task job did not exit successfully")
+        job_config = _validate_harbor_job_config(job_dir, jobs_root, task_id)
+        if job_config["agents"][0] != payload["config"]["agent"]:
+            raise VerificationError("Harbor job AgentConfig differs from its child TrialConfig")
+        trial_config_path = result_path.parent / "config.json"
+        _scan_secret_bytes(trial_config_path)
+        if _load_json(trial_config_path, root=job_dir) != payload.get("config"):
+            raise VerificationError("Harbor child config.json differs from embedded TrialConfig")
+        direct_job_entries = list(job_dir.iterdir())
+        if any(_is_linklike(path) for path in direct_job_entries):
+            raise VerificationError("Harbor job contains a link-like entry")
+        child_directories = {
+            path.resolve(strict=True)
+            for path in direct_job_entries
+            if path.is_dir()
+        }
+        if child_directories != {result_path.parent.resolve(strict=True)}:
+            raise VerificationError(
+                "Harbor job does not contain exactly one child result/trial directory"
+            )
+        aggregate_path = job_dir / "result.json"
+        _scan_secret_bytes(aggregate_path)
+        aggregate = _load_json(aggregate_path, root=jobs_root)
+        expected_aggregate_keys = {
+            "finished_at",
+            "id",
+            "n_total_trials",
+            "started_at",
+            "stats",
+            "updated_at",
+        }
+        if not isinstance(aggregate, dict) or set(aggregate) != expected_aggregate_keys:
+            raise VerificationError("Harbor single-task job aggregate schema drifted")
+        try:
+            job_id = str(UUID(str(aggregate.get("id"))))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise VerificationError("Harbor single-task job id is invalid") from exc
+        if job_id != aggregate.get("id") or job_id in harbor_job_ids:
+            raise VerificationError("Harbor single-task job id was reused or is non-canonical")
+        harbor_job_ids.add(job_id)
+        if _bounded_int(
+            aggregate.get("n_total_trials"),
+            "Harbor total trials",
+            maximum=1,
+        ) != 1:
+            raise VerificationError("Harbor job is not a one-task job")
+        for timestamp_key in ("started_at", "updated_at", "finished_at"):
+            _validate_iso_timestamp(
+                aggregate.get(timestamp_key),
+                f"Harbor completed-job {timestamp_key}",
+            )
+        stats = aggregate.get("stats") if isinstance(aggregate, dict) else None
+        expected_stats_keys = {
+            "cost_usd",
+            "evals",
+            "n_cache_tokens",
+            "n_cancelled_trials",
+            "n_completed_trials",
+            "n_errored_trials",
+            "n_input_tokens",
+            "n_output_tokens",
+            "n_pending_trials",
+            "n_retries",
+            "n_running_trials",
+        }
+        if not isinstance(stats, dict) or set(stats) != expected_stats_keys:
+            raise VerificationError("Harbor single-task job aggregate stats schema drifted")
+        if not isinstance(stats.get("evals"), dict):
+            raise VerificationError("Harbor single-task job aggregate evals are invalid")
+        count_keys = (
+            "n_cancelled_trials",
+            "n_completed_trials",
+            "n_errored_trials",
+            "n_pending_trials",
+            "n_retries",
+            "n_running_trials",
+        )
+        counts = {
+            key: _bounded_int(stats.get(key), f"Harbor aggregate {key}", maximum=1)
+            for key in count_keys
+        }
+        expected_zero_stats = (
+            "n_running_trials",
+            "n_pending_trials",
+            "n_cancelled_trials",
+            "n_retries",
+        )
+        if (
+            counts["n_completed_trials"] != 1
+            or counts["n_errored_trials"] not in {0, 1}
+            or any(counts[key] != 0 for key in expected_zero_stats)
+        ):
+            raise VerificationError("Harbor single-task job aggregate is incomplete")
+        child_results = sorted(job_dir.glob("*/result.json"))
+        if len(child_results) != 1:
+            raise VerificationError("Harbor job does not contain exactly one child result")
+        only_child = _regular_file(child_results[0], root=job_dir)
+        if only_child != result_path:
+            raise VerificationError("Harbor aggregate child differs from the normalized result")
+        child_config = payload.get("config")
+        if not isinstance(child_config, dict) or child_config.get("job_id") != job_id:
+            raise VerificationError("Harbor child result is not bound to its aggregate job")
+        expected_errored = int(payload.get("exception_info") is not None)
+        if counts["n_errored_trials"] != expected_errored:
+            raise VerificationError("Harbor aggregate error count differs from its child")
+        for aggregate_key, child_key in (
+            ("n_input_tokens", "n_input_tokens"),
+            ("n_cache_tokens", "n_cache_tokens"),
+            ("n_output_tokens", "n_output_tokens"),
+        ):
+            if _bounded_int(
+                stats.get(aggregate_key),
+                f"Harbor aggregate {aggregate_key}",
+            ) != _bounded_int(
+                agent_context.get(child_key),
+                f"Harbor child {child_key}",
+            ):
+                raise VerificationError("Harbor aggregate token usage differs from its child")
+        if not math.isclose(
+            _finite_number(stats.get("cost_usd"), "Harbor aggregate cost_usd"),
+            _finite_number(agent_context.get("cost_usd"), "Harbor child cost_usd"),
+            abs_tol=1e-9,
+        ):
+            raise VerificationError("Harbor aggregate cost differs from its child")
+
+        agent_info = payload["agent_info"]
+        model_info = agent_info["model_info"]
+        expected_eval_key = f"{agent_info['name']}__{model_info['name']}__{payload['source']}"
+        evals = stats["evals"]
+        if set(evals) != {expected_eval_key}:
+            raise VerificationError("Harbor aggregate eval identity differs from its child")
+        eval_stats = evals[expected_eval_key]
+        expected_eval_stats_keys = {
+            "exception_stats",
+            "metrics",
+            "n_errors",
+            "n_trials",
+            "pass_at_k",
+            "reward_stats",
+        }
+        if not isinstance(eval_stats, dict) or set(eval_stats) != expected_eval_stats_keys:
+            raise VerificationError("Harbor aggregate eval stats schema drifted")
+        if (
+            _bounded_int(eval_stats.get("n_trials"), "Harbor eval n_trials", maximum=1) != 1
+            or _bounded_int(eval_stats.get("n_errors"), "Harbor eval n_errors", maximum=1)
+            != expected_errored
+            or not isinstance(eval_stats.get("metrics"), list)
+            or not isinstance(eval_stats.get("pass_at_k"), dict)
+        ):
+            raise VerificationError("Harbor aggregate eval counts are inconsistent")
+        rewards_payload = payload["verifier_result"]["rewards"]
+        if set(rewards_payload) != {"reward"}:
+            raise VerificationError("Harbor child reward inventory drifted")
+        expected_metric = {
+            "mean": _finite_number(rewards_payload["reward"], "Harbor child reward")
+        }
+        if eval_stats["metrics"] != [expected_metric]:
+            raise VerificationError("Harbor aggregate metrics differ from its child")
+        reward_stats = eval_stats.get("reward_stats")
+        if not isinstance(reward_stats, dict) or set(reward_stats) != set(rewards_payload):
+            raise VerificationError("Harbor aggregate reward inventory differs from its child")
+        for reward_name, reward_value in rewards_payload.items():
+            per_value = reward_stats.get(reward_name)
+            if not isinstance(per_value, dict) or len(per_value) != 1:
+                raise VerificationError("Harbor aggregate reward stats are invalid")
+            serialized_value, trial_names = next(iter(per_value.items()))
+            try:
+                parsed_value = float(serialized_value)
+            except (TypeError, ValueError) as exc:
+                raise VerificationError("Harbor aggregate reward value is invalid") from exc
+            if (
+                not math.isclose(parsed_value, _finite_number(reward_value, "Harbor child reward"), abs_tol=1e-9)
+                or trial_names != [payload["trial_name"]]
+            ):
+                raise VerificationError("Harbor aggregate reward stats differ from its child")
+        exception_stats = eval_stats.get("exception_stats")
+        expected_exception_stats = (
+            {payload["exception_info"]["exception_type"]: [payload["trial_name"]]}
+            if expected_errored
+            else {}
+        )
+        if exception_stats != expected_exception_stats:
+            raise VerificationError("Harbor aggregate exception stats differ from its child")
         harbor_name = payload.get("task_name")
         if harbor_name not in {task_id, task_id.rsplit("/", 1)[-1]}:
             raise VerificationError("Harbor trial task identity drifted")
-        refs = row.get("refs") or {}
         if refs.get("task_checksum") != payload.get("task_checksum"):
             raise VerificationError("Harbor task checksum does not match the normalized row")
         rewards = ((payload.get("verifier_result") or {}).get("rewards") or {})
@@ -1644,11 +2248,49 @@ def _validate_rows(
                 "failure_stage": failure_stage,
                 "mimocode_exit_class": mimocode_exit_class,
                 "training_evidence_complete": attestation_hash is not None,
+                "harbor_job_result_sha256": _sha256(aggregate_path),
+                "harbor_returncode": 0,
                 "harbor_result_sha256": _sha256(result_path),
             }
         )
     if actual_counts != expected_counts:
         raise VerificationError(f"task phase counts drifted: {dict(actual_counts)}")
+    expected_slot_order = [
+        *(
+            ("validation", "update_validation", None, 0, "E_0", None, task_id)
+            for task_id in splits["val"]
+        ),
+        *(
+            ("train", "train", None, 1, None, None, task_id)
+            for task_id in splits["train"][:3]
+        ),
+        *(
+            ("replay", "replay", None, 1, "E_1", "E_1", task_id)
+            for task_id in replay
+        ),
+        *(
+            ("train", "train", None, 2, None, None, task_id)
+            for task_id in splits["train"][3:]
+        ),
+        *(
+            ("validation", "update_validation", None, 2, "E_2", None, task_id)
+            for task_id in splits["val"]
+        ),
+        *(
+            ("replay", "replay", None, 2, "E_2", "E_2", task_id)
+            for task_id in replay
+        ),
+        *(
+            ("final", "id_test", "A_T", 2, "E_T", "final", task_id)
+            for task_id in splits["test"]
+        ),
+        *(
+            ("final_baseline", "id_test", "A_0", 2, "E_T", "initial", task_id)
+            for task_id in splits["test"]
+        ),
+    ]
+    if actual_slot_order != expected_slot_order:
+        raise VerificationError("global frozen 24-slot execution order drifted")
     if phase_tasks["train"] != splits["train"]:
         raise VerificationError("train task execution order drifted")
     if phase_tasks["validation"] != splits["val"] + splits["val"]:
@@ -1659,6 +2301,60 @@ def _validate_rows(
         raise VerificationError("final A0/AT held-out task order drifted")
     if len(attestation_hashes) + missing_atif_receipt_count != 24:
         raise VerificationError("trial ATIF or failure-receipt coverage is incomplete")
+    if (
+        len(harbor_job_dirs) != 24
+        or len(harbor_job_ids) != 24
+        or len(harbor_trial_ids) != 24
+        or len(harbor_result_paths) != 24
+    ):
+        raise VerificationError("single-task Harbor job coverage is incomplete")
+    jobs_root = (run_dir / "harbor" / "jobs").resolve(strict=True)
+    direct_job_root_directories: set[Path] = set()
+    support_directories: dict[str, Path] = {}
+    for path in jobs_root.iterdir():
+        if _is_linklike(path):
+            raise VerificationError("Harbor jobs root contains a link-like entry")
+        if not path.is_dir():
+            raise VerificationError("Harbor jobs root contains an unexpected file")
+        resolved = path.resolve(strict=True)
+        if path.name in HARBOR_SUPPORT_DIR_NAMES:
+            support_directories[path.name] = resolved
+        else:
+            direct_job_root_directories.add(resolved)
+    if direct_job_root_directories != harbor_job_dirs:
+        raise VerificationError("Harbor job inventory differs from the frozen 24 slots")
+    if set(support_directories) != {"_patched_tasksets"}:
+        raise VerificationError("Harbor patched-taskset support inventory drifted")
+
+    expected_job_names = {job_dir.name for job_dir in harbor_job_dirs}
+    patched_tasksets_dir = support_directories["_patched_tasksets"]
+    patched_entries = list(patched_tasksets_dir.iterdir())
+    if any(_is_linklike(path) or not path.is_dir() for path in patched_entries):
+        raise VerificationError("Harbor patched-taskset directory contains an unexpected entry")
+    if {path.name for path in patched_entries} != expected_job_names or len(patched_entries) != 24:
+        raise VerificationError("Harbor patched-taskset inventory differs from the frozen jobs")
+    for patched_job in patched_entries:
+        expected_task_name = harbor_task_by_job_dir[
+            next(job for job in harbor_job_dirs if job.name == patched_job.name)
+        ].rsplit("/", 1)[-1]
+        patched_children = list(patched_job.iterdir())
+        if (
+            len(patched_children) != 1
+            or _is_linklike(patched_children[0])
+            or not patched_children[0].is_dir()
+            or patched_children[0].name != expected_task_name
+        ):
+            raise VerificationError("Harbor patched taskset does not contain exactly its frozen task")
+    discovered_aggregates = {
+        _regular_file(path, root=jobs_root)
+        for path in jobs_root.glob("*/result.json")
+    }
+    referenced_aggregates = {
+        _regular_file(job_dir / "result.json", root=jobs_root)
+        for job_dir in harbor_job_dirs
+    }
+    if discovered_aggregates != referenced_aggregates:
+        raise VerificationError("Harbor job inventory differs from the frozen 24 slots")
     summary = _recompute_summary(safe_rows)
     summary["failure_receipt_trials"] = len(failure_receipt_paths)
     summary["missing_atif_failure_receipt_trials"] = missing_atif_receipt_count

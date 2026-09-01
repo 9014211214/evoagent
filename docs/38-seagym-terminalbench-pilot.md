@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v8 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v9 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,15 +108,21 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v8, a score-blind amendment. Four pre-v2 controller attempts
-were infrastructure/preflight diagnostics. Four real v2 attempts and one real
-attempt for each of v3, v4, v5, v6, and v7 reached progressively deeper parts
-of the pinned external pipeline, but none completed the A_0/A_T comparison and
-none produced a score. The thirteen controller attempts had a cumulative
-observed key-usage delta of USD 0.272736272 across their separately bounded
-observation windows.
+This is protocol v9, a score-blind execution-resilience amendment. Fourteen
+controller attempts reached progressively deeper parts of the pinned external
+pipeline, but none completed the A_0/A_T comparison and none produced a score.
+Their cumulative observed key-usage delta was USD 0.301219066 across separately
+bounded observation windows. This is observed key-wide telemetry, not an exact
+invoice attribution.
 
-The latest incomplete run `33304816856`, against controller commit
+The latest incomplete run `33517129366`, against controller commit
+`82f6ecc7f80961364d8ff6a233d344568b9a372b` and public EvoAgent commit
+`030179e57b012afa3d96623ee874292bc7128f2e`, passed the lifecycle gate and
+entered the 24-trial pilot. It stopped on partial Harbor jobs before A_0/A_T;
+therefore it produced no reportable score. The v9 section below records its
+bounded diagnostic evidence and exact artifact/log digests.
+
+An earlier v8 diagnostic run `33304816856`, against controller commit
 `cc54328af922aed15093687f654383c2cf88f5e5` and public EvoAgent commit
 `25ee0721f7d206b6168a6d7d642bebb1700d9b41`, passed the strict route canary and
 official Harbor oracle. Its lifecycle Harbor child exited zero; the guard proxy
@@ -265,6 +271,52 @@ at SHA-256
 No task score or partial effect was inspected, and no benchmark effect is
 claimed.
 
+Protocol v9 responds to a source-supported Harbor orchestration failure pattern observed
+after v8 passed the real lifecycle gate and entered the frozen 24-trial pilot.
+Run `33517129366` completed 87/87 guarded Xiaomi requests with zero proxy
+rejection, upstream error, retry, provider fallback, or route drift. A replay
+Harbor job then exited with two completed child results and one pending task;
+the following train job exited with one completed child result and two pending
+tasks. Both returned code 1. No A0/AT comparison or score was produced. The
+safe artifact and job-log SHA-256 values are frozen in `protocol.json`.
+
+Pinned Harbor executes all trials in one job with an `asyncio.TaskGroup`. An
+unhandled per-trial creation, finalization, or hook exception can therefore
+cancel siblings that are still pending. The safe artifact did not retain raw
+Harbor stderr or job directories, so the exact triggering exception type and
+stage are unknown and are not claimed. SEAGym then represented each missing
+child result as an errored placeholder. EvoAgent correctly rejected those
+placeholders because a task that never produced a real Harbor child result
+cannot possess a real task-scoped ATIF or runtime failure receipt.
+
+The v9 patch adds the explicit backend option
+`one_task_per_harbor_job=true`. Each of the 24 already planned slots is launched
+once, in the frozen order, in its own Harbor subprocess. The logical three-task
+train, validation, and replay batches and both update points are unchanged.
+There are no added Harbor retries, replacement tasks, synthetic receipts, or
+new learning evidence. A nonzero exit returned normally by one Harbor
+subprocess cannot cancel a later planned slot, but it still makes the
+experiment incomplete. An exception that escapes the SEAGym host loop still
+stops the run fail-closed.
+
+The result verifier now requires exactly 24 unique Harbor job directories,
+job configs, trial configs, canonical job/trial UUIDs, and the required
+pinned-Harbor child `TrialResult` shape. It rejects any unreferenced complete or partial job
+or trial directory. Every job must report one completed trial, no running,
+pending, cancelled, or retried trial, return code zero, and aggregate token,
+cost, reward, exception, and eval evidence that reconciles with its child. A
+normal contained Agent failure may still be counted as a real zero-score trial
+only when Harbor produced its real child result and the existing
+ATIF/failure-receipt contract is satisfied. A missing result, reused job,
+partial aggregate, or malformed, unbound, or synthetic placeholder receipt
+remains non-scoreable and cannot update EvoAgent.
+
+This score-blind execution-resilience amendment does not change the model or
+provider, tasks or split, frozen order, seed, attempts, metrics, budgets,
+timeouts, update schedule, or interpretation rule. Adding the backend isolation
+flag changes the config bytes only; the v9 config SHA-256 is
+`d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
+
 The public protocol also pins guard-proxy source SHA-256
 `e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
 health schema v5, and all request, response, concurrency, token and timeout
@@ -305,6 +357,9 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
+Protocol v9 additionally isolates every planned slot into a unique Harbor job;
+this changes process containment, not the frozen logical concurrency or batch
+schedule.
 
 The full pilot command is bounded to 13,200 seconds and the lifecycle gate to
 2,400 seconds. Together with the 600-second MiMo route canary, this reserves
@@ -368,32 +423,35 @@ benchmark-evidence rules.
 - Split: experiments/seagym_terminalbench/splits/seed42.json
 - Machine-readable protocol and all local SHA-256 values:
   experiments/seagym_terminalbench/protocol.json
-- Controlled SEAGym patch:
+- Controlled SEAGym redaction patch:
   experiments/seagym_terminalbench/patches/seagym-token-count-redaction.patch
+- Controlled SEAGym job-isolation patch:
+  experiments/seagym_terminalbench/patches/seagym-one-task-per-harbor-job.patch
 - Source and license pins: THIRD_PARTY_LOCK.json (Git-LF SHA-256
   0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849)
   and THIRD_PARTY_NOTICES.md
 
 The protocol binds SHA-256 values for the config, task index, split, controlled
-patch, and the Git-LF-normalized repository third-party lock. The lock's
+patches, and the Git-LF-normalized repository third-party lock. The lock's
 separate internal canonical-content hash remains the compliance/runtime
 identity. A changed byte requires an explicit new protocol version rather than
 a silent rerun.
 
-## Controlled SEAGym redaction patch
+## Controlled SEAGym patches
 
 Pinned SEAGym redacts any key containing TOKEN. That also redacts numeric fields
 such as total_tokens, preventing complete token/cost evidence without improving
-credential safety. The workflow must:
+credential safety. For both controlled patches, the workflow must:
 
-1. verify the SEAGym commit and original redaction.py Git blob;
-2. verify the committed patch SHA-256;
+1. verify the SEAGym commit and every original target Git blob;
+2. verify both committed patch SHA-256 values;
 3. run a patch applicability check;
-4. apply only that patch in the transient checkout; and
-5. test that numeric token counts persist while string credentials remain
-   redacted.
+4. apply only those patches in the transient checkout; and
+5. run focused tests for numeric telemetry redaction, backend flag binding,
+   ordered task isolation, non-retry behavior, and continued execution after
+   one isolated job fails.
 
-The third-party source is not edited or vendored in EvoAgent. The patch does
+The third-party source is not edited or vendored in EvoAgent. The patches do
 not alter task instructions, solutions, verifiers, model routing, or scores.
 
 ## Reporting

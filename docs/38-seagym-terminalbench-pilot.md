@@ -108,12 +108,19 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v9, a score-blind execution-resilience amendment. Fourteen
+This is protocol v9, a score-blind execution-resilience amendment. Fifteen
 controller attempts reached progressively deeper parts of the pinned external
 pipeline, but none completed the A_0/A_T comparison and none produced a score.
-Their cumulative observed key-usage delta was USD 0.301219066 across separately
+Their cumulative observed key-usage delta was USD 0.306381421 across separately
 bounded observation windows. This is observed key-wide telemetry, not an exact
 invoice attribution.
+
+The v9 cumulative ledger includes both hosted protocol-v8 runs after the v8
+amendment. Run `33508167549` completed the real lifecycle execution but stopped
+fail-closed when its evidence contract was rejected; it did not start the
+24-trial pilot and observed a USD 0.005162355 key-wide delta. Run `33517129366`
+then observed a USD 0.028482794 key-wide delta before the partial-job blocker
+below. Neither run produced A_0, A_T, a comparison, a delta, or a score.
 
 The latest incomplete run `33517129366`, against controller commit
 `82f6ecc7f80961364d8ff6a233d344568b9a372b` and public EvoAgent commit

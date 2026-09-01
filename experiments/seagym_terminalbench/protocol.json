@@ -109,14 +109,40 @@
       "missing_real_child_result_may_update_agent": false,
       "required_complete_unique_single_task_jobs": 24
     },
+    "intervening_non_scoreable_runs": [
+      {
+        "artifact_id": 9800931910,
+        "artifact_zip_sha256": "d40904e407b17ec30cbc29191f19b3590b200dcea5c4fe43fdb4921a966a2554",
+        "controller_commit": "9711454825a8d67a92ea1a805256fdbfbaa666c8",
+        "evoagent_public_commit": "030179e57b012afa3d96623ee874292bc7128f2e",
+        "full_pilot_started": false,
+        "job_id": 99857129389,
+        "job_log_sha256": "ebbf8c3e0444b765459130f3ec44255715cb0dee2f47cb41e7c8733a850eb433",
+        "lifecycle_child_exit_code": 0,
+        "lifecycle_reason_code": "harbor_trial_contract_invalid",
+        "observed_key_usage_delta_usd": 0.005162355,
+        "proxy": {
+          "completed_requests": 12,
+          "forwarded_requests": 12,
+          "rejected_requests": 0,
+          "root_sessions_observed": 1,
+          "upstream_attempts": 12,
+          "upstream_errors": 0,
+          "upstream_retries": 0
+        },
+        "run_id": 33508167549,
+        "score_produced": false,
+        "status": "invalid_lifecycle_evidence"
+      }
+    ],
     "leaf_cause_status": {
       "source_supported_mechanism": "an_unhandled_per_trial_or_finalization_hook_exception_can_escape_harbor_taskgroup_and_cancel_pending_siblings; this matches but does not identify the observed leaf trigger",
       "raw_harbor_error_content_persisted": false,
       "triggering_exception_stage_or_type_confirmed": false
     },
     "prior_complete_comparisons": 0,
-    "prior_controller_attempts_total": 14,
-    "prior_observed_usage_delta_usd": 0.301219066,
+    "prior_controller_attempts_total": 15,
+    "prior_observed_usage_delta_usd": 0.306381421,
     "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v8",
     "score_blind": true
   },

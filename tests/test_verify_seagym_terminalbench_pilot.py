@@ -1315,6 +1315,25 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
+def test_v9_attempt_ledger_includes_both_hosted_v8_runs() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v8"]
+    intervening = amendment["intervening_non_scoreable_runs"]
+
+    assert [item["run_id"] for item in intervening] == [33508167549]
+    assert amendment["diagnostic"]["run_id"] == 33517129366
+    assert amendment["prior_controller_attempts_total"] == (
+        prior["prior_controller_attempts_total"] + len(intervening) + 1
+    )
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + sum(item["observed_key_usage_delta_usd"] for item in intervening)
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
 @pytest.mark.parametrize(
     ("section", "field"),
     [

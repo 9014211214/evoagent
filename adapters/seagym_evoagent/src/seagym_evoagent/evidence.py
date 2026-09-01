@@ -180,7 +180,13 @@ def project_train_batch(
             continue
         digest = sha256_file(atif_path, max_bytes=MAX_ATIF_BYTES)
         atif_digests.append(digest)
-        structural = _read_atif_structure(atif_path)
+        structural = _read_atif_structure(
+            atif_path,
+            expected_snapshot_sha256=expected_snapshot_sha256,
+            expected_component_sha256=expected_component_sha256,
+            expected_route_contract_sha256=expected_route_contract_sha256,
+            expected_seed=expected_seed,
+        )
         atif_steps += structural["steps"]
         tool_categories.update(structural["tool_categories"])
         tool_statuses.update(structural["tool_statuses"])
@@ -406,15 +412,37 @@ def _root_relative_path(root: Path, raw: str) -> Path:
     return candidate if candidate.is_absolute() else root / candidate
 
 
-def _read_atif_structure(path: Path) -> dict[str, Any]:
+def _read_atif_structure(
+    path: Path,
+    *,
+    expected_snapshot_sha256: str,
+    expected_component_sha256: dict[str, str],
+    expected_route_contract_sha256: str,
+    expected_seed: int,
+) -> dict[str, Any]:
     with path.open("rb") as handle:
         raw = handle.read(MAX_ATIF_BYTES + 1)
     data = strict_json_loads(raw, max_bytes=MAX_ATIF_BYTES)
-    if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
-        raise ValueError("ATIF root must contain a steps array")
-    if data.get("schema_version") not in {"ATIF-v1.6", "ATIF-v1.7"}:
+    if not isinstance(data, dict) or set(data) != {
+        "schema_version",
+        "agent",
+        "steps",
+        "final_metrics",
+        "extra",
+    }:
+        raise ValueError("ATIF root shape drifted")
+    if data.get("schema_version") != "ATIF-v1.7":
         raise ValueError("unsupported ATIF schema version")
+    _validate_atif_identity(
+        data,
+        expected_snapshot_sha256=expected_snapshot_sha256,
+        expected_component_sha256=expected_component_sha256,
+        expected_route_contract_sha256=expected_route_contract_sha256,
+        expected_seed=expected_seed,
+    )
     steps = data["steps"]
+    if not isinstance(steps, list):
+        raise ValueError("ATIF root must contain a steps array")
     if not 1 <= len(steps) <= 10_000:
         raise ValueError("ATIF steps exceed structural bounds")
     categories: Counter[str] = Counter()
@@ -434,6 +462,51 @@ def _read_atif_structure(path: Path) -> dict[str, Any]:
             categories[_tool_category(call.get("function_name"))] += 1
             statuses[status] += 1
     return {"steps": len(steps), "tool_categories": categories, "tool_statuses": statuses}
+
+
+def _validate_atif_identity(
+    data: dict[str, Any],
+    *,
+    expected_snapshot_sha256: str,
+    expected_component_sha256: dict[str, str],
+    expected_route_contract_sha256: str,
+    expected_seed: int,
+) -> None:
+    identity_keys = {
+        "api_model_id",
+        "seed",
+        "snapshot_hash",
+        "component_hashes",
+        "runtime_identity",
+        "route_contract_sha256",
+    }
+    agent = data.get("agent")
+    if not isinstance(agent, dict) or set(agent) != {"name", "version", "model_name", "extra"}:
+        raise ValueError("ATIF agent identity shape drifted")
+    if (
+        agent.get("name") != "seagym-evoagent-mimocode"
+        or agent.get("version") != "0.1.0"
+        or agent.get("model_name") != HARBOR_MODEL_ID
+    ):
+        raise ValueError("ATIF agent identity drifted")
+    extra = data.get("extra")
+    if not isinstance(extra, dict) or set(extra) != identity_keys:
+        raise ValueError("ATIF evidence identity shape drifted")
+    if agent.get("extra") != extra:
+        raise ValueError("ATIF mirrored evidence identity drifted")
+    if extra.get("snapshot_hash") != expected_snapshot_sha256:
+        raise ValueError("ATIF snapshot identity drifted")
+    if extra.get("component_hashes") != expected_component_sha256:
+        raise ValueError("ATIF component identity drifted")
+    if extra.get("route_contract_sha256") != expected_route_contract_sha256:
+        raise ValueError("ATIF route identity drifted")
+    seed = extra.get("seed")
+    if isinstance(seed, bool) or seed != expected_seed:
+        raise ValueError("ATIF seed identity drifted")
+    if extra.get("api_model_id") != UPDATE_MODEL_ID:
+        raise ValueError("ATIF model identity drifted")
+    if extra.get("runtime_identity") != {"name": "mimocode", "version": MIMOCODE_VERSION}:
+        raise ValueError("ATIF runtime identity drifted")
 
 
 def _tool_category(value: Any) -> str:

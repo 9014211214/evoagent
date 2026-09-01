@@ -193,6 +193,7 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             self._candidate = before
             self.update_index = attempt_index
             self._attempt_refs = new_refs
+            self._synchronize_live_state(state)
             return UpdateResult(
                 update_index=attempt_index,
                 changed=False,
@@ -272,6 +273,7 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
                 self._candidate = before
                 self.update_index = attempt_index
                 self._attempt_refs = new_refs
+                self._synchronize_live_state(state)
                 metrics.update(
                     {
                         "input_tokens": completion.usage.prompt_tokens,
@@ -334,6 +336,7 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
         self._candidate = candidate
         self.update_index = attempt_index
         self._attempt_refs = new_refs
+        self._synchronize_live_state(state)
         return UpdateResult(
             update_index=attempt_index,
             changed=changed,
@@ -495,6 +498,17 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             raise ValueError("BaselineState does not belong to this controlled state directory")
         if self._a0 is None or self._candidate is None:
             self._load_state_from_disk()
+        loaded = state.metadata.get("loaded") is True
+        if state.metadata != self._baseline_state(loaded=loaded).metadata:
+            raise ValueError("BaselineState metadata does not match the current committed candidate")
+
+    def _synchronize_live_state(self, state: BaselineState) -> None:
+        """Publish a committed candidate to SEAGym's long-lived state object."""
+
+        loaded = state.metadata.get("loaded") is True
+        current = self._baseline_state(loaded=loaded)
+        state.metadata.clear()
+        state.metadata.update(current.metadata)
 
     def _snapshot_path(self, digest: str) -> Path:
         return self.snapshots_dir / f"{digest}.json"

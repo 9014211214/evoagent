@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v9 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v10 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,26 +108,42 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v9, a score-blind execution-resilience amendment. Fifteen
-controller attempts reached progressively deeper parts of the pinned external
-pipeline, but none completed the A_0/A_T comparison and none produced a score.
-Their cumulative observed key-usage delta was USD 0.306381421 across separately
-bounded observation windows. This is observed key-wide telemetry, not an exact
-invoice attribution.
+This is protocol v10, a score-blind state-propagation and evidence-binding
+amendment. Sixteen controller attempts reached progressively deeper parts of
+the pinned external pipeline, but none completed the A_0/A_T comparison and
+none produced a score. Their cumulative observed key-usage delta was USD
+0.341499816 across separately bounded observation windows. This is observed
+key-wide telemetry, not an exact invoice attribution.
 
-The v9 cumulative ledger includes both hosted protocol-v8 runs after the v8
+The latest incomplete run `33537027914`, against controller commit
+`b3375d7e02860d5fb6e391238f67a907f2f360d2` and public EvoAgent commit
+`0217429e776e60c005396e26c9903c815c711ce0`, passed every source, route,
+oracle, and real lifecycle gate. It then completed the first 12 of 24 unique
+singleton Harbor jobs in the frozen order. Update 1 completed with
+`status=updated` and `changed=true`; update 2 stopped fail-closed with
+`Harbor failure receipt snapshot drifted`. It produced no A_0, A_T,
+comparison, delta, full report, or reportable score. The guard proxy completed
+124 of 124 forwarded requests with zero rejection, upstream error, retry,
+HTTP 4xx, or HTTP 5xx result, so this was not a provider, route, budget, runner,
+or concurrency failure. The run observed a USD 0.035118395 key-wide delta.
+
+Artifact `9813372700` is bound by GitHub Actions artifact-ZIP SHA-256
+`d2e5a12ddd704f350b3894a2b0483c29515a41db9ba4e01045d21fe982269c60`;
+the downloaded job-log bytes have SHA-256
+`fd9d1ba7fb281c764aa4be17ab2504649e6c046c1641f88ddc70f679e9e85215`.
+The raw failure receipt was not published, so the direction of the mismatched
+receipt hash is not claimed from artifact contents alone. Source inspection and
+a dependency-free reproduction establish the deterministic integration bug:
+after update 1 committed a new internal and on-disk candidate, the adapter did
+not refresh the long-lived `BaselineState.metadata` that SEAGym passes to the
+next Harbor rollout.
+
+The preserved v9 ledger includes both hosted protocol-v8 runs after the v8
 amendment. Run `33508167549` completed the real lifecycle execution but stopped
 fail-closed when its evidence contract was rejected; it did not start the
 24-trial pilot and observed a USD 0.005162355 key-wide delta. Run `33517129366`
 then observed a USD 0.028482794 key-wide delta before the partial-job blocker
 below. Neither run produced A_0, A_T, a comparison, a delta, or a score.
-
-The latest incomplete run `33517129366`, against controller commit
-`82f6ecc7f80961364d8ff6a233d344568b9a372b` and public EvoAgent commit
-`030179e57b012afa3d96623ee874292bc7128f2e`, passed the lifecycle gate and
-entered the 24-trial pilot. It stopped on partial Harbor jobs before A_0/A_T;
-therefore it produced no reportable score. The v9 section below records its
-bounded diagnostic evidence and exact artifact/log digests.
 
 An earlier v8 diagnostic run `33304816856`, against controller commit
 `cc54328af922aed15093687f654383c2cf88f5e5` and public EvoAgent commit
@@ -324,6 +340,37 @@ timeouts, update schedule, or interpretation rule. Adding the backend isolation
 flag changes the config bytes only; the v9 config SHA-256 is
 `d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
 
+Protocol v10 responds only to the cross-batch state bug exposed after v9 made
+all 12 attempted task slots independently complete. SEAGym keeps the same
+`BaselineState` object for the full training loop and derives each Harbor Agent
+specification from its `prompt_template_path`. EvoAgent had committed the new
+candidate, prompt, attempt record, and manifest after update 1, but had updated
+only its private `_candidate` pointer. The still-live state therefore continued
+to identify the prior prompt for later rollouts while update 2 correctly
+expected evidence bound to the committed candidate.
+
+The adapter now refreshes that same live state object only after a state
+transition has fully committed. It also verifies on entry that the live state,
+internal candidate, and content-addressed disk state agree. A failed or
+partially persisted transition cannot publish a new rollout state. The strict
+failure-receipt snapshot and component checks are unchanged and are not
+relaxed, rewritten, or inferred from the incoming trajectory.
+
+The update evidence projection now independently requires every ATIF-v1.7
+document to carry the exact current snapshot, four component hashes, route
+contract, seed, API model, and MiMoCode runtime identity in both the root and
+Agent identity blocks. The two blocks must agree. Missing identity, a stale
+snapshot, or any drift is rejected before an update-model call. This closes the
+case where a stale but otherwise structurally valid ATIF without a failure
+receipt could previously have reached the updater.
+
+These changes do not alter the model or provider, tasks or split, order, seed,
+attempts, metrics, budgets, timeouts, update schedule, or interpretation rule.
+The experiment config bytes remain unchanged at SHA-256
+`d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
+No partial task outcome was used to choose the amendment, and no benchmark
+effect is claimed.
+
 The public protocol also pins guard-proxy source SHA-256
 `e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
 health schema v5, and all request, response, concurrency, token and timeout
@@ -364,7 +411,7 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
-Protocol v9 additionally isolates every planned slot into a unique Harbor job;
+Protocol v9 and v10 isolate every planned slot into a unique Harbor job;
 this changes process containment, not the frozen logical concurrency or batch
 schedule.
 

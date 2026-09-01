@@ -12,7 +12,9 @@ The adapter has two public entry points:
 - `seagym_evoagent.baseline:EvoAgentSEAGymBaseline` implements the SEAGym
   `BaseBaseline` lifecycle. It learns an **evaluation-only** four-component
   harness snapshot from train batches. A failed or invalid update never changes
-  the evaluation candidate.
+  the evaluation candidate. After a candidate transition is fully persisted,
+  it also refreshes the same long-lived `BaselineState` object SEAGym uses for
+  later rollout Agent specifications; stale live state is rejected fail-closed.
 - `seagym_evoagent.harbor_agent:EvoAgentMiMo` is a Harbor custom agent. It
   requires the host workflow to prefetch the official MiMoCode 0.1.13 Linux
   x64 archive, verifies its pinned SHA-256 before uploading it into each
@@ -93,6 +95,12 @@ success/failure counts, score/reward aggregates, runtime/cost aggregates, and
 bounded tool-name/status counts from privacy-preserving ATIF. Task IDs,
 instructions, model text, reasoning, tool arguments, tool output, canaries,
 secrets, and raw trajectories are neither sent nor persisted.
+
+Before any update-model call, every ATIF-v1.7 document must bind the exact
+current snapshot, all four component hashes, route contract, seed, API model,
+and MiMoCode runtime identity in both its root and Agent `extra` blocks. The two
+blocks must be identical. A stale or missing identity is rejected rather than
+being treated as evidence for the current candidate.
 
 An errored Harbor trial may lack ATIF only when its own contained, regular
 failure receipt is present, self-hashed, identity-bound, and declares

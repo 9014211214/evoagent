@@ -1315,9 +1315,24 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-def test_v9_attempt_ledger_includes_both_hosted_v8_runs() -> None:
+def test_v10_attempt_ledger_extends_the_preserved_v9_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v9"]
+
+    assert amendment["diagnostic"]["run_id"] == 33537027914
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_preserved_v9_ledger_includes_both_hosted_v8_runs() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["prior_amendment_v9"]
     prior = protocol["prior_amendment_v8"]
     intervening = amendment["intervening_non_scoreable_runs"]
 
@@ -1381,6 +1396,19 @@ def test_rejects_score_blind_v8_auxiliary_call_policy_drift(
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError, match="preserved v8 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_preserved_v9_amendment_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v9"]["execution_change"]["one_task_per_harbor_job"] = False
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v9 protocol amendment drifted"):
         pilot_verifier._validate_protocol(path)
 
 

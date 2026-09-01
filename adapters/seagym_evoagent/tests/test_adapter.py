@@ -87,16 +87,35 @@ class FakeClient:
         )
 
 
-def write_raw_atif(root: Path) -> Path:
-    trial = root / "trial-a"
+def write_raw_atif(
+    root: Path,
+    *,
+    snapshot: HarnessSnapshot | None = None,
+    seed: int = 43,
+    trial_name: str = "trial-a",
+) -> Path:
+    snapshot = snapshot or default_a0()
+    trial = root / trial_name
     atif = trial / "agent" / "trajectory.json"
     atif.parent.mkdir(parents=True)
+    identity = {
+        "api_model_id": UPDATE_MODEL_ID,
+        "seed": seed,
+        "snapshot_hash": snapshot.snapshot_sha256,
+        "component_hashes": dict(snapshot.component_sha256),
+        "runtime_identity": {"name": "mimocode", "version": MIMOCODE_VERSION},
+        "route_contract_sha256": sha256_json(expected_route_contract()),
+    }
     atif.write_text(
         json.dumps(
             {
                 "schema_version": "ATIF-v1.7",
-                "session_id": CANARY,
-                "agent": {"name": "mimo", "version": "0.1.13"},
+                "agent": {
+                    "name": "seagym-evoagent-mimocode",
+                    "version": "0.1.0",
+                    "model_name": HARBOR_MODEL_ID,
+                    "extra": identity,
+                },
                 "steps": [
                     {"step_id": 1, "source": "user", "message": f"raw prompt {CANARY} {SECRET}"},
                     {
@@ -117,6 +136,8 @@ def write_raw_atif(root: Path) -> Path:
                         "extra": {"status": "completed"},
                     },
                 ],
+                "final_metrics": {"total_steps": 2},
+                "extra": identity,
             }
         ),
         encoding="utf-8",
@@ -124,8 +145,17 @@ def write_raw_atif(root: Path) -> Path:
     return trial / "result.json"
 
 
-def train_batch(root: Path) -> SimpleNamespace:
-    result_path = write_raw_atif(root)
+def train_batch(
+    root: Path,
+    *,
+    snapshot: HarnessSnapshot | None = None,
+    trial_name: str = "trial-a",
+) -> SimpleNamespace:
+    result_path = write_raw_atif(root, snapshot=snapshot, trial_name=trial_name)
+    return train_batch_from_result(result_path)
+
+
+def train_batch_from_result(result_path: Path) -> SimpleNamespace:
     trajectory = SimpleNamespace(
         task_id=CANARY,
         attempt_id=f"attempt-{CANARY}",
@@ -261,6 +291,240 @@ class BaselineTests(unittest.TestCase):
         for path in snapshots:
             snapshot = HarnessSnapshot.from_dict(read_json(path))
             self.assertEqual(path.stem, snapshot.snapshot_sha256)
+
+    def test_two_updates_publish_each_committed_candidate_to_the_live_rollout_state(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        a0 = HarnessSnapshot.from_dict(
+            read_json(self.root / "state" / "snapshots" / f"{state.metadata['a0_sha256']}.json")
+        )
+
+        first = baseline.update(
+            train_batch(self.root / "harbor", snapshot=a0, trial_name="train-generation-zero"),
+            state,
+        )
+
+        self.assertTrue(first.changed)
+        a1_hash = first.logs["candidate_sha256"]
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a1_hash)
+        self.assertEqual(Path(state.metadata["prompt_template_path"]).stem, a1_hash)
+        a1 = HarnessSnapshot.from_dict(
+            read_json(self.root / "state" / "snapshots" / f"{a1_hash}.json")
+        )
+        rollout_agent = EvoAgentMiMo(
+            self.root / "rollout-logs",
+            extra_env={"OPENROUTER_API_KEY": PROXY_TOKEN},
+            prompt_template_path=state.metadata["prompt_template_path"],
+            seed=43,
+        )
+        self.assertEqual(rollout_agent.snapshot.snapshot_sha256, a1_hash)
+
+        client.candidate = candidate_payload(max_iterations=12)
+        second = baseline.update(
+            train_batch(self.root / "harbor", snapshot=a1, trial_name="train-generation-one"),
+            state,
+        )
+
+        self.assertTrue(second.changed)
+        a2_hash = second.logs["candidate_sha256"]
+        self.assertNotEqual(a2_hash, a1_hash)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a2_hash)
+        self.assertEqual(Path(state.metadata["prompt_template_path"]).stem, a2_hash)
+        self.assertEqual(baseline.update_index, 2)
+
+    def test_second_update_rejects_a_stale_failure_receipt_without_advancing_state(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        first = baseline.update(train_batch(self.root / "harbor"), state)
+        a1_hash = first.logs["candidate_sha256"]
+        result_path, _receipt_path = write_failure_receipt(
+            self.root / "harbor",
+            snapshot=default_a0(),
+            trial_name="stale-generation-zero-receipt",
+        )
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        stale_batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "failure receipt snapshot drifted"):
+            baseline.update(stale_batch, state)
+
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(baseline.update_index, 1)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a1_hash)
+        self.assertEqual(baseline.report(state)["evaluation_candidate_sha256"], a1_hash)
+
+    def test_second_update_accepts_a_receipted_failure_bound_to_the_live_candidate(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        first = baseline.update(train_batch(self.root / "harbor"), state)
+        a1_hash = first.logs["candidate_sha256"]
+        a1 = HarnessSnapshot.from_dict(
+            read_json(self.root / "state" / "snapshots" / f"{a1_hash}.json")
+        )
+        result_path, _receipt_path = write_failure_receipt(
+            self.root / "harbor",
+            snapshot=a1,
+            trial_name="generation-one-receipt",
+        )
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        receipt_batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        second = baseline.update(receipt_batch, state)
+
+        self.assertEqual(second.status, "unchanged")
+        self.assertFalse(second.changed)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(baseline.update_index, 2)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a1_hash)
+
+    def test_second_update_rejects_stale_atif_identity_without_a_receipt(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        first = baseline.update(train_batch(self.root / "harbor"), state)
+        a1_hash = first.logs["candidate_sha256"]
+
+        with self.assertRaisesRegex(ValueError, "ATIF snapshot identity drifted"):
+            baseline.update(
+                train_batch(
+                    self.root / "harbor",
+                    snapshot=default_a0(),
+                    trial_name="stale-generation-zero-atif",
+                ),
+                state,
+            )
+
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(baseline.update_index, 1)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a1_hash)
+
+    def test_stale_live_state_metadata_is_rejected_fail_closed(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+        )
+        state = baseline.initialize(self.root / "run")
+        state.metadata["prompt_template_path"] = str(self.root / "stale.md")
+
+        with self.assertRaisesRegex(ValueError, "current committed candidate"):
+            baseline.report(state)
+
+    def test_persistence_failure_does_not_publish_an_uncommitted_candidate(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        a0_hash = state.metadata["evaluation_candidate_sha256"]
+
+        with patch.object(baseline, "_write_state_manifest", side_effect=OSError("simulated commit failure")):
+            with self.assertRaisesRegex(OSError, "simulated commit failure"):
+                baseline.update(train_batch(self.root / "harbor"), state)
+
+        self.assertEqual(baseline.update_index, 0)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a0_hash)
+        self.assertEqual(baseline.report(state)["evaluation_candidate_sha256"], a0_hash)
+
+    def test_atif_identity_drift_is_rejected_before_the_update_model_call(self) -> None:
+        cases = (
+            "snapshot",
+            "components",
+            "route",
+            "seed",
+            "model",
+            "runtime",
+            "mirrored_extra",
+            "missing_identity_field",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                case_root = self.root / case
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                result_path = write_raw_atif(harbor_root)
+                atif_path = result_path.parent / "agent" / "trajectory.json"
+                payload = read_json(atif_path)
+                if case == "snapshot":
+                    payload["extra"]["snapshot_hash"] = "0" * 64
+                    payload["agent"]["extra"]["snapshot_hash"] = "0" * 64
+                elif case == "components":
+                    payload["extra"]["component_hashes"]["policy"] = "0" * 64
+                    payload["agent"]["extra"]["component_hashes"]["policy"] = "0" * 64
+                elif case == "route":
+                    payload["extra"]["route_contract_sha256"] = "0" * 64
+                    payload["agent"]["extra"]["route_contract_sha256"] = "0" * 64
+                elif case == "seed":
+                    payload["extra"]["seed"] = 44
+                    payload["agent"]["extra"]["seed"] = 44
+                elif case == "model":
+                    payload["extra"]["api_model_id"] = "other/model"
+                    payload["agent"]["extra"]["api_model_id"] = "other/model"
+                elif case == "runtime":
+                    payload["extra"]["runtime_identity"]["version"] = "other"
+                    payload["agent"]["extra"]["runtime_identity"]["version"] = "other"
+                elif case == "mirrored_extra":
+                    payload["agent"]["extra"] = {**payload["agent"]["extra"], "seed": 44}
+                elif case == "missing_identity_field":
+                    payload["extra"].pop("route_contract_sha256")
+                    payload["agent"]["extra"].pop("route_contract_sha256")
+                atomic_write_json(atif_path, payload)
+
+                with self.assertRaisesRegex(ValueError, "ATIF .*identity"):
+                    baseline.update(train_batch_from_result(result_path), state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
 
     def test_invalid_candidate_records_cost_and_hash_but_does_not_change_snapshot(self) -> None:
         payload = candidate_payload()

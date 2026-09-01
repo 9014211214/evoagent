@@ -48,6 +48,8 @@ require(
     ".github/workflows/ci.yml",
     "pytest -q -n 2 --dist load --max-worker-restart=0 --durations=30",
 )
+require(".github/workflows/ci.yml", "python -m pip install -e ./adapters/seagym_evoagent")
+require(".github/workflows/ci.yml", "adapters/seagym_evoagent/tests")
 require(".github/workflows/ci.yml", "examples/multi_generation_evolution_program.py")
 require(".github/workflows/ci.yml", "evoagent.program")
 require(".github/workflows/ci.yml", "MultiGenerationEvolutionProgramLab")
@@ -248,7 +250,7 @@ if DEFAULT_THIRD_PARTY_LOCK_HASH != (
 ):
     raise SystemExit("runtime third-party lock constant changed")
 
-# The SEAGym + Terminal-Bench pilot remains a score-blind, non-promoting,
+# The SEAGym + Terminal-Bench pilot remains final-comparison-blind, non-promoting,
 # hash-bound preregistration rather than a mutable benchmark recipe.
 pilot_root = ROOT / "experiments" / "seagym_terminalbench"
 protocol = json.loads(
@@ -378,7 +380,9 @@ if (
     protocol.get("protocol_id") != pilot_verifier.EXPECTED_PROTOCOL_ID
     or protocol.get("amendment") != pilot_verifier.EXPECTED_AMENDMENT
 ):
-    raise SystemExit("SEAGym pilot score-blind v10 amendment changed")
+    raise SystemExit("SEAGym pilot final-comparison-blind v11 amendment changed")
+if protocol.get("prior_amendment_v10") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V10:
+    raise SystemExit("SEAGym pilot preserved v10 amendment changed")
 if protocol.get("prior_amendment_v9") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V9:
     raise SystemExit("SEAGym pilot preserved v9 amendment changed")
 if protocol.get("prior_amendment_v8") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V8:

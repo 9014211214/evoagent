@@ -2,21 +2,34 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from datetime import datetime
 import json
 import logging
 import os
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
+from uuid import NAMESPACE_URL, uuid5
 
 from seagym_evoagent.baseline import EvoAgentSEAGymBaseline
 from seagym_evoagent.canonical import atomic_write_json, read_json, sha256_file, sha256_json
-from seagym_evoagent.evidence import NO_USABLE_ATIF_SKIP_CODE
+from seagym_evoagent.evidence import (
+    IncompleteHarborTrainEvidence,
+    INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE,
+    MAX_ATIF_BYTES,
+    MAX_FAILURE_RECEIPT_BYTES,
+    MAX_HARBOR_JSON_BYTES,
+    NO_USABLE_ATIF_SKIP_CODE,
+    project_train_batch,
+)
 from seagym_evoagent._compat import NonZeroAgentExitCodeError
 from seagym_evoagent.harbor_agent import (
+    ADAPTER_VERSION,
     ATTESTATION_FILENAME,
+    ATTESTATION_SCHEMA,
     FAILURE_RECEIPT_FILENAME,
     MIMOCODE_AND_SANITIZER_EXIT,
     MIMOCODE_FORCE_KILL_GRACE_SECONDS,
@@ -26,11 +39,13 @@ from seagym_evoagent.harbor_agent import (
     EvoAgentMiMo,
 )
 from seagym_evoagent.mimocode import (
+    HARBOR_RUNTIME_COMMIT,
     MIMOCODE_ARCHIVE_ENV,
     MIMOCODE_ARCHIVE_SHA256,
     MIMOCODE_ARCHIVE_URL,
     MIMOCODE_SESSION_TITLE,
     MIMOCODE_VERSION,
+    SEAGYM_COMMIT,
     locked_mimocode_config,
     runtime_env,
 )
@@ -95,9 +110,15 @@ def write_raw_atif(
     trial_name: str = "trial-a",
 ) -> Path:
     snapshot = snapshot or default_a0()
-    trial = root / trial_name
+    result_path = _write_harbor_result_identity(
+        root,
+        trial_name=trial_name,
+        task_id=CANARY,
+        errored=False,
+    )
+    trial = result_path.parent
     atif = trial / "agent" / "trajectory.json"
-    atif.parent.mkdir(parents=True)
+    atif.parent.mkdir(parents=True, exist_ok=True)
     identity = {
         "api_model_id": UPDATE_MODEL_ID,
         "seed": seed,
@@ -106,43 +127,310 @@ def write_raw_atif(
         "runtime_identity": {"name": "mimocode", "version": MIMOCODE_VERSION},
         "route_contract_sha256": sha256_json(expected_route_contract()),
     }
-    atif.write_text(
-        json.dumps(
-            {
-                "schema_version": "ATIF-v1.7",
-                "agent": {
-                    "name": "seagym-evoagent-mimocode",
-                    "version": "0.1.0",
-                    "model_name": HARBOR_MODEL_ID,
-                    "extra": identity,
-                },
-                "steps": [
-                    {"step_id": 1, "source": "user", "message": f"raw prompt {CANARY} {SECRET}"},
-                    {
-                        "step_id": 2,
-                        "source": "agent",
-                        "message": f"raw response {SECRET}",
-                        "reasoning_content": f"hidden reasoning {CANARY}",
-                        "tool_calls": [
-                            {
-                                "tool_call_id": "raw-call-id",
-                                "function_name": "bash",
-                                "arguments": {"command": f"echo {SECRET}"},
-                            }
-                        ],
-                        "observation": {
-                            "results": [{"source_call_id": "raw-call-id", "content": f"raw output {CANARY}"}]
-                        },
-                        "extra": {"status": "completed"},
-                    },
-                ],
-                "final_metrics": {"total_steps": 2},
+    atomic_write_json(
+        atif,
+        {
+            "schema_version": "ATIF-v1.7",
+            "agent": {
+                "name": "seagym-evoagent-mimocode",
+                "version": ADAPTER_VERSION,
+                "model_name": HARBOR_MODEL_ID,
                 "extra": identity,
+            },
+            "steps": [
+                {
+                    "step_id": 1,
+                    "source": "system",
+                    "message": "",
+                    "extra": {"status": "sanitized"},
+                },
+                {
+                    "step_id": 2,
+                    "source": "agent",
+                    "message": "",
+                    "model_name": HARBOR_MODEL_ID,
+                    "metrics": {
+                        "prompt_tokens": 25,
+                        "completion_tokens": 5,
+                        "cached_tokens": 0,
+                        "cost_usd": 0.0005,
+                    },
+                    "llm_call_count": 1,
+                    "tool_calls": [
+                        {
+                            "tool_call_id": "tool-000001",
+                            "function_name": "bash",
+                            "arguments": {},
+                        }
+                    ],
+                    "observation": {
+                        "results": [
+                            {
+                                "source_call_id": "tool-000001",
+                                "content": "status:success",
+                            }
+                        ]
+                    },
+                    "extra": {"status": "success"},
+                },
+            ],
+            "final_metrics": {
+                "total_steps": 2,
+                "total_prompt_tokens": 25,
+                "total_completion_tokens": 5,
+                "total_cached_tokens": 0,
+                "total_cost_usd": 0.0005,
+            },
+            "extra": identity,
+        },
+    )
+    atif_sha256 = sha256_file(atif)
+    usage = {
+        "prompt_tokens": 25,
+        "completion_tokens": 5,
+        "cached_tokens": 0,
+        "reasoning_tokens": 0,
+        "cost_usd": 0.0005,
+    }
+    unsigned = {
+        "schema_version": ATTESTATION_SCHEMA,
+        "snapshot_sha256": snapshot.snapshot_sha256,
+        "component_sha256": dict(snapshot.component_sha256),
+        "atif_sha256": atif_sha256,
+        "route_contract_sha256": sha256_json(expected_route_contract()),
+        "model": {
+            "api_id": UPDATE_MODEL_ID,
+            "harbor_id": HARBOR_MODEL_ID,
+            "openrouter_provider": "xiaomi/fp8",
+            "fallbacks_allowed": False,
+            "reasoning_enabled": False,
+            "credential_transport": "local_guard_proxy_v1",
+        },
+        "seed": seed,
+        "runtime": {
+            "adapter_version": ADAPTER_VERSION,
+            "mimocode_version": MIMOCODE_VERSION,
+            "mimocode_archive_sha256": MIMOCODE_ARCHIVE_SHA256,
+            "seagym_commit": SEAGYM_COMMIT,
+            "harbor_commit": HARBOR_RUNTIME_COMMIT,
+        },
+        "usage": usage,
+        "runtime_failure_receipt_sha256": None,
+        "raw_prompt_persisted": False,
+        "raw_response_persisted": False,
+        "reasoning_persisted": False,
+        "causal_attribution_claimed": False,
+        "promotion_claimed": False,
+        "activation_claimed": False,
+    }
+    attestation_sha256 = sha256_json(unsigned)
+    atomic_write_json(
+        atif.parent / ATTESTATION_FILENAME,
+        {**unsigned, "attestation_sha256": attestation_sha256},
+    )
+    result = read_json(result_path)
+    result["agent_result"]["rollout_details"] = None
+    result["agent_result"]["metadata"] = {
+        "attestation_sha256": attestation_sha256,
+        "atif_sha256": atif_sha256,
+        "snapshot_sha256": snapshot.snapshot_sha256,
+        "model_id": UPDATE_MODEL_ID,
+        "seed": seed,
+        "route_contract_sha256": sha256_json(expected_route_contract()),
+        "privacy_projection": True,
+    }
+    atomic_write_json(result_path, result)
+    return result_path
+
+
+def _write_harbor_result_identity(
+    root: Path,
+    *,
+    trial_name: str,
+    task_id: str,
+    errored: bool,
+) -> Path:
+    job_dir = root / f"job-{trial_name}"
+    trial = job_dir / trial_name
+    result_path = trial / "result.json"
+    task_name = task_id.rsplit("/", 1)[-1]
+    patched_job_dir = root / "_patched_tasksets" / job_dir.name
+    task_dir = patched_job_dir / task_name
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (trial / "agent").mkdir(parents=True, exist_ok=True)
+    task_path = task_dir.resolve().as_posix()
+    trial_id = str(uuid5(NAMESPACE_URL, f"trial:{trial_name}"))
+    job_id = str(uuid5(NAMESPACE_URL, f"job:{trial_name}"))
+    task_checksum = sha256_json({"task_id": task_id})
+    agent_config = {
+        "import_path": "seagym_evoagent.harbor_agent:EvoAgentMiMo",
+        "model_name": HARBOR_MODEL_ID,
+    }
+    config = {
+        "task": {"path": task_path},
+        "trial_name": trial_name,
+        "trials_dir": job_dir.resolve().as_posix(),
+        "install_only": False,
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": None,
+        "verifier_timeout_multiplier": None,
+        "agent_setup_timeout_multiplier": None,
+        "environment_build_timeout_multiplier": None,
+        "job_id": job_id,
+        "agent": agent_config,
+        "environment": {},
+        "verifier": {},
+        "artifacts": [],
+        "extra_instruction_paths": [],
+    }
+    reward = 0.0 if errored else 1.0
+    agent_result = {
+        "n_input_tokens": 0 if errored else 25,
+        "n_cache_tokens": 0,
+        "n_output_tokens": 0 if errored else 5,
+        "cost_usd": 0.0 if errored else 0.0005,
+        "rollout_details": None,
+        "metadata": {},
+    }
+    result = {
+        "id": trial_id,
+        "task_name": task_name,
+        "trial_name": trial_name,
+        "trial_uri": trial.resolve().as_uri(),
+        "source": job_dir.name,
+        "task_id": {"path": task_path},
+        "task_checksum": task_checksum,
+        "config": config,
+        "agent_info": {
+            "name": "evoagent-mimo",
+            "version": ADAPTER_VERSION,
+            "model_info": {"name": UPDATE_MODEL_ID, "provider": "openrouter"},
+        },
+        "agent_result": agent_result,
+        "exception_info": (
+            {
+                "exception_type": "HarborErroredResult",
+                "exception_message": "bounded_error",
+                "exception_traceback": "",
+                "occurred_at": "2026-09-01T00:00:00Z",
+            }
+            if errored
+            else None
+        ),
+        "verifier_result": {"rewards": {"reward": reward}},
+        "started_at": "2026-09-01T00:00:00Z",
+        "finished_at": "2026-09-01T00:00:04.500000Z",
+        "environment_setup": (
+            None
+            if errored
+            else {
+                "started_at": "2026-09-01T00:00:00Z",
+                "finished_at": "2026-09-01T00:00:00.500000Z",
             }
         ),
-        encoding="utf-8",
+        "agent_setup": (
+            None
+            if errored
+            else {
+                "started_at": "2026-09-01T00:00:00.500000Z",
+                "finished_at": "2026-09-01T00:00:01Z",
+            }
+        ),
+        "agent_execution": (
+            None
+            if errored
+            else {
+                "started_at": "2026-09-01T00:00:01Z",
+                "finished_at": "2026-09-01T00:00:04Z",
+            }
+        ),
+        "verifier": (
+            None
+            if errored
+            else {
+                "started_at": "2026-09-01T00:00:04Z",
+                "finished_at": "2026-09-01T00:00:04.500000Z",
+            }
+        ),
+        "step_results": None,
+    }
+    atomic_write_json(trial / "config.json", config)
+    atomic_write_json(result_path, result)
+    atomic_write_json(
+        job_dir / "config.json",
+        {
+            "job_name": job_dir.name,
+            "jobs_dir": root.resolve().as_posix(),
+            "n_attempts": 1,
+            "n_concurrent_trials": 1,
+            "retry": {"max_retries": 0},
+            "tasks": [],
+            "datasets": [
+                {
+                    "path": patched_job_dir.resolve().as_posix(),
+                    "task_names": [task_name],
+                    "n_tasks": 1,
+                }
+            ],
+            "agents": [agent_config],
+        },
     )
-    return trial / "result.json"
+    _write_harbor_aggregate(result_path)
+    return result_path
+
+
+def _write_harbor_aggregate(result_path: Path) -> None:
+    result = read_json(result_path)
+    job_dir = result_path.parent.parent
+    agent_result = result["agent_result"]
+    reward = float(result["verifier_result"]["rewards"]["reward"])
+    errored = result["exception_info"] is not None
+    eval_key = (
+        f"{result['agent_info']['name']}__"
+        f"{result['agent_info']['model_info']['name']}__{result['source']}"
+    )
+    atomic_write_json(
+        job_dir / "result.json",
+        {
+            "finished_at": "2026-09-01T00:00:04.500000Z",
+            "id": result["config"]["job_id"],
+            "n_total_trials": 1,
+            "started_at": "2026-09-01T00:00:00Z",
+            "stats": {
+                "cost_usd": agent_result["cost_usd"],
+                "evals": {
+                    eval_key: {
+                        "exception_stats": (
+                            {
+                                result["exception_info"]["exception_type"]: [
+                                    result["trial_name"]
+                                ]
+                            }
+                            if errored
+                            else {}
+                        ),
+                        "metrics": [{"mean": reward}],
+                        "n_errors": int(errored),
+                        "n_trials": 1,
+                        "pass_at_k": {},
+                        "reward_stats": {
+                            "reward": {str(reward): [result["trial_name"]]}
+                        },
+                    }
+                },
+                "n_cache_tokens": agent_result["n_cache_tokens"],
+                "n_cancelled_trials": 0,
+                "n_completed_trials": 1,
+                "n_errored_trials": int(errored),
+                "n_input_tokens": agent_result["n_input_tokens"],
+                "n_output_tokens": agent_result["n_output_tokens"],
+                "n_pending_trials": 0,
+                "n_retries": 0,
+                "n_running_trials": 0,
+            },
+            "updated_at": "2026-09-01T00:00:04.500000Z",
+        },
+    )
 
 
 def train_batch(
@@ -156,19 +444,37 @@ def train_batch(
 
 
 def train_batch_from_result(result_path: Path) -> SimpleNamespace:
+    result = read_json(result_path)
+    trial_name = result["trial_name"]
     trajectory = SimpleNamespace(
         task_id=CANARY,
-        attempt_id=f"attempt-{CANARY}",
+        attempt_id=trial_name,
         view_name="train",
         mode="train",
-        success=False,
-        reward=0.25,
-        score=0.5,
-        rewards={"main": 0.25},
-        cost={"n_input_tokens": 25, "n_output_tokens": 5, "cost_usd": 0.0005},
+        success=True,
+        reward=1.0,
+        score=1.0,
+        rewards={"reward": 1.0},
+        cost={
+            "n_input_tokens": 25.0,
+            "n_cache_tokens": 0.0,
+            "n_output_tokens": 5.0,
+            "cost_usd": 0.0005,
+        },
         runtime_seconds=4.5,
-        error=f"raw error {SECRET}",
-        refs={"result_path": str(result_path), "harbor_stdout": f"raw {SECRET}"},
+        error=None,
+        refs={
+            "result_path": str(result_path),
+            "job_dir": str(result_path.parent.parent),
+            "trial_name": trial_name,
+            "trial_uri": result["trial_uri"],
+            "job_id": result["config"]["job_id"],
+            "harbor_source": result["source"],
+            "harbor_task_name": result["task_name"],
+            "task_checksum": result["task_checksum"],
+            "harbor_returncode": 0,
+            "harbor_stdout": f"raw {SECRET}",
+        },
     )
     return SimpleNamespace(
         trajectories=[trajectory],
@@ -182,19 +488,79 @@ def train_batch_from_result(result_path: Path) -> SimpleNamespace:
 
 
 def failed_train_trajectory(*, refs: dict[str, object] | None = None) -> SimpleNamespace:
+    bound_refs = {} if refs is None else dict(refs)
+    raw_result = bound_refs.get("result_path")
+    if isinstance(raw_result, str) and raw_result:
+        bound_refs.setdefault("job_dir", str(Path(raw_result).parent.parent))
+        result = read_json(Path(raw_result))
+        attempt_id = result["trial_name"]
+        bound_refs.setdefault("trial_name", result["trial_name"])
+        bound_refs.setdefault("trial_uri", result["trial_uri"])
+        bound_refs.setdefault("job_id", result["config"]["job_id"])
+        bound_refs.setdefault("harbor_source", result["source"])
+        bound_refs.setdefault("harbor_task_name", result["task_name"])
+        bound_refs.setdefault("task_checksum", result["task_checksum"])
+        bound_refs.setdefault("harbor_returncode", 0)
+        task_id = result["task_name"]
+        agent_result = result.get("agent_result") or {}
+        cost = {
+            key: float(agent_result[key])
+            for key in (
+                "n_input_tokens",
+                "n_cache_tokens",
+                "n_output_tokens",
+                "cost_usd",
+                "total_tokens",
+            )
+            if isinstance(agent_result.get(key), int | float)
+        }
+        error = str(result["exception_info"])
+        started_at = result.get("started_at")
+        finished_at = result.get("finished_at")
+        runtime_seconds = (
+            (
+                datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+                - datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            ).total_seconds()
+            if isinstance(started_at, str)
+            and started_at
+            and isinstance(finished_at, str)
+            and finished_at
+            else None
+        )
+    else:
+        attempt_id = "failed-attempt"
+        task_id = "failed-task"
+        cost = {}
+        error = f"Harbor trial failed {SECRET}"
+        runtime_seconds = None
     return SimpleNamespace(
-        task_id="failed-task",
-        attempt_id="failed-attempt",
+        task_id=task_id,
+        attempt_id=attempt_id,
         view_name="train",
         mode="train",
         success=False,
         reward=0.0,
         score=0.0,
-        rewards={},
-        cost={},
-        runtime_seconds=None,
-        error=f"Harbor trial failed {SECRET}",
-        refs={} if refs is None else refs,
+        rewards={"reward": 0.0},
+        cost=cost,
+        runtime_seconds=runtime_seconds,
+        error=error,
+        refs=bound_refs,
+    )
+
+
+def write_unattested_harbor_result(
+    root: Path,
+    *,
+    trial_name: str = "errored-result",
+    task_id: str = "failed-task",
+) -> Path:
+    return _write_harbor_result_identity(
+        root,
+        trial_name=trial_name,
+        task_id=task_id,
+        errored=True,
     )
 
 
@@ -208,8 +574,13 @@ def write_failure_receipt(
     tamper: str | None = None,
 ) -> tuple[Path, Path]:
     snapshot = snapshot or default_a0()
-    trial = root / trial_name
-    result_path = trial / "result.json"
+    result_path = _write_harbor_result_identity(
+        root,
+        trial_name=trial_name,
+        task_id="failed-task" if trial_name != "trial-a" else CANARY,
+        errored=True,
+    )
+    trial = result_path.parent
     unsigned: dict[str, object] = {
         "schema_version": "evoagent-runtime-failure-v1",
         "failure_class": "runtime_sanitization_failed",
@@ -240,7 +611,91 @@ def write_failure_receipt(
         receipt["receipt_sha256"] = sha256_json({key: value for key, value in receipt.items() if key != "receipt_sha256"})
     receipt_path = trial / "agent" / FAILURE_RECEIPT_FILENAME
     atomic_write_json(receipt_path, receipt)
+    result = read_json(result_path)
+    if atif_present:
+        attestation_path = trial / "agent" / ATTESTATION_FILENAME
+        attestation = read_json(attestation_path)
+        attestation["runtime_failure_receipt_sha256"] = receipt["receipt_sha256"]
+        attestation_unsigned = dict(attestation)
+        attestation_unsigned.pop("attestation_sha256")
+        attestation["attestation_sha256"] = sha256_json(attestation_unsigned)
+        atomic_write_json(attestation_path, attestation)
+        usage = attestation["usage"]
+        result["agent_result"] = {
+            "n_input_tokens": usage["prompt_tokens"],
+            "n_cache_tokens": usage["cached_tokens"],
+            "n_output_tokens": usage["completion_tokens"],
+            "cost_usd": usage["cost_usd"],
+            "rollout_details": None,
+            "metadata": {
+                "attestation_sha256": attestation["attestation_sha256"],
+                "atif_sha256": attestation["atif_sha256"],
+                "snapshot_sha256": attestation["snapshot_sha256"],
+                "model_id": UPDATE_MODEL_ID,
+                "seed": seed,
+                "route_contract_sha256": attestation["route_contract_sha256"],
+                "privacy_projection": True,
+                "runtime_failure_receipt_sha256": receipt["receipt_sha256"],
+            },
+        }
+    else:
+        result["agent_result"] = {
+            "n_input_tokens": 0,
+            "n_cache_tokens": 0,
+            "n_output_tokens": 0,
+            "cost_usd": 0.0,
+            "rollout_details": None,
+            "metadata": {
+                "runtime_failure_receipt_sha256": receipt["receipt_sha256"],
+                "runtime_failure_class": receipt["failure_class"],
+                "runtime_failure_stage": receipt["failure_stage"],
+                "mimocode_exit_class": receipt["mimocode_exit_class"],
+                "snapshot_sha256": receipt["snapshot_sha256"],
+                "model_id": UPDATE_MODEL_ID,
+                "seed": seed,
+                "route_contract_sha256": receipt["route_contract_sha256"],
+                "privacy_projection": True,
+            },
+        }
+    atomic_write_json(result_path, result)
+    _write_harbor_aggregate(result_path)
     return result_path, receipt_path
+
+
+def write_outer_checkpoint(
+    checkpoint_dir: Path,
+    *,
+    checkpoint_id: str,
+    checkpoint_type: str,
+    baseline_manifest: dict[str, object],
+    run_id: str = "pilot-run",
+) -> dict[str, object]:
+    update_index = int(baseline_manifest["update_index"])
+    outer: dict[str, object] = {
+        "checkpoint_id": checkpoint_id,
+        "checkpoint_type": checkpoint_type,
+        "created_at": "2026-08-29T00:00:00+00:00",
+        "run_id": run_id,
+        "experiment_id": "evoagent-seagym-pilot",
+        "trainer_state": {
+            "epoch": 0 if update_index == 0 else 1,
+            "train_batch_index": update_index,
+            "global_step": update_index,
+            "updates_completed": update_index,
+            "num_train_tasks_seen": update_index * 3,
+            "checkpoint_id": checkpoint_id,
+            "previous_update_validation_results": [],
+        },
+        "metadata": {"kind": checkpoint_type},
+        "refs": {
+            "baseline_state": baseline_manifest["state_ref"],
+            "batch_plan": "/original/run/inputs/batch_plan.json",
+            "config": "/original/run/inputs/experiment_config.json",
+        },
+        "baseline": baseline_manifest,
+    }
+    atomic_write_json(checkpoint_dir / "checkpoint.json", outer)
+    return outer
 
 
 class BaselineTests(unittest.TestCase):
@@ -250,6 +705,784 @@ class BaselineTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def _assert_update_fails_closed(
+        self,
+        *,
+        baseline: EvoAgentSEAGymBaseline,
+        state: object,
+        batch: object,
+        client: FakeClient,
+        case_root: Path,
+    ) -> None:
+        with self.assertRaises(ValueError):
+            baseline.update(batch, state)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
+        self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_requires_a_regular_result_bound_to_its_trial(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        result_path.unlink()
+
+        with self.assertRaisesRegex(ValueError, "result|missing"):
+            baseline.update(batch, state)
+
+    def test_train_projection_rejects_cross_trial_result_reference(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor", trial_name="trial-a")
+        other = train_batch(self.root / "harbor", trial_name="trial-b")
+        batch.trajectories[0].refs = dict(other.trajectories[0].refs)
+
+        with self.assertRaisesRegex(ValueError, "attempt_id|trial"):
+            baseline.update(batch, state)
+
+    def test_train_projection_rejects_cross_task_result_identity(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        payload = read_json(result_path)
+        other_task = self.root / "harbor" / "_tasks" / "other-task"
+        other_task.mkdir(parents=True)
+        other_path = other_task.resolve().as_posix()
+        payload["task_name"] = "other-task"
+        payload["task_id"] = {"path": other_path}
+        payload["config"]["task"] = {"path": other_path}
+        atomic_write_json(result_path, payload)
+
+        with self.assertRaisesRegex(ValueError, "task identity"):
+            baseline.update(batch, state)
+
+    def test_train_projection_recomputes_every_pinned_normalized_field_before_call(self) -> None:
+        tamper_values = {
+            "success": False,
+            "score": 0.25,
+            "reward": 0.25,
+            "rewards": {},
+            "cost": {},
+            "runtime_seconds": 0.0,
+            "error": "tampered_error",
+        }
+        for field, value in tamper_values.items():
+            with self.subTest(field=field):
+                case_root = self.root / f"normalized-{field}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                setattr(batch.trajectories[0], field, value)
+
+                with self.assertRaises(ValueError):
+                    baseline.update(batch, state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
+                self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_requires_exact_finite_verifier_reward_before_call(self) -> None:
+        missing = object()
+        invalid_verifier_results = {
+            "missing": missing,
+            "null": None,
+            "empty": {},
+            "extra_verifier_key": {
+                "rewards": {"reward": 0.5},
+                "unexpected": True,
+            },
+            "missing_rewards": {"unexpected": {}},
+            "null_rewards": {"rewards": None},
+            "empty_rewards": {"rewards": {}},
+            "extra_reward_key": {"rewards": {"reward": 0.5, "unexpected": 0.0}},
+            "non_numeric_reward": {"rewards": {"reward": "0.5"}},
+            "boolean_reward": {"rewards": {"reward": True}},
+            "non_finite_reward": {"rewards": {"reward": float("nan")}},
+        }
+        for case, verifier_result in invalid_verifier_results.items():
+            with self.subTest(case=case):
+                case_root = self.root / f"verifier-reward-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                payload = read_json(result_path)
+                if verifier_result is missing:
+                    payload.pop("verifier_result")
+                else:
+                    payload["verifier_result"] = verifier_result
+                if case == "non_finite_reward":
+                    result_path.write_text(
+                        json.dumps(payload, allow_nan=True, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    atomic_write_json(result_path, payload)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "non-finite|verifier_result|reward|root schema",
+                ):
+                    baseline.update(batch, state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
+                self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_requires_valid_completed_harbor_timing_before_call(self) -> None:
+        tamper_cases = (
+            ("missing_started_at", "pop", "started_at"),
+            ("missing_finished_at", "pop", "finished_at"),
+            ("malformed_started_at", "set", ("started_at", "not-a-timestamp")),
+            ("naive_started_at", "set", ("started_at", "2026-09-01T00:00:00")),
+            ("reversed", "set", ("finished_at", "2026-08-31T23:59:59Z")),
+            ("missing_environment_setup", "pop", "environment_setup"),
+            ("missing_agent_setup", "pop", "agent_setup"),
+            ("missing_agent_execution", "pop", "agent_execution"),
+            ("missing_verifier", "pop", "verifier"),
+            ("missing_phase_finished_at", "phase_pop", ("verifier", "finished_at")),
+        )
+        for case, operation, argument in tamper_cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"timing-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                payload = read_json(result_path)
+                if operation == "pop":
+                    payload.pop(argument)
+                elif operation == "set":
+                    key, value = argument
+                    payload[key] = value
+                else:
+                    phase, key = argument
+                    payload[phase].pop(key)
+                atomic_write_json(result_path, payload)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "timing|timestamp|timezone|started_at|finished_at|root schema",
+                ):
+                    baseline.update(batch, state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
+                self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_requires_binary_reward_and_zero_for_errors(self) -> None:
+        for case in ("fractional", "errored_nonzero"):
+            with self.subTest(case=case):
+                case_root = self.root / f"binary-reward-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if case == "fractional":
+                    batch = train_batch(harbor_root)
+                    result_path = Path(batch.trajectories[0].refs["result_path"])
+                    payload = read_json(result_path)
+                    payload["verifier_result"] = {"rewards": {"reward": 0.5}}
+                else:
+                    result_path = write_unattested_harbor_result(harbor_root)
+                    failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[failed],
+                        task_ids=[failed.task_id],
+                        view_name="train",
+                        mode="train",
+                    )
+                    payload = read_json(result_path)
+                    payload["verifier_result"] = {"rewards": {"reward": 1.0}}
+                atomic_write_json(result_path, payload)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_mirrors_exact_harbor_child_contract(self) -> None:
+        cases = (
+            "extra_root",
+            "trial_uri",
+            "checksum",
+            "config_schema",
+            "agent_info",
+            "agent_context",
+            "step_results",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"child-contract-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                payload = read_json(result_path)
+                if case == "extra_root":
+                    payload["unexpected"] = None
+                elif case == "trial_uri":
+                    payload["trial_uri"] = result_path.parent.parent.as_uri()
+                elif case == "checksum":
+                    payload["task_checksum"] = "not-a-checksum"
+                elif case == "config_schema":
+                    payload["config"]["unexpected"] = True
+                elif case == "agent_info":
+                    payload["agent_info"]["name"] = "other-agent"
+                elif case == "agent_context":
+                    payload["agent_result"]["raw_response"] = ""
+                else:
+                    payload["step_results"] = []
+                atomic_write_json(result_path, payload)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_errored_child_rejects_malformed_non_null_phase_timing(self) -> None:
+        case_root = self.root / "errored-phase-timing"
+        harbor_root = case_root / "harbor"
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=case_root / "state",
+            atif_root=harbor_root,
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(case_root / "run")
+        result_path = write_unattested_harbor_result(harbor_root)
+        payload = read_json(result_path)
+        payload["agent_execution"] = {
+            "started_at": "not-an-iso-timestamp",
+            "finished_at": "2026-09-01T00:00:01Z",
+        }
+        atomic_write_json(result_path, payload)
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        self._assert_update_fails_closed(
+            baseline=baseline,
+            state=state,
+            batch=batch,
+            client=client,
+            case_root=case_root,
+        )
+
+    def test_train_projection_rejects_agent_inventory_drift_for_every_shape(self) -> None:
+        for case in ("normal_file", "normal_directory", "atif_receipt", "receipt_only", "link"):
+            with self.subTest(case=case):
+                case_root = self.root / f"agent-inventory-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if case in {"normal_file", "normal_directory", "link"}:
+                    batch = train_batch(harbor_root)
+                    result_path = Path(batch.trajectories[0].refs["result_path"])
+                elif case == "atif_receipt":
+                    batch = train_batch(harbor_root)
+                    result_path, _receipt = write_failure_receipt(
+                        harbor_root,
+                        trial_name="trial-a",
+                        atif_present=True,
+                    )
+                    failed = failed_train_trajectory(refs=batch.trajectories[0].refs)
+                    batch.trajectories[0] = failed
+                    batch.task_ids[0] = failed.task_id
+                else:
+                    result_path, _receipt = write_failure_receipt(harbor_root)
+                    failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[failed],
+                        task_ids=[failed.task_id],
+                        view_name="train",
+                        mode="train",
+                    )
+                agent_dir = result_path.parent / "agent"
+                if case == "normal_directory":
+                    (agent_dir / "unexpected").mkdir()
+                elif case == "link":
+                    try:
+                        (agent_dir / "unexpected-link").symlink_to(result_path)
+                    except OSError:
+                        continue
+                else:
+                    (agent_dir / "unexpected.json").write_text("{}\n", encoding="utf-8")
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_mirrors_single_task_job_and_aggregate_contract(self) -> None:
+        cases = (
+            "returncode",
+            "attempts",
+            "concurrency",
+            "retry",
+            "dataset",
+            "agent",
+            "child_config",
+            "extra_child",
+            "aggregate_id",
+            "aggregate_count",
+            "aggregate_error",
+            "aggregate_reward",
+            "aggregate_usage",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"job-contract-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(harbor_root)
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                job_dir = result_path.parent.parent
+                job_config_path = job_dir / "config.json"
+                aggregate_path = job_dir / "result.json"
+                if case == "returncode":
+                    batch.trajectories[0].refs["harbor_returncode"] = 1
+                elif case in {"attempts", "concurrency", "retry", "dataset", "agent"}:
+                    job_config = read_json(job_config_path)
+                    if case == "attempts":
+                        job_config["n_attempts"] = 2
+                    elif case == "concurrency":
+                        job_config["n_concurrent_trials"] = 2
+                    elif case == "retry":
+                        job_config["retry"]["max_retries"] = 1
+                    elif case == "dataset":
+                        job_config["datasets"][0]["task_names"] = ["other-task"]
+                    else:
+                        job_config["agents"] = [{"import_path": "other:Agent"}]
+                    atomic_write_json(job_config_path, job_config)
+                elif case == "child_config":
+                    child_config_path = result_path.parent / "config.json"
+                    child_config = read_json(child_config_path)
+                    child_config["timeout_multiplier"] = 2.0
+                    atomic_write_json(child_config_path, child_config)
+                elif case == "extra_child":
+                    (job_dir / "unexpected-trial").mkdir()
+                else:
+                    aggregate = read_json(aggregate_path)
+                    eval_stats = next(iter(aggregate["stats"]["evals"].values()))
+                    if case == "aggregate_id":
+                        aggregate["id"] = str(uuid5(NAMESPACE_URL, "other-job"))
+                    elif case == "aggregate_count":
+                        aggregate["stats"]["n_completed_trials"] = 0
+                    elif case == "aggregate_error":
+                        aggregate["stats"]["n_errored_trials"] = 1
+                    elif case == "aggregate_reward":
+                        eval_stats["metrics"] = [{"mean": 0.0}]
+                    else:
+                        aggregate["stats"]["n_input_tokens"] += 1
+                    atomic_write_json(aggregate_path, aggregate)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_scans_every_bound_artifact_for_credentials(self) -> None:
+        for case in (
+            "result",
+            "job_config",
+            "child_config",
+            "aggregate",
+            "atif",
+            "attestation",
+            "receipt",
+        ):
+            with self.subTest(case=case):
+                case_root = self.root / f"secret-scan-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if case == "receipt":
+                    result_path, receipt_path = write_failure_receipt(harbor_root)
+                    failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[failed],
+                        task_ids=[failed.task_id],
+                        view_name="train",
+                        mode="train",
+                    )
+                    receipt = read_json(receipt_path)
+                    receipt["failure_class"] = SECRET
+                    atomic_write_json(receipt_path, receipt)
+                else:
+                    batch = train_batch(harbor_root)
+                    result_path = Path(batch.trajectories[0].refs["result_path"])
+                    job_dir = result_path.parent.parent
+                    agent_dir = result_path.parent / "agent"
+                    if case == "result":
+                        payload = read_json(result_path)
+                        payload["config"]["environment"] = {"credential": SECRET}
+                        atomic_write_json(result_path, payload)
+                    elif case == "job_config":
+                        path = job_dir / "config.json"
+                        payload = read_json(path)
+                        payload["credential"] = SECRET
+                        atomic_write_json(path, payload)
+                    elif case == "child_config":
+                        path = result_path.parent / "config.json"
+                        payload = read_json(path)
+                        payload["environment"] = {"credential": SECRET}
+                        atomic_write_json(path, payload)
+                    elif case == "aggregate":
+                        path = job_dir / "result.json"
+                        payload = read_json(path)
+                        payload["credential"] = SECRET
+                        atomic_write_json(path, payload)
+                    elif case == "atif":
+                        path = agent_dir / "trajectory.json"
+                        payload = read_json(path)
+                        payload["steps"][0]["message"] = SECRET
+                        atomic_write_json(path, payload)
+                    else:
+                        path = agent_dir / ATTESTATION_FILENAME
+                        payload = read_json(path)
+                        payload["credential"] = SECRET
+                        atomic_write_json(path, payload)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_rejects_every_oversized_bound_artifact(self) -> None:
+        limits = {
+            "result": MAX_HARBOR_JSON_BYTES,
+            "job_config": MAX_HARBOR_JSON_BYTES,
+            "child_config": MAX_HARBOR_JSON_BYTES,
+            "aggregate": MAX_HARBOR_JSON_BYTES,
+            "atif": MAX_ATIF_BYTES,
+            "attestation": MAX_FAILURE_RECEIPT_BYTES,
+            "receipt": MAX_FAILURE_RECEIPT_BYTES,
+        }
+        for case, limit in limits.items():
+            with self.subTest(case=case):
+                case_root = self.root / f"size-limit-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=harbor_root,
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if case == "receipt":
+                    result_path, target = write_failure_receipt(harbor_root)
+                    failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[failed],
+                        task_ids=[failed.task_id],
+                        view_name="train",
+                        mode="train",
+                    )
+                else:
+                    batch = train_batch(harbor_root)
+                    result_path = Path(batch.trajectories[0].refs["result_path"])
+                    targets = {
+                        "result": result_path,
+                        "job_config": result_path.parent.parent / "config.json",
+                        "child_config": result_path.parent / "config.json",
+                        "aggregate": result_path.parent.parent / "result.json",
+                        "atif": result_path.parent / "agent" / "trajectory.json",
+                        "attestation": result_path.parent / "agent" / ATTESTATION_FILENAME,
+                    }
+                    target = targets[case]
+                with target.open("wb") as handle:
+                    handle.truncate(limit + 1)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_requires_mandatory_job_refs_and_non_null_atif_timestamp(self) -> None:
+        for case in ("job_dir", "task_checksum", "null_timestamp"):
+            with self.subTest(case=case):
+                case_root = self.root / f"mandatory-binding-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                if case in {"job_dir", "task_checksum"}:
+                    batch.trajectories[0].refs.pop(case)
+                else:
+                    atif_path = result_path.parent / "agent" / "trajectory.json"
+                    atif = read_json(atif_path)
+                    atif["steps"][1]["timestamp"] = None
+                    atomic_write_json(atif_path, atif)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline,
+                    state=state,
+                    batch=batch,
+                    client=client,
+                    case_root=case_root,
+                )
+
+    def test_train_projection_rejects_reused_job_uuid_across_distinct_jobs(self) -> None:
+        case_root = self.root / "duplicate-job-id"
+        harbor_root = case_root / "harbor"
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=case_root / "state",
+            atif_root=harbor_root,
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(case_root / "run")
+        normal = train_batch(harbor_root, trial_name="normal")
+        failed_result, _receipt = write_failure_receipt(
+            harbor_root,
+            trial_name="failed",
+        )
+        failed = failed_train_trajectory(refs={"result_path": str(failed_result)})
+        first_job_id = read_json(
+            Path(normal.trajectories[0].refs["result_path"])
+        )["config"]["job_id"]
+        failed_payload = read_json(failed_result)
+        failed_payload["config"]["job_id"] = first_job_id
+        atomic_write_json(failed_result, failed_payload)
+        atomic_write_json(failed_result.parent / "config.json", failed_payload["config"])
+        _write_harbor_aggregate(failed_result)
+        failed.refs["job_id"] = first_job_id
+        batch = SimpleNamespace(
+            trajectories=[normal.trajectories[0], failed],
+            task_ids=[normal.task_ids[0], failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        self._assert_update_fails_closed(
+            baseline=baseline,
+            state=state,
+            batch=batch,
+            client=client,
+            case_root=case_root,
+        )
+
+    def test_train_projection_requires_attestation_and_result_context_before_call(self) -> None:
+        for tamper in ("missing", "self_hash", "result_metadata"):
+            with self.subTest(tamper=tamper):
+                case_root = self.root / f"attestation-{tamper}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                attestation_path = result_path.parent / "agent" / ATTESTATION_FILENAME
+                if tamper == "missing":
+                    attestation_path.unlink()
+                elif tamper == "self_hash":
+                    attestation = read_json(attestation_path)
+                    attestation["attestation_sha256"] = "0" * 64
+                    atomic_write_json(attestation_path, attestation)
+                else:
+                    result = read_json(result_path)
+                    result["agent_result"]["metadata"]["raw_response"] = SECRET
+                    atomic_write_json(result_path, result)
+
+                with self.assertRaises(ValueError):
+                    baseline.update(batch, state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
+                self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_binds_batch_task_order_and_rejects_reused_result(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        mismatched = train_batch(self.root / "harbor", trial_name="mismatch")
+        mismatched.task_ids[0] = "other-task"
+        with self.assertRaisesRegex(ValueError, "task_ids"):
+            baseline.update(mismatched, state)
+
+        duplicated = train_batch(self.root / "harbor", trial_name="duplicate")
+        original = duplicated.trajectories[0]
+        duplicate = SimpleNamespace(**vars(original))
+        duplicated.trajectories.append(duplicate)
+        duplicated.task_ids.append(original.task_id)
+        with self.assertRaisesRegex(ValueError, "task_ids.*unique|attempt_id was reused|result.*reused"):
+            baseline.update(duplicated, state)
+
+    def test_train_projection_rejects_two_tasks_from_one_harbor_job(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        first = train_batch(self.root / "harbor", trial_name="trial-a")
+        second = train_batch(self.root / "harbor", trial_name="trial-b")
+        first_result = Path(first.trajectories[0].refs["result_path"])
+        old_second_result = Path(second.trajectories[0].refs["result_path"])
+        target_trial = first_result.parent.parent / old_second_result.parent.name
+        shutil.move(str(old_second_result.parent), str(target_trial))
+        second_result = target_trial / "result.json"
+        payload = read_json(second_result)
+        other_task_id = "terminal-bench-core/other-task"
+        other_task_dir = self.root / "harbor" / "_tasks" / "other-task"
+        other_task_dir.mkdir(parents=True)
+        other_task_path = other_task_dir.resolve().as_posix()
+        first_payload = read_json(first_result)
+        payload["task_name"] = "other-task"
+        payload["task_id"] = {"path": other_task_path}
+        payload["task_checksum"] = sha256_json({"task_id": other_task_id})
+        payload["source"] = first_result.parent.parent.name
+        payload["trial_uri"] = target_trial.as_uri()
+        payload["config"]["task"] = {"path": other_task_path}
+        payload["config"]["trials_dir"] = first_result.parent.parent.resolve().as_posix()
+        payload["config"]["job_id"] = first_payload["config"]["job_id"]
+        atomic_write_json(second_result, payload)
+        second_trajectory = second.trajectories[0]
+        second_trajectory.task_id = other_task_id
+        second_trajectory.refs.update(
+            {
+                "result_path": str(second_result),
+                "job_dir": str(first_result.parent.parent),
+                "trial_uri": payload["trial_uri"],
+                "job_id": payload["config"]["job_id"],
+                "harbor_source": payload["source"],
+                "harbor_task_name": payload["task_name"],
+                "task_checksum": payload["task_checksum"],
+            }
+        )
+        batch = SimpleNamespace(
+            trajectories=[first.trajectories[0], second_trajectory],
+            task_ids=[first.task_ids[0], other_task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "job directory|job.*reused|exactly one child"):
+            baseline.update(batch, state)
 
     def test_update_projects_only_structural_train_evidence_and_persists_immutable_candidate(self) -> None:
         client = FakeClient(candidate_payload())
@@ -588,7 +1821,7 @@ class BaselineTests(unittest.TestCase):
         evidence = client.calls[0]["evidence"]
         self.assertEqual(evidence["schema_version"], "evoagent-observable-train-evidence-v2")
         self.assertEqual(evidence["num_trajectories"], 2)
-        self.assertEqual(evidence["error_count"], 2)
+        self.assertEqual(evidence["error_count"], 1)
         self.assertEqual(evidence["atif"]["documents"], 1)
         self.assertEqual(evidence["atif"]["missing_error_documents"], 1)
         self.assertEqual(evidence["atif"]["steps"], 2)
@@ -619,6 +1852,8 @@ class BaselineTests(unittest.TestCase):
             trial_name="trial-a",
             atif_present=True,
         )
+        batch.trajectories[0] = failed_train_trajectory(refs=batch.trajectories[0].refs)
+        batch.task_ids[0] = batch.trajectories[0].task_id
         state = baseline.initialize(self.root / "run")
 
         result = baseline.update(batch, state)
@@ -639,6 +1874,8 @@ class BaselineTests(unittest.TestCase):
         )
         batch = train_batch(self.root / "harbor")
         write_failure_receipt(self.root / "harbor", trial_name="trial-a", atif_present=False)
+        batch.trajectories[0] = failed_train_trajectory(refs=batch.trajectories[0].refs)
+        batch.task_ids[0] = batch.trajectories[0].task_id
         state = baseline.initialize(self.root / "run")
 
         with self.assertRaisesRegex(ValueError, "ATIF state"):
@@ -730,6 +1967,404 @@ class BaselineTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             tampered.initialize(self.root / "run")
+
+    def test_mixed_batch_with_unattested_harbor_failure_skips_without_partial_learning(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        before = state.metadata["evaluation_candidate_sha256"]
+        batch = train_batch(self.root / "harbor")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch.trajectories.append(failed)
+        batch.task_ids.append(failed.task_id)
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "unchanged")
+        self.assertFalse(result.changed)
+        self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertEqual(result.metrics["unattested_harbor_failures"], 1)
+        self.assertEqual(result.metrics["input_tokens"], 0)
+        self.assertEqual(result.metrics["output_tokens"], 0)
+        self.assertEqual(result.metrics["cost_usd"], 0.0)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 1)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], before)
+        attempt = read_json(next((self.root / "state" / "attempts").glob("*.json")))
+        self.assertEqual(attempt["status"], "skipped_incomplete_evidence")
+        self.assertEqual(attempt["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertFalse(attempt["model_call_executed"])
+        self.assertEqual(attempt["usage"]["total_tokens"], 0)
+        self.assertNotIn(SECRET, json.dumps(attempt, sort_keys=True))
+
+    def test_incomplete_projection_hash_binds_verified_evidence_and_batch_identity(self) -> None:
+        batch = train_batch(self.root / "harbor")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch.trajectories.append(failed)
+        batch.task_ids.append(failed.task_id)
+
+        def projection() -> object:
+            with self.assertRaises(IncompleteHarborTrainEvidence) as raised:
+                project_train_batch(
+                    batch,
+                    atif_root=self.root / "harbor",
+                    expected_snapshot_sha256=default_a0().snapshot_sha256,
+                    expected_component_sha256=dict(default_a0().component_sha256),
+                    expected_route_contract_sha256=sha256_json(expected_route_contract()),
+                    expected_seed=43,
+                )
+            return raised.exception.projection
+
+        before = projection()
+        self.assertEqual(before.summary["verified_atif_documents"], 1)
+        self.assertRegex(before.summary["verified_atif_set_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(before.summary["verified_failure_receipt_set_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(before.summary["batch_task_job_identity_sha256"], r"^[0-9a-f]{64}$")
+
+        atif_path = Path(batch.trajectories[0].refs["result_path"]).parent / "agent" / "trajectory.json"
+        atif = read_json(atif_path)
+        atif["steps"][1]["timestamp"] = "2026-09-01T00:00:00Z"
+        atomic_write_json(atif_path, atif)
+        attestation_path = atif_path.parent / ATTESTATION_FILENAME
+        attestation = read_json(attestation_path)
+        attestation["atif_sha256"] = sha256_file(atif_path)
+        attestation_unsigned = dict(attestation)
+        attestation_unsigned.pop("attestation_sha256")
+        attestation["attestation_sha256"] = sha256_json(attestation_unsigned)
+        atomic_write_json(attestation_path, attestation)
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        result = read_json(result_path)
+        result["agent_result"]["metadata"]["atif_sha256"] = attestation["atif_sha256"]
+        result["agent_result"]["metadata"]["attestation_sha256"] = attestation[
+            "attestation_sha256"
+        ]
+        atomic_write_json(result_path, result)
+        after = projection()
+
+        self.assertNotEqual(after.summary["verified_atif_set_sha256"], before.summary["verified_atif_set_sha256"])
+        self.assertNotEqual(after.evidence_sha256, before.evidence_sha256)
+
+    def test_unattested_second_update_preserves_live_disk_and_restored_a1(self) -> None:
+        client = FakeClient(candidate_payload(max_iterations=11))
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        first = baseline.update(train_batch(self.root / "harbor"), state)
+        a1_hash = first.logs["candidate_sha256"]
+        result_path = write_unattested_harbor_result(
+            self.root / "harbor",
+            trial_name="second-batch-outer-failure",
+        )
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        second = baseline.update(batch, state)
+
+        self.assertEqual(second.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(baseline.update_index, 2)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], a1_hash)
+        self.assertEqual(baseline.report(state)["evaluation_candidate_sha256"], a1_hash)
+        self.assertEqual(baseline.report(state)["incomplete_evidence_skips"], 1)
+
+        restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        restored_state = restored.initialize(self.root / "run")
+        self.assertEqual(restored.update_index, 2)
+        self.assertEqual(restored_state.metadata["evaluation_candidate_sha256"], a1_hash)
+        self.assertEqual(restored.report(restored_state)["incomplete_evidence_skips"], 1)
+
+    def test_declared_missing_receipt_is_not_downgraded_to_unattested_failure(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        missing_receipt = result_path.parent / "agent" / FAILURE_RECEIPT_FILENAME
+        failed = failed_train_trajectory(
+            refs={
+                "result_path": str(result_path),
+                "failure_receipt_path": str(missing_receipt),
+            }
+        )
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "failure receipt is missing"):
+            baseline.update(batch, state)
+
+        self.assertEqual(baseline.update_index, 0)
+        self.assertEqual(list((self.root / "state" / "attempts").glob("*.json")), [])
+
+        failed.refs = dict(failed.refs)
+        failed.refs["failure_receipt_path"] = None
+        with self.assertRaisesRegex(ValueError, "must be non-empty text"):
+            baseline.update(batch, state)
+
+    def test_unattested_skip_manifest_failure_does_not_publish_and_can_retry(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        before = state.metadata["evaluation_candidate_sha256"]
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with patch.object(baseline, "_write_state_manifest", side_effect=OSError("commit failed")):
+            with self.assertRaisesRegex(OSError, "commit failed"):
+                baseline.update(batch, state)
+
+        self.assertEqual(baseline.update_index, 0)
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], before)
+        self.assertEqual(baseline.report(state)["evaluation_candidate_sha256"], before)
+
+        restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        restored_state = restored.initialize(self.root / "run")
+        self.assertEqual(restored.update_index, 0)
+        retried = restored.update(batch, restored_state)
+        self.assertEqual(retried.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertEqual(restored.update_index, 1)
+        self.assertEqual(restored_state.metadata["evaluation_candidate_sha256"], before)
+
+    def test_partial_agent_evidence_is_not_downgraded_to_unattested_failure(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        atomic_write_json(result_path.parent / "agent" / ATTESTATION_FILENAME, {"partial": True})
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "partial agent evidence"):
+            baseline.update(batch, state)
+
+        self.assertEqual(baseline.update_index, 0)
+
+    def test_any_unclassified_errored_atif_skips_the_whole_batch(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        payload = read_json(result_path)
+        payload["exception_info"] = {
+            "exception_type": "OuterHarborFailure",
+            "exception_message": "bounded_error",
+            "exception_traceback": "",
+            "occurred_at": "2026-09-01T00:00:05Z",
+        }
+        payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+        atomic_write_json(result_path, payload)
+        _write_harbor_aggregate(result_path)
+        batch.trajectories[0] = failed_train_trajectory(refs=batch.trajectories[0].refs)
+        batch.task_ids[0] = batch.trajectories[0].task_id
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertFalse(result.logs["model_call_executed"])
+        self.assertEqual(result.metrics["unattested_harbor_failures"], 1)
+        self.assertEqual(client.calls, [])
+
+    def test_declared_atif_is_mandatory_even_when_the_derived_atif_exists(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        batch.trajectories[0].refs["atif_path"] = str(
+            result_path.parent / "agent" / "missing-trajectory.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "declared Harbor ATIF evidence is missing"):
+            baseline.update(batch, state)
+
+    def test_declared_atif_cannot_reference_another_harbor_trial(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor", trial_name="trial-one")
+        other_result = write_raw_atif(self.root / "harbor", trial_name="trial-two")
+        batch.trajectories[0].refs["atif_path"] = str(
+            other_result.parent / "agent" / "trajectory.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not match its Harbor trial"):
+            baseline.update(batch, state)
+
+    def test_harbor_trial_cannot_publish_two_derived_atif_files(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(self.root / "harbor")
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        trajectory_path = result_path.parent / "agent" / "trajectory.json"
+        (trajectory_path.parent / "atif.json").write_bytes(trajectory_path.read_bytes())
+
+        with self.assertRaisesRegex(ValueError, "ambiguous ATIF"):
+            baseline.update(batch, state)
+
+    def test_unattested_errored_result_rejects_any_unbound_agent_file(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        extra = result_path.parent / "agent" / "partial.tmp"
+        extra.parent.mkdir(exist_ok=True)
+        extra.write_text("partial", encoding="utf-8")
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "partial agent evidence"):
+            baseline.update(batch, state)
+
+    def test_unattested_errored_result_requires_strict_exception_identity(self) -> None:
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        result_path = write_unattested_harbor_result(self.root / "harbor")
+        payload = read_json(result_path)
+        payload["exception_info"] = {"exception_type": "HarborErroredResult"}
+        atomic_write_json(result_path, payload)
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid ExceptionInfo|ExceptionInfo schema"):
+            baseline.update(batch, state)
+
+    def test_unattested_failure_does_not_hide_later_tampered_receipt(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        outer_result = write_unattested_harbor_result(
+            self.root / "harbor",
+            task_id=CANARY,
+        )
+        tampered_result, _receipt = write_failure_receipt(
+            self.root / "harbor",
+            trial_name="later-tampered-receipt",
+            tamper="hash",
+        )
+        outer = failed_train_trajectory(refs={"result_path": str(outer_result)})
+        outer.task_id = CANARY
+        tampered = failed_train_trajectory(refs={"result_path": str(tampered_result)})
+        batch = SimpleNamespace(
+            trajectories=[outer, tampered],
+            task_ids=[outer.task_id, tampered.task_id],
+            view_name="train",
+            mode="train",
+        )
+
+        with self.assertRaisesRegex(ValueError, "receipt hash is invalid"):
+            baseline.update(batch, state)
+
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
 
     def test_receipted_error_batch_rejects_tamper_identity_and_false_atif_claims(self) -> None:
         for tamper in ("hash", "snapshot", "atif_present", "classification"):
@@ -981,6 +2616,132 @@ class BaselineTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "inventory"):
             other.load_checkpoint(checkpoint)
+
+    def test_pinned_outer_checkpoint_direct_and_final_alias_round_trip_after_relocation(
+        self,
+    ) -> None:
+        checkpoints = self.root / "origin" / "checkpoints"
+        source = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "source",
+            atif_root=self.root / "harbor",
+            model_client=FakeClient(candidate_payload()),
+        )
+        state = source.initialize(self.root / "run")
+        initial = source.save_checkpoint(state, checkpoints / "initial")
+        initial_baseline = read_json(checkpoints / "initial" / "checkpoint.json")
+        initial_baseline["checkpoint_dir"] = str((checkpoints / "initial").resolve())
+        write_outer_checkpoint(
+            checkpoints / "initial",
+            checkpoint_id="initial",
+            checkpoint_type="initial",
+            baseline_manifest=initial_baseline,
+        )
+
+        restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "restored-initial",
+            atif_root=self.root / "harbor",
+        )
+        restored_state = restored.load_checkpoint(initial)
+        self.assertEqual(restored.report(restored_state)["update_index"], 0)
+
+        source.update(train_batch(self.root / "harbor"), state)
+        expected = source.report(state)
+        source.save_checkpoint(state, checkpoints / "epoch_0001")
+        epoch_baseline = read_json(checkpoints / "epoch_0001" / "checkpoint.json")
+        epoch_baseline["checkpoint_dir"] = str((checkpoints / "epoch_0001").resolve())
+        write_outer_checkpoint(
+            checkpoints / "epoch_0001",
+            checkpoint_id="epoch_0001",
+            checkpoint_type="epoch",
+            baseline_manifest=epoch_baseline,
+        )
+        final_dir = checkpoints / "final"
+        final_baseline = {
+            **copy.deepcopy(epoch_baseline),
+            "type": "baseline_checkpoint_alias",
+            "alias_of": "epoch_0001",
+            "source_checkpoint_id": "epoch_0001",
+            "checkpoint_dir": str(final_dir.resolve()),
+            "state_ref": "../epoch_0001/baseline_state",
+        }
+        write_outer_checkpoint(
+            final_dir,
+            checkpoint_id="final",
+            checkpoint_type="final",
+            baseline_manifest=final_baseline,
+        )
+
+        relocated_parent = self.root / "relocated"
+        relocated_parent.mkdir()
+        relocated_checkpoints = relocated_parent / "checkpoints"
+        shutil.move(str(checkpoints), str(relocated_checkpoints))
+        relocated_initial = SimpleNamespace(
+            checkpoint_dir=relocated_checkpoints / "initial"
+        )
+        relocated_initial_restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "relocated-initial",
+            atif_root=self.root / "harbor",
+        )
+        relocated_initial_state = relocated_initial_restored.load_checkpoint(
+            relocated_initial
+        )
+        self.assertEqual(
+            relocated_initial_restored.report(relocated_initial_state)["update_index"],
+            0,
+        )
+        relocated_final = relocated_checkpoints / "final"
+        final_checkpoint = SimpleNamespace(checkpoint_dir=relocated_final)
+        final_restored = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "restored-final",
+            atif_root=self.root / "harbor",
+        )
+        final_state = final_restored.load_checkpoint(final_checkpoint)
+        actual = final_restored.report(final_state)
+        self.assertEqual(actual["update_index"], 1)
+        self.assertEqual(
+            actual["evaluation_candidate_sha256"],
+            expected["evaluation_candidate_sha256"],
+        )
+
+        final_path = relocated_final / "checkpoint.json"
+        source_path = relocated_checkpoints / "epoch_0001" / "checkpoint.json"
+        clean_final = read_json(final_path)
+        clean_source = read_json(source_path)
+        tampered = copy.deepcopy(clean_final)
+        tampered["baseline"]["checkpoint_dir"] = "/old/run/checkpoints/not-final"
+        atomic_write_json(final_path, tampered)
+        with self.assertRaisesRegex(ValueError, "directory identity"):
+            final_restored.load_checkpoint(final_checkpoint)
+        atomic_write_json(final_path, clean_final)
+
+        tampered = copy.deepcopy(clean_final)
+        a0 = tampered["baseline"]["state_metadata"]["a0_sha256"]
+        tampered["baseline"]["state_metadata"]["evaluation_candidate_sha256"] = a0
+        tampered["baseline"]["state_metadata"]["prompt_template"] = (
+            f"baseline_state/prompts/{a0}.md"
+        )
+        atomic_write_json(final_path, tampered)
+        with self.assertRaisesRegex(ValueError, "differs from its source"):
+            final_restored.load_checkpoint(final_checkpoint)
+        atomic_write_json(final_path, clean_final)
+
+        tampered_source = copy.deepcopy(clean_source)
+        tampered_source["run_id"] = "different-run"
+        atomic_write_json(source_path, tampered_source)
+        with self.assertRaisesRegex(ValueError, "source outer identity"):
+            final_restored.load_checkpoint(final_checkpoint)
+        atomic_write_json(source_path, clean_source)
+
+        tampered = copy.deepcopy(clean_final)
+        tampered["baseline"]["state_ref"] = "../../outside/baseline_state"
+        tampered["refs"]["baseline_state"] = "../../outside/baseline_state"
+        atomic_write_json(final_path, tampered)
+        with self.assertRaisesRegex(ValueError, "alias identity"):
+            final_restored.load_checkpoint(final_checkpoint)
 
     def test_semantically_invalid_rehashed_checkpoint_cannot_replace_stable_state(self) -> None:
         source = EvoAgentSEAGymBaseline(

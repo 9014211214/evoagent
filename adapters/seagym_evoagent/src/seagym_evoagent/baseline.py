@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import shutil
 import tempfile
@@ -13,7 +13,13 @@ from typing import Any
 
 from ._compat import BaseBaseline, BaselineState, Checkpoint, UpdateResult
 from .canonical import atomic_write_json, contained_path, read_json, sha256_file, sha256_json
-from .evidence import NO_USABLE_ATIF_SKIP_CODE, NoUsableHarborATIFEvidence, project_train_batch
+from .evidence import (
+    INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE,
+    NO_USABLE_ATIF_SKIP_CODE,
+    IncompleteHarborTrainEvidence,
+    NoUsableHarborATIFEvidence,
+    project_train_batch,
+)
 from .models import HarnessComponents, HarnessSnapshot, UPDATE_MODEL_ID, default_a0
 from .openrouter import OPENROUTER_ENDPOINT, OpenRouterStructuredClient, StructuredCompletion
 from .routing import expected_route_contract, validate_route_contract
@@ -24,6 +30,10 @@ CHECKPOINT_SCHEMA = "evoagent-seagym-checkpoint-v1"
 ADAPTER_VERSION = "0.1.0"
 ROUTE_CONTRACT_SHA256 = sha256_json(expected_route_contract())
 ATTEMPT_SCHEMA = "evoagent-seagym-update-attempt-v1"
+SKIP_STATUS_BY_CODE = {
+    NO_USABLE_ATIF_SKIP_CODE: "skipped_no_usable_atif",
+    INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE: "skipped_incomplete_evidence",
+}
 
 
 @dataclass
@@ -174,50 +184,20 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
                 max_trajectories=self.max_trajectories,
             )
         except NoUsableHarborATIFEvidence as exc:
-            projection = exc.projection
-            skipped = _skipped_attempt_record(
+            return self._commit_no_call_skip(
+                state=state,
                 attempt_index=attempt_index,
                 before=before,
-                projection_sha256=projection.evidence_sha256,
-                seed=self.seed,
+                projection=exc.projection,
+                skip_code=NO_USABLE_ATIF_SKIP_CODE,
             )
-            attempt_ref = self._persist_attempt(skipped)
-            new_refs = [*self._attempt_refs, attempt_ref]
-            prompt_path = self._prompt_path(before.snapshot_sha256)
-            self._write_state_manifest(
-                prompt_path,
-                candidate=before,
-                update_index=attempt_index,
-                attempt_refs=new_refs,
-            )
-            self._candidate = before
-            self.update_index = attempt_index
-            self._attempt_refs = new_refs
-            self._synchronize_live_state(state)
-            return UpdateResult(
-                update_index=attempt_index,
-                changed=False,
-                status="unchanged",
-                metrics={
-                    "num_trajectories": projection.summary["num_trajectories"],
-                    "success_count": projection.summary["success_count"],
-                    "failure_count": projection.summary["failure_count"],
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "cost_usd": 0.0,
-                },
-                logs={
-                    "model_call_executed": False,
-                    "skip_code": NO_USABLE_ATIF_SKIP_CODE,
-                    "evidence_sha256": projection.evidence_sha256,
-                    "candidate_sha256": before.snapshot_sha256,
-                    "causal_attribution_claimed": False,
-                    "promotion_claimed": False,
-                },
-                artifacts={
-                    "candidate_path": str(self._snapshot_path(before.snapshot_sha256)),
-                    "prompt_template_path": str(prompt_path),
-                },
+        except IncompleteHarborTrainEvidence as exc:
+            return self._commit_no_call_skip(
+                state=state,
+                attempt_index=attempt_index,
+                before=before,
+                projection=exc.projection,
+                skip_code=INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE,
             )
         except Exception as exc:
             result = UpdateResult(
@@ -409,6 +389,71 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
         atomic_write_json(checkpoint_dir / "checkpoint.json", manifest)
         return Checkpoint(checkpoint_dir=checkpoint_dir, state_ref=destination.name, metadata=manifest)
 
+    def _commit_no_call_skip(
+        self,
+        *,
+        state: BaselineState,
+        attempt_index: int,
+        before: HarnessSnapshot,
+        projection: Any,
+        skip_code: str,
+    ) -> UpdateResult:
+        skipped = _skipped_attempt_record(
+            attempt_index=attempt_index,
+            before=before,
+            projection_sha256=projection.evidence_sha256,
+            seed=self.seed,
+            skip_code=skip_code,
+        )
+        attempt_ref = self._persist_attempt(skipped)
+        new_refs = [*self._attempt_refs, attempt_ref]
+        prompt_path = self._prompt_path(before.snapshot_sha256)
+        self._write_state_manifest(
+            prompt_path,
+            candidate=before,
+            update_index=attempt_index,
+            attempt_refs=new_refs,
+        )
+        self._candidate = before
+        self.update_index = attempt_index
+        self._attempt_refs = new_refs
+        self._synchronize_live_state(state)
+        metrics = {
+            "num_trajectories": projection.summary["num_trajectories"],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
+        }
+        if skip_code == NO_USABLE_ATIF_SKIP_CODE:
+            metrics.update(
+                {
+                    "success_count": projection.summary["success_count"],
+                    "failure_count": projection.summary["failure_count"],
+                }
+            )
+        else:
+            metrics["unattested_harbor_failures"] = projection.summary[
+                "unattested_harbor_failures"
+            ]
+        return UpdateResult(
+            update_index=attempt_index,
+            changed=False,
+            status="unchanged",
+            metrics=metrics,
+            logs={
+                "model_call_executed": False,
+                "skip_code": skip_code,
+                "evidence_sha256": projection.evidence_sha256,
+                "candidate_sha256": before.snapshot_sha256,
+                "causal_attribution_claimed": False,
+                "promotion_claimed": False,
+            },
+            artifacts={
+                "candidate_path": str(self._snapshot_path(before.snapshot_sha256)),
+                "prompt_template_path": str(prompt_path),
+            },
+        )
+
     def load_checkpoint(self, checkpoint: Checkpoint) -> BaselineState:
         checkpoint_input = Path(checkpoint.checkpoint_dir)
         if _is_linklike(checkpoint_input):
@@ -416,12 +461,45 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
         checkpoint_dir = checkpoint_input.resolve(strict=True)
         manifest_path = contained_path(checkpoint_dir, checkpoint_dir / "checkpoint.json", must_exist=True)
         raw_manifest = read_json(manifest_path)
-        if isinstance(raw_manifest, dict) and isinstance(raw_manifest.get("baseline"), dict):
+        is_outer_manifest = isinstance(raw_manifest, dict) and isinstance(
+            raw_manifest.get("baseline"), dict
+        )
+        if is_outer_manifest:
             manifest = raw_manifest["baseline"]
         else:
             manifest = raw_manifest
-        _validate_checkpoint_manifest(manifest, self.baseline_id)
-        source = contained_path(checkpoint_dir, checkpoint_dir / manifest["state_ref"], must_exist=True)
+        _validate_checkpoint_manifest(
+            manifest,
+            self.baseline_id,
+            checkpoint_id=checkpoint_dir.name if is_outer_manifest else None,
+        )
+        if is_outer_manifest:
+            _validate_outer_checkpoint_manifest(
+                raw_manifest,
+                checkpoint_dir=checkpoint_dir,
+                baseline_manifest=manifest,
+            )
+        controlled_root = checkpoint_dir
+        if manifest["type"] == "baseline_checkpoint_alias":
+            controlled_root = checkpoint_dir.parent
+        source = contained_path(
+            controlled_root,
+            checkpoint_dir / manifest["state_ref"],
+            must_exist=True,
+        )
+        if manifest["type"] == "baseline_checkpoint_alias":
+            source_id = manifest["source_checkpoint_id"]
+            expected_source = (
+                checkpoint_dir.parent / source_id / "baseline_state"
+            ).resolve(strict=True)
+            if source != expected_source:
+                raise ValueError("checkpoint alias does not bind its declared source")
+            _validate_alias_source_checkpoint(
+                checkpoint_dir=checkpoint_dir,
+                outer_manifest=raw_manifest,
+                alias_manifest=manifest,
+                baseline_id=self.baseline_id,
+            )
         if source.name != "baseline_state" or not source.is_dir() or source.is_symlink():
             raise ValueError("checkpoint state_ref is not the controlled baseline_state directory")
         inventory = _state_inventory(source)
@@ -487,7 +565,10 @@ class EvoAgentSEAGymBaseline(BaseBaseline):
             "evaluation_candidate_generation": self._candidate.generation,
             "attempts": len(attempts),
             "update_model_calls": sum(item.get("model_call_executed") is True for item in attempts),
-            "skipped_updates": sum(item.get("status") == "skipped_no_usable_atif" for item in attempts),
+            "skipped_updates": sum(item.get("status") in SKIP_STATUS_BY_CODE.values() for item in attempts),
+            "incomplete_evidence_skips": sum(
+                item.get("status") == "skipped_incomplete_evidence" for item in attempts
+            ),
             "update_cost_usd": round(total_cost, 12),
             "causal_attribution_claimed": False,
             "promotion_claimed": False,
@@ -741,22 +822,26 @@ def _skipped_attempt_record(
     before: HarnessSnapshot,
     projection_sha256: str,
     seed: int,
+    skip_code: str,
 ) -> dict[str, Any]:
+    status = SKIP_STATUS_BY_CODE.get(skip_code)
+    if status is None:
+        raise ValueError("unsupported no-call skip code")
     request_sha256 = sha256_json(
         {
             "schema_version": "evoagent-seagym-no-model-call-v1",
             "attempt_index": attempt_index,
             "before_snapshot_sha256": before.snapshot_sha256,
             "evidence_sha256": projection_sha256,
-            "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+            "skip_code": skip_code,
         }
     )
     return {
         "schema_version": ATTEMPT_SCHEMA,
         "attempt_index": attempt_index,
-        "status": "skipped_no_usable_atif",
+        "status": status,
         "model_call_executed": False,
-        "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+        "skip_code": skip_code,
         "model_id": UPDATE_MODEL_ID,
         "route_contract_sha256": ROUTE_CONTRACT_SHA256,
         "seed": seed,
@@ -965,13 +1050,13 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         "accepted",
         "accepted_unchanged",
         "rejected",
-        "skipped_no_usable_atif",
+        *SKIP_STATUS_BY_CODE.values(),
     }:
         raise ValueError("attempt record has an invalid status or shape")
     expected = common
     if raw["status"] == "rejected":
         expected |= {"error_code"}
-    elif raw["status"] == "skipped_no_usable_atif":
+    elif raw["status"] in SKIP_STATUS_BY_CODE.values():
         expected |= {"skip_code"}
     if set(raw) != expected:
         raise ValueError("attempt record has an invalid shape")
@@ -994,10 +1079,11 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         if not _is_hash(raw[key]):
             raise ValueError("attempt contains an invalid hash")
     route = expected_route_contract()
-    if raw["status"] == "skipped_no_usable_atif":
+    if raw["status"] in SKIP_STATUS_BY_CODE.values():
         if raw["model_call_executed"] is not False:
             raise ValueError("skipped attempt cannot claim a model call")
-        if raw["skip_code"] != NO_USABLE_ATIF_SKIP_CODE:
+        expected_status = SKIP_STATUS_BY_CODE.get(raw["skip_code"])
+        if expected_status != raw["status"]:
             raise ValueError("skipped attempt code drifted")
         expected_request_sha256 = sha256_json(
             {
@@ -1005,7 +1091,7 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
                 "attempt_index": raw["attempt_index"],
                 "before_snapshot_sha256": raw["before_snapshot_sha256"],
                 "evidence_sha256": raw["evidence_sha256"],
-                "skip_code": NO_USABLE_ATIF_SKIP_CODE,
+                "skip_code": raw["skip_code"],
             }
         )
         if raw["request_sha256"] != expected_request_sha256:
@@ -1030,7 +1116,7 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         raise ValueError("attempt cost accounting is invalid")
     if raw["causal_attribution_claimed"] is not False or raw["promotion_claimed"] is not False:
         raise ValueError("attempt cannot claim causality or promotion")
-    if raw["status"] == "skipped_no_usable_atif" and (prompt != 0 or completion != 0 or total != 0 or float(cost) != 0.0):
+    if raw["status"] in SKIP_STATUS_BY_CODE.values() and (prompt != 0 or completion != 0 or total != 0 or float(cost) != 0.0):
         raise ValueError("skipped attempt cannot contain model usage")
     if raw["status"] == "accepted" and raw["candidate_snapshot_sha256"] == raw["before_snapshot_sha256"]:
         raise ValueError("accepted attempt must change the candidate")
@@ -1044,8 +1130,13 @@ def _validate_attempt_record(raw: Any, *, seed: int | None = None) -> None:
         raise ValueError("rejected attempt error_code is invalid")
 
 
-def _validate_checkpoint_manifest(raw: Any, baseline_id: str) -> None:
-    required = {
+def _validate_checkpoint_manifest(
+    raw: Any,
+    baseline_id: str,
+    *,
+    checkpoint_id: str | None = None,
+) -> None:
+    direct_required = {
         "type",
         "schema_version",
         "baseline_id",
@@ -1055,12 +1146,42 @@ def _validate_checkpoint_manifest(raw: Any, baseline_id: str) -> None:
         "state_inventory_sha256",
         "state_metadata",
     }
-    if not isinstance(raw, dict) or set(raw) != required:
+    outer_direct_required = direct_required | {"checkpoint_dir"}
+    alias_required = outer_direct_required | {"alias_of", "source_checkpoint_id"}
+    if not isinstance(raw, dict):
         raise ValueError("checkpoint manifest has an invalid shape")
-    if raw["type"] != "evoagent_seagym_checkpoint" or raw["schema_version"] != CHECKPOINT_SCHEMA:
+    actual_keys = frozenset(raw)
+    if actual_keys not in {
+        frozenset(direct_required),
+        frozenset(outer_direct_required),
+        frozenset(alias_required),
+    }:
+        raise ValueError("checkpoint manifest has an invalid shape")
+    is_alias = actual_keys == alias_required
+    expected_type = "baseline_checkpoint_alias" if is_alias else "evoagent_seagym_checkpoint"
+    if raw["type"] != expected_type or raw["schema_version"] != CHECKPOINT_SCHEMA:
         raise ValueError("checkpoint schema does not match")
-    if raw["baseline_id"] != baseline_id or raw["state_ref"] != "baseline_state":
+    if raw["baseline_id"] != baseline_id:
         raise ValueError("checkpoint identity or state_ref does not match")
+    if is_alias:
+        source_id = raw["source_checkpoint_id"]
+        if (
+            checkpoint_id is None
+            or not isinstance(source_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", source_id)
+            or source_id in {".", ".."}
+            or raw["alias_of"] != source_id
+            or str(raw["state_ref"]).replace("\\", "/")
+            != f"../{source_id}/baseline_state"
+        ):
+            raise ValueError("checkpoint alias identity or state_ref does not match")
+    elif raw["state_ref"] != "baseline_state":
+        raise ValueError("checkpoint identity or state_ref does not match")
+    if checkpoint_id is None:
+        if "checkpoint_dir" in raw:
+            raise ValueError("standalone checkpoint unexpectedly contains an outer directory")
+    elif not _recorded_checkpoint_dir_matches(raw.get("checkpoint_dir"), checkpoint_id):
+        raise ValueError("checkpoint directory identity does not match")
     if isinstance(raw["update_index"], bool) or not isinstance(raw["update_index"], int) or raw["update_index"] < 0:
         raise ValueError("checkpoint update index is invalid")
     inventory = raw["state_inventory"]
@@ -1100,6 +1221,137 @@ def _validate_checkpoint_manifest(raw: Any, baseline_id: str) -> None:
         or metadata["promotion_claimed"] is not False
     ):
         raise ValueError("checkpoint state metadata violates the claim boundary")
+
+
+def _validate_outer_checkpoint_manifest(
+    raw: Any,
+    *,
+    checkpoint_dir: Path,
+    baseline_manifest: dict[str, Any],
+) -> None:
+    required = {
+        "checkpoint_id",
+        "checkpoint_type",
+        "created_at",
+        "run_id",
+        "experiment_id",
+        "trainer_state",
+        "metadata",
+        "refs",
+        "baseline",
+    }
+    if not isinstance(raw, dict) or set(raw) != required:
+        raise ValueError("outer checkpoint manifest has an invalid shape")
+    checkpoint_id = raw["checkpoint_id"]
+    if (
+        checkpoint_id != checkpoint_dir.name
+        or raw["checkpoint_type"] not in {"initial", "epoch", "evaluation_point", "final"}
+        or not isinstance(raw["created_at"], str)
+        or not raw["created_at"]
+        or not isinstance(raw["run_id"], str)
+        or not raw["run_id"]
+        or not isinstance(raw["experiment_id"], str)
+        or not raw["experiment_id"]
+        or not isinstance(raw["metadata"], dict)
+    ):
+        raise ValueError("outer checkpoint identity is invalid")
+    trainer = raw["trainer_state"]
+    trainer_keys = {
+        "epoch",
+        "train_batch_index",
+        "global_step",
+        "updates_completed",
+        "num_train_tasks_seen",
+        "checkpoint_id",
+        "previous_update_validation_results",
+    }
+    if not isinstance(trainer, dict) or set(trainer) != trainer_keys:
+        raise ValueError("outer checkpoint trainer state has an invalid shape")
+    for key in (
+        "epoch",
+        "train_batch_index",
+        "global_step",
+        "updates_completed",
+        "num_train_tasks_seen",
+    ):
+        if isinstance(trainer[key], bool) or not isinstance(trainer[key], int) or trainer[key] < 0:
+            raise ValueError("outer checkpoint trainer state is invalid")
+    if (
+        trainer["checkpoint_id"] != checkpoint_id
+        or trainer["updates_completed"] != baseline_manifest["update_index"]
+        or trainer["global_step"] != baseline_manifest["update_index"]
+        or not isinstance(trainer["previous_update_validation_results"], list)
+    ):
+        raise ValueError("outer checkpoint trainer state does not bind the baseline")
+    refs = raw["refs"]
+    if (
+        not isinstance(refs, dict)
+        or set(refs) != {"baseline_state", "batch_plan", "config"}
+        or refs["baseline_state"] != baseline_manifest["state_ref"]
+        or not isinstance(refs["batch_plan"], str)
+        or not refs["batch_plan"]
+        or not isinstance(refs["config"], str)
+        or not refs["config"]
+    ):
+        raise ValueError("outer checkpoint references do not bind the baseline")
+
+
+def _validate_alias_source_checkpoint(
+    *,
+    checkpoint_dir: Path,
+    outer_manifest: dict[str, Any],
+    alias_manifest: dict[str, Any],
+    baseline_id: str,
+) -> None:
+    source_id = alias_manifest["source_checkpoint_id"]
+    source_dir = contained_path(
+        checkpoint_dir.parent,
+        checkpoint_dir.parent / source_id,
+        must_exist=True,
+    )
+    source_outer = read_json(
+        contained_path(source_dir, source_dir / "checkpoint.json", must_exist=True)
+    )
+    if not isinstance(source_outer, dict) or not isinstance(source_outer.get("baseline"), dict):
+        raise ValueError("checkpoint alias source manifest is invalid")
+    source_manifest = source_outer["baseline"]
+    _validate_checkpoint_manifest(source_manifest, baseline_id, checkpoint_id=source_id)
+    if source_manifest["type"] != "evoagent_seagym_checkpoint":
+        raise ValueError("nested checkpoint aliases are forbidden")
+    _validate_outer_checkpoint_manifest(
+        source_outer,
+        checkpoint_dir=source_dir,
+        baseline_manifest=source_manifest,
+    )
+    if (
+        source_outer["checkpoint_type"] != "epoch"
+        or source_outer["run_id"] != outer_manifest["run_id"]
+        or source_outer["experiment_id"] != outer_manifest["experiment_id"]
+    ):
+        raise ValueError("checkpoint alias source outer identity is invalid")
+    for key in (
+        "schema_version",
+        "baseline_id",
+        "update_index",
+        "state_inventory",
+        "state_inventory_sha256",
+        "state_metadata",
+    ):
+        if source_manifest[key] != alias_manifest[key]:
+            raise ValueError("checkpoint alias differs from its source manifest")
+
+
+def _recorded_checkpoint_dir_matches(raw: Any, checkpoint_id: str) -> bool:
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
+        return False
+    path = (
+        PureWindowsPath(raw)
+        if "\\" in raw or re.match(r"^[A-Za-z]:", raw)
+        else PurePosixPath(raw)
+    )
+    if not path.is_absolute() or any(part in {".", ".."} for part in path.parts):
+        return False
+    return path.name == checkpoint_id and path.parent.name.casefold() == "checkpoints"
 
 
 def _bounded_nonnegative_int(value: Any, label: str) -> int:

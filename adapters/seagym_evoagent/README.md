@@ -111,14 +111,31 @@ condition, the baseline persists an immutable `no_usable_harbor_atif_evidence`
 skip, advances the update index with the candidate unchanged, and records
 `model_call_executed=false`. This is not a successful learning update.
 
-A non-errored trial without ATIF, a missing/malformed/tampered receipt, a
+Pinned Harbor can also produce a real errored child `result.json` without a
+MiMo/sanitizer receipt; the missing receipt alone does not identify which stage
+failed. Whether or not a separately valid ATIF exists, the entire train batch
+is ineligible for learning: the adapter persists
+`incomplete_unattested_harbor_evidence`, makes no update-model call, advances
+the frozen update slot, and keeps the candidate unchanged. Valid ATIF elsewhere
+in that batch is not used for a partial update. No receipt is synthesized.
+
+A non-errored trial without ATIF, an explicitly declared but missing receipt,
+a malformed/tampered receipt, a
 receipt whose ATIF bit disagrees with disk, malformed ATIF already on disk,
 path escape, symlink, or junction fails before the update-model call. When a
 classified MiMoCode failure still produced valid sanitized ATIF, the real ATIF
 remains usable and the accompanying `atif_present=true` receipt is independently
-validated. The pilot verifier keeps all errored trials in the denominator at
-zero and labels any receipt-bearing result
-`completed_with_incomplete_training_evidence`.
+validated. The pilot verifier requires every errored row's original score to
+already be zero, keeps it in the denominator, and labels any receipt-bearing result
+`completed_with_incomplete_training_evidence`. An unattested Harbor errored
+result is never assigned an unproved failure stage or treated as usable
+learning evidence; it additionally makes the pilot classification
+inconclusive even when raw A0/AT values can be recomputed.
+
+Any explicit `atif_path` or `trajectory_path` is mandatory and must resolve to
+the unique ATIF under that same Harbor result's Agent directory. Missing,
+cross-trial, linked, conflicting, or duplicate evidence is rejected before an
+update-model call; a derived ATIF cannot silently replace a bad declaration.
 
 The generated snapshot is not an activation or promotion. The adapter records
 `causal_attribution_claimed=false` and `promotion_claimed=false`; a later frozen

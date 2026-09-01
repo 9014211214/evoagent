@@ -43,6 +43,110 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
+    "amended_at": "2026-09-01T20:58:07Z",
+    "benchmark_effect_claimed": false,
+    "change": "classify_incomplete_unattested_harbor_error_evidence_and_skip_the_whole_training_update",
+    "diagnostic": {
+      "artifact_id": 9819530153,
+      "artifact_zip_sha256": "a463bf5599b7619f0dd6fa973d690621b4ff3ecd79d4bde6ea0d3dce19cccce4",
+      "completed_singleton_jobs": 12,
+      "controller_commit": "5117afafc0aa8735d9666641aa0ec170faad5f2a",
+      "evoagent_public_commit": "28a733b973dd691af6acab60f81da37915a5e07a",
+      "first_update": {
+        "changed": true,
+        "status": "updated"
+      },
+      "full_pilot_started": true,
+      "job_id": 100007152197,
+      "job_log_sha256": "6c796dca51a2df538610e1b39c2d1862f357894ec651431ddb41553d727ccb81",
+      "lifecycle_passed": true,
+      "observed_key_usage_delta_usd": 0.027092801,
+      "planned_singleton_jobs": 24,
+      "proxy": {
+        "completed_requests": 128,
+        "final_upstream_http_4xx_errors": 0,
+        "final_upstream_http_5xx_errors": 0,
+        "forwarded_requests": 128,
+        "rejected_requests": 0,
+        "root_sessions_observed": 12,
+        "upstream_attempts": 128,
+        "upstream_errors": 0,
+        "upstream_retries": 0
+      },
+      "run_id": 33553086805,
+      "score_produced": false,
+      "second_update_error_code": "harbor_failure_receipt_missing",
+      "status": "unattested_harbor_errored_result"
+    },
+    "evidence_contract_change": {
+      "agent_evidence_inventory_exact_before_update": true,
+      "artifact_size_limits_match_final_verifier": true,
+      "binary_reward_and_error_zero_enforced_before_update": true,
+      "bound_artifacts_scanned_for_credentials_before_update": true,
+      "child_and_single_job_bundle_matches_final_verifier_before_update": true,
+      "classified_runtime_receipts_remain_identity_bound": true,
+      "errored_result_without_receipt_is_incomplete_regardless_of_atif": true,
+      "explicit_atif_reference_must_bind_to_its_result": true,
+      "explicit_missing_or_invalid_evidence_remains_fatal": true,
+      "explicit_null_atif_timestamp_rejected": true,
+      "final_verifier_recomputes_each_train_projection": true,
+      "incomplete_projection_binds_batch_task_job_identity": true,
+      "incomplete_projection_binds_verified_evidence_sets": true,
+      "job_provenance_hashes_bound_to_projection": true,
+      "mandatory_job_dir_and_task_checksum_refs_rechecked": true,
+      "normal_zero_score_still_requires_atif": true,
+      "normal_atif_requires_hash_bound_attestation_before_update": true,
+      "receipt_identity_checks_relaxed": false,
+      "synthetic_receipt_allowed": false,
+      "trajectory_fields_recomputed_from_bound_harbor_result": true,
+      "unattested_failure_may_update_agent": false,
+      "unattested_failure_requires_real_contained_result": true,
+      "update_attempt_history_and_usage_fully_cross_bound": true,
+      "whole_batch_partial_learning_allowed": false
+    },
+    "execution_change": {
+      "harbor_cli_retries_added": 0,
+      "one_task_per_harbor_job": true,
+      "one_task_per_harbor_job_rechecked_by_update_projection": true,
+      "planned_slot_replacement_allowed": false,
+      "task_attempts_changed": false,
+      "unattested_training_batch_advances_as_no_call_skip": true,
+      "update_schedule_changed": false
+    },
+    "frozen_scientific_identity": {
+      "budgets_changed": false,
+      "metrics_changed": false,
+      "model_or_provider_changed": false,
+      "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "seed_or_order_changed": false,
+      "tasks_or_split_changed": false
+    },
+    "leaf_cause_status": {
+      "exact_exception_stage_or_type_confirmed": false,
+      "raw_exception_content_persisted": false,
+      "source_confirmed_mechanism": "harbor_child_exceptions_are_normalized_to_nonempty_trajectory_errors_while_only_mimocode_or_sanitizer_failures_can_create_the_runtime_receipt_missing_receipt_alone_does_not_identify_the_failure_stage",
+      "triggering_train_batch_confirmed": 2
+    },
+    "observed_diagnostic_aggregates": {
+      "batch_1": {
+        "logged_mean_score": 0.333333,
+        "logged_successes": 1
+      },
+      "batch_2": {
+        "logged_mean_score": 0.0,
+        "logged_successes": 0
+      },
+      "effect_claimed_from_intermediate_values": false,
+      "used_to_select_model_tasks_split_or_order": false
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 17,
+    "prior_observed_usage_delta_usd": 0.368592617,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v10",
+    "final_comparison_blind": true
+  },
+  "prior_amendment_v10": {
     "amended_at": "2026-09-01T18:06:10Z",
     "benchmark_effect_claimed": false,
     "change": "synchronize_committed_candidate_with_seagym_live_state_and_bind_atif_identity",
@@ -543,7 +647,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v10",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,

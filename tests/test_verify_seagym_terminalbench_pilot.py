@@ -45,7 +45,13 @@ def _append_jsonl(path: Path, value: object) -> None:
         handle.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
 
 
-def _snapshot(generation: int, parent: str | None, marker: str) -> dict[str, object]:
+def _snapshot(
+    generation: int,
+    parent: str | None,
+    marker: str,
+    *,
+    evidence_sha256: str | None = None,
+) -> dict[str, object]:
     components = {
         "skills": [{"name": "inspect", "guidance": f"inspect carefully {marker}"}],
         "memory": [{"topic": "verification", "lesson": f"verify observable state {marker}"}],
@@ -62,7 +68,8 @@ def _snapshot(generation: int, parent: str | None, marker: str) -> dict[str, obj
         "generation": generation,
         "parent_snapshot_sha256": parent,
         "model_id": "xiaomi/mimo-v2.5",
-        "evidence_sha256": hashlib.sha256(f"evidence-{marker}".encode()).hexdigest(),
+        "evidence_sha256": evidence_sha256
+        or hashlib.sha256(f"evidence-{marker}".encode()).hexdigest(),
         "components": components,
         "component_sha256": {name: _canonical_sha(value) for name, value in components.items()},
         "evaluation_only": True,
@@ -72,31 +79,160 @@ def _snapshot(generation: int, parent: str | None, marker: str) -> dict[str, obj
     return {**unsigned, "snapshot_sha256": _canonical_sha(unsigned)}
 
 
-def _state(a0: dict[str, object], candidate: dict[str, object], update_index: int) -> dict[str, object]:
+def _state(
+    a0: dict[str, object],
+    candidate: dict[str, object],
+    update_index: int,
+    attempt_refs: list[str],
+) -> dict[str, object]:
     return {
         "schema_version": "evoagent-seagym-state-v1",
         "baseline_id": "evoagent",
         "adapter_version": "0.1.0",
         "model_id": "xiaomi/mimo-v2.5",
+        "route_contract_sha256": ROUTE_CONTRACT_SHA256,
         "seed": 42,
         "update_index": update_index,
         "a0_sha256": a0["snapshot_sha256"],
         "evaluation_candidate_sha256": candidate["snapshot_sha256"],
         "prompt_template": f"prompts/{candidate['snapshot_sha256']}.md",
+        "attempt_refs": attempt_refs,
         "causal_attribution_claimed": False,
         "promotion_claimed": False,
     }
 
 
-def _checkpoint(run: Path, checkpoint_id: str, a0: dict[str, object], candidate: dict[str, object], update_index: int) -> None:
+def _checkpoint_attempt(
+    index: int,
+    before: dict[str, object],
+    candidate: dict[str, object],
+    *,
+    evidence_sha256: str,
+    request_sha256: str | None = None,
+    skip_code: str | None = None,
+) -> dict[str, object]:
+    if skip_code is None:
+        assert request_sha256 is not None
+        return {
+            "schema_version": "evoagent-seagym-update-attempt-v1",
+            "attempt_index": index,
+            "status": "accepted",
+            "model_call_executed": True,
+            "model_id": "xiaomi/mimo-v2.5",
+            "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+            "seed": 42,
+            "before_snapshot_sha256": before["snapshot_sha256"],
+            "candidate_snapshot_sha256": candidate["snapshot_sha256"],
+            "evidence_sha256": evidence_sha256,
+            "request_sha256": request_sha256,
+            "response_sha256": hashlib.sha256(f"response-{index}".encode()).hexdigest(),
+            "served_model_id": "xiaomi/mimo-v2.5-20260422",
+            "provider": "Xiaomi",
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 1,
+                "total_tokens": 6,
+                "cost_usd": 0.001,
+            },
+            "causal_attribution_claimed": False,
+            "promotion_claimed": False,
+        }
+    status = {
+        "no_usable_harbor_atif_evidence": "skipped_no_usable_atif",
+        "incomplete_unattested_harbor_evidence": "skipped_incomplete_evidence",
+    }[skip_code]
+    request_sha256 = _canonical_sha(
+        {
+            "schema_version": "evoagent-seagym-no-model-call-v1",
+            "attempt_index": index,
+            "before_snapshot_sha256": before["snapshot_sha256"],
+            "evidence_sha256": evidence_sha256,
+            "skip_code": skip_code,
+        }
+    )
+    return {
+        "schema_version": "evoagent-seagym-update-attempt-v1",
+        "attempt_index": index,
+        "status": status,
+        "model_call_executed": False,
+        "skip_code": skip_code,
+        "model_id": "xiaomi/mimo-v2.5",
+        "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+        "seed": 42,
+        "before_snapshot_sha256": before["snapshot_sha256"],
+        "candidate_snapshot_sha256": before["snapshot_sha256"],
+        "evidence_sha256": evidence_sha256,
+        "request_sha256": request_sha256,
+        "response_sha256": None,
+        "served_model_id": None,
+        "provider": None,
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0},
+        "causal_attribution_claimed": False,
+        "promotion_claimed": False,
+    }
+
+
+def _checkpoint(
+    run: Path,
+    checkpoint_id: str,
+    a0: dict[str, object],
+    candidate: dict[str, object],
+    update_index: int,
+    *,
+    intermediate: dict[str, object] | None = None,
+    second_skip_code: str | None = None,
+    second_evidence_sha256: str | None = None,
+    first_request_sha256: str | None = None,
+    second_request_sha256: str | None = None,
+) -> None:
     checkpoint = run / "checkpoints" / checkpoint_id
-    state_root = checkpoint / "baseline_state"
-    _write_json(state_root / "state.json", _state(a0, candidate, update_index))
-    for snapshot in {str(a0["snapshot_sha256"]): a0, str(candidate["snapshot_sha256"]): candidate}.values():
+    state_checkpoint = run / "checkpoints" / ("epoch_0001" if checkpoint_id == "final" else checkpoint_id)
+    state_root = state_checkpoint / "baseline_state"
+    attempt_records: list[dict[str, object]] = []
+    if update_index >= 1:
+        first_candidate = candidate if update_index == 1 else intermediate
+        assert first_candidate is not None
+        attempt_records.append(
+            _checkpoint_attempt(
+                1,
+                a0,
+                first_candidate,
+                evidence_sha256=str(first_candidate["evidence_sha256"]),
+                request_sha256=first_request_sha256,
+            )
+        )
+    if update_index >= 2:
+        assert intermediate is not None
+        attempt_records.append(
+            _checkpoint_attempt(
+                2,
+                intermediate,
+                candidate,
+                evidence_sha256=(
+                    second_evidence_sha256
+                    if second_evidence_sha256 is not None
+                    else str(candidate["evidence_sha256"])
+                ),
+                request_sha256=second_request_sha256,
+                skip_code=second_skip_code,
+            )
+        )
+    attempt_refs = [
+        f"attempts/{record['attempt_index']:06d}-{record['request_sha256']}.json"
+        for record in attempt_records
+    ]
+    _write_json(state_root / "state.json", _state(a0, candidate, update_index, attempt_refs))
+    snapshots = [a0, candidate, *([intermediate] if intermediate is not None else [])]
+    for snapshot in {str(item["snapshot_sha256"]): item for item in snapshots}.values():
         _write_json(state_root / "snapshots" / f"{snapshot['snapshot_sha256']}.json", snapshot)
-    prompt = state_root / "prompts" / f"{candidate['snapshot_sha256']}.md"
-    prompt.parent.mkdir(parents=True, exist_ok=True)
-    prompt.write_text("{{ instruction }}\n", encoding="utf-8")
+        prompt = state_root / "prompts" / f"{snapshot['snapshot_sha256']}.md"
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        _HarnessSnapshot, render_prompt_projection = pilot_verifier._adapter_snapshot_tools()
+        validated_snapshot = _HarnessSnapshot.from_dict(snapshot)
+        with prompt.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(render_prompt_projection(validated_snapshot))
+    for reference, record in zip(attempt_refs, attempt_records, strict=True):
+        _write_json(state_root / reference, record)
     inventory = {
         path.relative_to(state_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(state_root.rglob("*"))
@@ -110,22 +246,110 @@ def _checkpoint(run: Path, checkpoint_id: str, a0: dict[str, object], candidate:
         "update_index": update_index,
         "state_inventory": inventory,
         "state_inventory_sha256": _canonical_sha(inventory),
-        "state_metadata": {},
-        "checkpoint_dir": str(checkpoint),
+        "state_metadata": {
+            "a0_sha256": a0["snapshot_sha256"],
+            "evaluation_candidate_sha256": candidate["snapshot_sha256"],
+            "prompt_template": f"baseline_state/prompts/{candidate['snapshot_sha256']}.md",
+            "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+            "evaluation_only": True,
+            "causal_attribution_claimed": False,
+            "promotion_claimed": False,
+        },
+        "checkpoint_dir": str(state_checkpoint.resolve()),
     }
+    state_checkpoint_id = "epoch_0001" if checkpoint_id == "final" else checkpoint_id
+    state_checkpoint_type = "epoch" if checkpoint_id == "final" else "initial" if checkpoint_id == "initial" else "evaluation_point"
+    _write_outer_checkpoint(
+        state_checkpoint,
+        checkpoint_id=state_checkpoint_id,
+        checkpoint_type=state_checkpoint_type,
+        update_index=update_index,
+        baseline=baseline,
+    )
+    if checkpoint_id == "final":
+        alias_baseline = {
+            **baseline,
+            "type": "baseline_checkpoint_alias",
+            "alias_of": "epoch_0001",
+            "source_checkpoint_id": "epoch_0001",
+            "checkpoint_dir": str(checkpoint.resolve()),
+            "state_ref": "../epoch_0001/baseline_state",
+        }
+        _write_outer_checkpoint(
+            checkpoint,
+            checkpoint_id="final",
+            checkpoint_type="final",
+            update_index=update_index,
+            baseline=alias_baseline,
+            alias_of="epoch_0001",
+        )
+
+
+def _write_outer_checkpoint(
+    checkpoint: Path,
+    *,
+    checkpoint_id: str,
+    checkpoint_type: str,
+    update_index: int,
+    baseline: dict[str, object],
+    alias_of: str | None = None,
+) -> None:
+    metadata: dict[str, object] = {
+        "kind": checkpoint_type,
+        "train_batch_index": update_index,
+        "num_train_tasks_seen": update_index * 3,
+    }
+    if checkpoint_type in {"initial", "epoch", "final"}:
+        metadata["epoch_index"] = 0 if checkpoint_type == "initial" else 1
+    if checkpoint_type == "evaluation_point":
+        metadata["point_type"] = "replay"
+    if alias_of is not None:
+        metadata["alias_of"] = alias_of
     _write_json(
         checkpoint / "checkpoint.json",
         {
             "checkpoint_id": checkpoint_id,
-            "checkpoint_type": "initial" if checkpoint_id == "initial" else "evaluation_point",
+            "checkpoint_type": checkpoint_type,
+            "created_at": "2026-08-29T00:00:00+00:00",
             "run_id": "pilot-run-1",
             "experiment_id": "evoagent_seagym_terminalbench2_mimo_v2_5_seed42",
-            "trainer_state": {"updates_completed": update_index},
-            "metadata": {},
-            "refs": {},
+            "trainer_state": {
+                "epoch": 0 if update_index < 2 else 1,
+                "train_batch_index": update_index,
+                "global_step": update_index,
+                "updates_completed": update_index,
+                "num_train_tasks_seen": update_index * 3,
+                "checkpoint_id": checkpoint_id,
+                "previous_update_validation_results": [],
+            },
+            "metadata": metadata,
+            "refs": {
+                "baseline_state": baseline["state_ref"],
+                "batch_plan": str((checkpoint.parents[1] / "inputs" / "batch_plan.json").resolve()),
+                "config": str((checkpoint.parents[1] / "inputs" / "experiment_config.json").resolve()),
+            },
             "baseline": baseline,
         },
     )
+
+
+def _checkpoint_state_root(checkpoint: Path) -> Path:
+    manifest = json.loads((checkpoint / "checkpoint.json").read_text(encoding="utf-8"))
+    return (checkpoint / manifest["baseline"]["state_ref"]).resolve(strict=True)
+
+
+def _rehash_checkpoint(checkpoint: Path) -> None:
+    state_root = _checkpoint_state_root(checkpoint)
+    inventory = {
+        path.relative_to(state_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(state_root.rglob("*"))
+        if path.is_file()
+    }
+    manifest_path = checkpoint / "checkpoint.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["baseline"]["state_inventory"] = inventory
+    manifest["baseline"]["state_inventory_sha256"] = _canonical_sha(inventory)
+    _write_json(manifest_path, manifest)
 
 
 def _atif(snapshot: dict[str, object]) -> dict[str, object]:
@@ -275,7 +499,15 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
             "n_output_tokens": 2,
             "cost_usd": 0.001,
             "rollout_details": None,
-            "metadata": {"attestation_sha256": _canonical_sha(unsigned)},
+            "metadata": {
+                "attestation_sha256": _canonical_sha(unsigned),
+                "atif_sha256": atif_sha,
+                "snapshot_sha256": snapshot["snapshot_sha256"],
+                "model_id": "xiaomi/mimo-v2.5",
+                "seed": 42,
+                "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+                "privacy_projection": True,
+            },
         },
         "verifier_result": {"rewards": {"reward": float(score)}},
         "exception_info": None,
@@ -381,9 +613,10 @@ def _replace_trial_with_receipted_runtime_failure(
         "raw_response_persisted": False,
         "reasoning_content_persisted": False,
     }
+    receipt_hash = _canonical_sha(unsigned)
     _write_json(
         agent_dir / "evoagent-runtime-failure.json",
-        {**unsigned, "receipt_sha256": _canonical_sha(unsigned)},
+        {**unsigned, "receipt_sha256": receipt_hash},
     )
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["agent_result"] = {
@@ -392,7 +625,17 @@ def _replace_trial_with_receipted_runtime_failure(
         "n_output_tokens": 0,
         "cost_usd": 0.0,
         "rollout_details": None,
-        "metadata": {"runtime_failure": True},
+        "metadata": {
+            "runtime_failure_receipt_sha256": receipt_hash,
+            "runtime_failure_class": "runtime_sanitization_failed",
+            "runtime_failure_stage": "sanitize",
+            "mimocode_exit_class": "success",
+            "snapshot_sha256": snapshot["snapshot_sha256"],
+            "model_id": "xiaomi/mimo-v2.5",
+            "seed": 42,
+            "route_contract_sha256": ROUTE_CONTRACT_SHA256,
+            "privacy_projection": True,
+        },
     }
     payload["verifier_result"] = {"rewards": {"reward": 0.0}}
     payload["exception_info"] = {
@@ -454,6 +697,12 @@ def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
     attestation["attestation_sha256"] = _canonical_sha(attestation_unsigned)
     _write_json(attestation_path, attestation)
     payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["agent_result"]["metadata"]["attestation_sha256"] = attestation[
+        "attestation_sha256"
+    ]
+    payload["agent_result"]["metadata"]["runtime_failure_receipt_sha256"] = (
+        receipt_hash
+    )
     payload["verifier_result"] = {"rewards": {"reward": 0.0}}
     payload["exception_info"] = {
         "exception_type": "RuntimeFailure",
@@ -481,6 +730,129 @@ def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
     )
 
 
+def _replace_trial_with_unattested_harbor_failure(result_path: Path) -> None:
+    agent_dir = result_path.parent / "agent"
+    for name in ("trajectory.json", "atif.json", "evoagent-attestation.json", "evoagent-runtime-failure.json"):
+        (agent_dir / name).unlink(missing_ok=True)
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["agent_result"] = {
+        "n_input_tokens": 0,
+        "n_cache_tokens": 0,
+        "n_output_tokens": 0,
+        "cost_usd": 0.0,
+        "rollout_details": None,
+        "metadata": {},
+    }
+    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["exception_info"] = {
+        "exception_type": "OuterHarborFailure",
+        "exception_message": "unattested_outer_failure",
+        "exception_traceback": "",
+        "occurred_at": "2026-08-29T00:00:01Z",
+    }
+    _write_json(result_path, payload)
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_errored_trials"] = 1
+    aggregate["stats"]["n_input_tokens"] = 0
+    aggregate["stats"]["n_cache_tokens"] = 0
+    aggregate["stats"]["n_output_tokens"] = 0
+    aggregate["stats"]["cost_usd"] = 0.0
+    eval_stats = next(iter(aggregate["stats"]["evals"].values()))
+    eval_stats["n_errors"] = 1
+    eval_stats["metrics"] = [{"mean": 0.0}]
+    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["exception_stats"] = {"OuterHarborFailure": [payload["trial_name"]]}
+    _write_json(aggregate_path, aggregate)
+
+
+def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["exception_info"] = {
+        "exception_type": "OuterHarborFailure",
+        "exception_message": "unattested_after_atif",
+        "exception_traceback": "",
+        "occurred_at": "2026-08-29T00:00:01Z",
+    }
+    _write_json(result_path, payload)
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate["stats"]["n_errored_trials"] = 1
+    eval_stats = next(iter(aggregate["stats"]["evals"].values()))
+    eval_stats["n_errors"] = 1
+    eval_stats["metrics"] = [{"mean": 0.0}]
+    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["exception_stats"] = {"OuterHarborFailure": [payload["trial_name"]]}
+    _write_json(aggregate_path, aggregate)
+
+
+def _bind_unattested_fixture_evidence(run: Path) -> None:
+    rows = [
+        json.loads(line)
+        for line in (run / "records" / "task_results.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    batch_rows = [
+        row
+        for row in rows
+        if row["mode"] == "train" and row["train_batch_index"] == 2
+    ]
+    unattested_hashes = []
+    atif_documents = 0
+    receipt_documents = 0
+    for row in batch_rows:
+        result_path = Path(row["refs"]["result_path"])
+        agent_dir = result_path.parent / "agent"
+        if (agent_dir / "trajectory.json").is_file():
+            atif_documents += 1
+        elif (agent_dir / "evoagent-runtime-failure.json").is_file():
+            receipt_documents += 1
+        else:
+            unattested_hashes.append(hashlib.sha256(result_path.read_bytes()).hexdigest())
+    incomplete_summary = {
+        "schema_version": "evoagent-incomplete-train-evidence-v1",
+        "num_trajectories": len(batch_rows),
+        "unattested_harbor_failures": len(unattested_hashes),
+        "verified_atif_documents": atif_documents,
+        "verified_failure_receipt_documents": receipt_documents,
+        "unattested_result_set_sha256": _canonical_sha(sorted(unattested_hashes)),
+        "eligible_for_update": False,
+    }
+    evidence_sha256 = _canonical_sha(incomplete_summary)
+
+    updates_path = run / "records" / "agent_updates.jsonl"
+    updates = [json.loads(line) for line in updates_path.read_text(encoding="utf-8").splitlines()]
+    updates[1]["summary"]["logs"]["evidence_sha256"] = evidence_sha256
+    updates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in updates) + "\n",
+        encoding="utf-8",
+    )
+
+    checkpoint = run / "checkpoints" / "final"
+    state_root = _checkpoint_state_root(checkpoint)
+    state_path = state_root / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    old_reference = state["attempt_refs"][1]
+    old_path = state_root / old_reference
+    attempt = json.loads(old_path.read_text(encoding="utf-8"))
+    attempt["evidence_sha256"] = evidence_sha256
+    attempt["request_sha256"] = _canonical_sha(
+        {
+            "schema_version": "evoagent-seagym-no-model-call-v1",
+            "attempt_index": 2,
+            "before_snapshot_sha256": attempt["before_snapshot_sha256"],
+            "evidence_sha256": evidence_sha256,
+            "skip_code": attempt["skip_code"],
+        }
+    )
+    new_reference = f"attempts/000002-{attempt['request_sha256']}.json"
+    old_path.unlink()
+    _write_json(state_root / new_reference, attempt)
+    state["attempt_refs"][1] = new_reference
+    _write_json(state_path, state)
+    _rehash_checkpoint(checkpoint)
+
+
 def _usage(path: Path, value: float) -> None:
     _write_json(
         path,
@@ -502,7 +874,13 @@ def _usage(path: Path, value: float) -> None:
     )
 
 
-def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path, Path, Path]:
+def _fixture(
+    tmp_path: Path,
+    *,
+    skip_second_update: bool = False,
+    unattested_second_update: bool = False,
+    unattested_atif_second_update: bool = False,
+) -> tuple[Path, Path, Path]:
     run = tmp_path / "run"
     shutil.copyfile(CONFIG, run / "inputs" / "experiment_config.json") if (run / "inputs").mkdir(parents=True, exist_ok=True) is None else None
     shutil.copyfile(SPLIT, run / "inputs" / "split_manifest.json")
@@ -517,76 +895,62 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
     }
     _write_json(run / "inputs" / "batch_plan.json", plan)
     a0 = _snapshot(0, None, "a0")
-    e1 = _snapshot(1, str(a0["snapshot_sha256"]), "e1")
-    at = _snapshot(2, str(e1["snapshot_sha256"]), "at")
-    _checkpoint(run, "initial", a0, a0, 0)
-    _checkpoint(run, "E_1", a0, e1, 1)
-    final_candidate = e1 if skip_second_update else at
-    _checkpoint(run, "final", a0, final_candidate, 2)
-    updates = [
-        (1, e1),
-        (2, final_candidate),
-    ]
-    for index, snapshot in updates:
-        _append_jsonl(
-            run / "records" / "agent_updates.jsonl",
-            {
-                "agent_id": "evoagent",
-                "experiment_id": plan["experiment_id"],
-                "global_update_index": index,
-                "num_train_tasks_seen": index * 3,
-                "num_updates_per_batch": 1,
-                "run_id": plan["run_id"],
-                "summary": {
-                    "type": "baseline_update",
-                    "update_index": index,
-                    "changed": not (skip_second_update and index == 2),
-                    "status": "unchanged" if skip_second_update and index == 2 else "updated",
-                    "metrics": (
-                        {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
-                        if skip_second_update and index == 2
-                        else {"input_tokens": 5, "output_tokens": 1, "cost_usd": 0.001}
-                    ),
-                    "logs": {
-                        "model_call_executed": not (skip_second_update and index == 2),
-                        "candidate_sha256": snapshot["snapshot_sha256"],
-                        "evidence_sha256": hashlib.sha256(f"batch-{index}".encode()).hexdigest(),
-                        **(
-                            {"skip_code": "no_usable_harbor_atif_evidence"}
-                            if skip_second_update and index == 2
-                            else {}
-                        ),
-                        "causal_attribution_claimed": False,
-                        "promotion_claimed": False,
-                    },
-                    "artifacts": {},
-                },
-                "train_batch_index": index,
-                "update_repeat_index": 1,
-            },
-        )
-    phases: list[tuple[str, str, str | None, int, list[str], list[int], dict[str, object]]] = [
-        ("validation", "update_validation", None, 0, split["val"], [1, 1, 0], a0),
-        ("train", "train", None, 1, split["train"][:3], [1, 0, 1], a0),
-        ("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1),
-        ("train", "train", None, 2, split["train"][3:], [0, 0, 0] if skip_second_update else [0, 1, 1], e1),
-        ("validation", "update_validation", None, 2, split["val"], [1, 1, 0], final_candidate),
-        ("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], final_candidate),
-        ("final", "id_test", "A_T", 2, split["test"], [1, 0, 1], final_candidate),
-        ("final_baseline", "id_test", "A_0", 2, split["test"], [0, 0, 1], a0),
-    ]
     task_domains = {
         item["task_id"]: item["attributes"]["domain"]
         for item in json.loads(TASK_INDEX.read_text(encoding="utf-8"))["tasks"]
     }
     trial_index = 0
-    for mode, view, role, batch, task_ids, scores, snapshot in phases:
+
+    def append_phase(
+        mode: str,
+        view: str,
+        role: str | None,
+        batch: int,
+        task_ids: list[str],
+        scores: list[int],
+        snapshot: dict[str, object],
+    ) -> None:
+        nonlocal trial_index
         for task_id, score in zip(task_ids, scores, strict=True):
             trial_index += 1
             result_path, checksum = _trial(run, trial_index, task_id, score, snapshot)
             runtime_failure = skip_second_update and mode == "train" and batch == 2
+            unattested_failure = (
+                unattested_second_update
+                and mode == "train"
+                and batch == 2
+                and task_id == split["train"][3]
+            )
+            unattested_atif_failure = (
+                unattested_atif_second_update
+                and mode == "train"
+                and batch == 2
+                and task_id == split["train"][3]
+            )
             if runtime_failure:
                 _replace_trial_with_receipted_runtime_failure(result_path, snapshot)
+            elif unattested_failure:
+                _replace_trial_with_unattested_harbor_failure(result_path)
+            elif unattested_atif_failure:
+                _mark_atif_present_unreceipted_failure(result_path)
+            result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+            normalized_error = (
+                None
+                if result_payload["exception_info"] is None
+                else str(result_payload["exception_info"])
+            )
+            agent_result = result_payload.get("agent_result") or {}
+            normalized_cost = {
+                key: float(agent_result[key])
+                for key in (
+                    "n_input_tokens",
+                    "n_cache_tokens",
+                    "n_output_tokens",
+                    "cost_usd",
+                    "total_tokens",
+                )
+                if isinstance(agent_result.get(key), int | float)
+            }
             point = "E_T" if role else ("E_0" if mode == "validation" and batch == 0 else f"E_{batch}" if mode in {"validation", "replay"} else None)
             checkpoint_id = (
                 "final"
@@ -604,12 +968,8 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
                     "agent_id": "evoagent",
                     "attributes": {"domain": task_domains[task_id]},
                     "baseline_role": role,
-                    "cost": (
-                        {}
-                        if runtime_failure
-                        else {"n_input_tokens": 10, "n_cache_tokens": 1, "n_output_tokens": 2, "cost_usd": 0.001}
-                    ),
-                    "error": "runtime_sanitization_failed" if runtime_failure else None,
+                    "cost": normalized_cost,
+                    "error": normalized_error,
                     "evaluation_point_id": point,
                     "experiment_id": plan["experiment_id"],
                     "global_update_index": batch if mode == "train" else None,
@@ -621,6 +981,11 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
                         "job_dir": str(result_path.parent.parent),
                         "result_path": str(result_path),
                         "task_checksum": checksum,
+                        "trial_name": f"trial-{trial_index:02d}",
+                        "trial_uri": result_path.parent.as_uri(),
+                        "job_id": f"00000000-0000-0000-0000-{trial_index:012d}",
+                        "harbor_source": result_path.parent.parent.name,
+                        "harbor_task_name": task_id.rsplit("/", 1)[-1],
                     },
                     "rewards": {"reward": float(score)},
                     "run_id": plan["run_id"],
@@ -634,6 +999,181 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
                     "view_name": view,
                 },
             )
+
+    append_phase("validation", "update_validation", None, 0, split["val"], [1, 1, 0], a0)
+    append_phase("train", "train", None, 1, split["train"][:3], [1, 0, 1], a0)
+    persisted_rows = [
+        json.loads(line)
+        for line in (run / "records" / "task_results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    first_projection, first_skip = pilot_verifier._project_train_batch_rows(
+        [row for row in persisted_rows if row["mode"] == "train"],
+        run_dir=run,
+        expected_snapshot=str(a0["snapshot_sha256"]),
+        expected_component_hashes=dict(a0["component_sha256"]),
+    )
+    assert first_skip is None
+    first_request_sha256 = pilot_verifier._adapter_update_request_sha256(
+        evidence_summary=first_projection.summary,
+        current_components=dict(a0["components"]),
+    )
+    e1 = _snapshot(
+        1,
+        str(a0["snapshot_sha256"]),
+        "e1",
+        evidence_sha256=first_projection.evidence_sha256,
+    )
+
+    append_phase("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1)
+    second_scores = [0, 0, 0] if skip_second_update else [0, 1, 1]
+    append_phase("train", "train", None, 2, split["train"][3:], second_scores, e1)
+    persisted_rows = [
+        json.loads(line)
+        for line in (run / "records" / "task_results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    second_projection, second_skip_code = pilot_verifier._project_train_batch_rows(
+        [
+            row
+            for row in persisted_rows
+            if row["mode"] == "train" and row["train_batch_index"] == 2
+        ],
+        run_dir=run,
+        expected_snapshot=str(e1["snapshot_sha256"]),
+        expected_component_hashes=dict(e1["component_sha256"]),
+    )
+    expected_second_skip = (
+        "no_usable_harbor_atif_evidence"
+        if skip_second_update
+        else "incomplete_unattested_harbor_evidence"
+        if unattested_second_update or unattested_atif_second_update
+        else None
+    )
+    assert second_skip_code == expected_second_skip
+    no_call_second_update = second_skip_code is not None
+    second_request_sha256 = (
+        None
+        if no_call_second_update
+        else pilot_verifier._adapter_update_request_sha256(
+            evidence_summary=second_projection.summary,
+            current_components=dict(e1["components"]),
+        )
+    )
+    final_candidate = (
+        e1
+        if no_call_second_update
+        else _snapshot(
+            2,
+            str(e1["snapshot_sha256"]),
+            "at",
+            evidence_sha256=second_projection.evidence_sha256,
+        )
+    )
+
+    append_phase("validation", "update_validation", None, 2, split["val"], [1, 1, 0], final_candidate)
+    append_phase("replay", "replay", None, 2, plan["views"]["replay"], [1, 1, 1], final_candidate)
+    append_phase("final", "id_test", "A_T", 2, split["test"], [1, 0, 1], final_candidate)
+    append_phase("final_baseline", "id_test", "A_0", 2, split["test"], [0, 0, 1], a0)
+
+    _checkpoint(run, "initial", a0, a0, 0)
+    _checkpoint(
+        run,
+        "E_1",
+        a0,
+        e1,
+        1,
+        first_request_sha256=first_request_sha256,
+    )
+    _checkpoint(
+        run,
+        "final",
+        a0,
+        final_candidate,
+        2,
+        intermediate=e1,
+        second_skip_code=second_skip_code,
+        second_evidence_sha256=second_projection.evidence_sha256,
+        first_request_sha256=first_request_sha256,
+        second_request_sha256=second_request_sha256,
+    )
+    updates = [
+        (1, e1, first_projection.evidence_sha256, None, first_request_sha256),
+        (
+            2,
+            final_candidate,
+            second_projection.evidence_sha256,
+            second_skip_code,
+            second_request_sha256,
+        ),
+    ]
+    for index, snapshot, evidence_sha256, skip_code, request_sha256 in updates:
+        model_call_executed = skip_code is None
+        _append_jsonl(
+            run / "records" / "agent_updates.jsonl",
+            {
+                "agent_id": "evoagent",
+                "experiment_id": plan["experiment_id"],
+                "global_update_index": index,
+                "num_train_tasks_seen": index * 3,
+                "num_updates_per_batch": 1,
+                "run_id": plan["run_id"],
+                "summary": {
+                    "type": "baseline_update",
+                    "update_index": index,
+                    "changed": model_call_executed,
+                    "status": "updated" if model_call_executed else "unchanged",
+                    "metrics": (
+                        {"input_tokens": 5, "output_tokens": 1, "cost_usd": 0.001}
+                        if model_call_executed
+                        else {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+                    ),
+                    "logs": {
+                        "model_call_executed": model_call_executed,
+                        "candidate_sha256": snapshot["snapshot_sha256"],
+                        "evidence_sha256": evidence_sha256,
+                        **(
+                            {
+                                "request_sha256": request_sha256,
+                                "response_sha256": hashlib.sha256(
+                                    f"response-{index}".encode()
+                                ).hexdigest(),
+                            }
+                            if model_call_executed
+                            else {"skip_code": skip_code}
+                        ),
+                        "causal_attribution_claimed": False,
+                        "promotion_claimed": False,
+                    },
+                    "artifacts": {},
+                },
+                "train_batch_index": index,
+                "update_repeat_index": 1,
+            },
+        )
+    persisted_rows = [
+        json.loads(line)
+        for line in (run / "records" / "task_results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    rollout_input = sum(float((row.get("cost") or {}).get("n_input_tokens", 0)) for row in persisted_rows)
+    rollout_cache = sum(float((row.get("cost") or {}).get("n_cache_tokens", 0)) for row in persisted_rows)
+    rollout_output = sum(float((row.get("cost") or {}).get("n_output_tokens", 0)) for row in persisted_rows)
+    rollout_cost = sum(float((row.get("cost") or {}).get("cost_usd", 0)) for row in persisted_rows)
+    rollout_with_tokens = sum(
+        float((row.get("cost") or {}).get("n_input_tokens", 0))
+        + float((row.get("cost") or {}).get("n_cache_tokens", 0))
+        + float((row.get("cost") or {}).get("n_output_tokens", 0))
+        > 0
+        for row in persisted_rows
+    )
+    update_input = 5.0 if no_call_second_update else 10.0
+    update_output = 1.0 if no_call_second_update else 2.0
+    update_cost = 0.001 if no_call_second_update else 0.002
+    update_with_tokens = 1 if no_call_second_update else 2
     metrics = {
         "success_rate": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
         "mean_score": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
@@ -642,30 +1182,36 @@ def _fixture(tmp_path: Path, *, skip_second_update: bool = False) -> tuple[Path,
         "tokens": {
             "rollout": {
                 "num_records": 24,
-                "num_records_with_tokens": 21 if skip_second_update else 24,
-                "input_tokens": 210.0 if skip_second_update else 240.0,
-                "cache_tokens": 21.0 if skip_second_update else 24.0,
-                "output_tokens": 42.0 if skip_second_update else 48.0,
-                "total_tokens": 273.0 if skip_second_update else 312.0,
-                "cost_usd": 0.021 if skip_second_update else 0.024,
+                "num_records_with_tokens": rollout_with_tokens,
+                "input_tokens": rollout_input,
+                "cache_tokens": rollout_cache,
+                "output_tokens": rollout_output,
+                "total_tokens": rollout_input + rollout_cache + rollout_output,
+                "cost_usd": rollout_cost,
             },
             "update": {
                 "num_records": 2,
-                "num_records_with_tokens": 1 if skip_second_update else 2,
-                "input_tokens": 5.0 if skip_second_update else 10.0,
+                "num_records_with_tokens": update_with_tokens,
+                "input_tokens": update_input,
                 "cache_tokens": 0.0,
-                "output_tokens": 1.0 if skip_second_update else 2.0,
-                "total_tokens": 6.0 if skip_second_update else 12.0,
-                "cost_usd": 0.001 if skip_second_update else 0.002,
+                "output_tokens": update_output,
+                "total_tokens": update_input + update_output,
+                "cost_usd": update_cost,
             },
             "overall": {
                 "num_records": 26,
-                "num_records_with_tokens": 22 if skip_second_update else 26,
-                "input_tokens": 215.0 if skip_second_update else 250.0,
-                "cache_tokens": 21.0 if skip_second_update else 24.0,
-                "output_tokens": 43.0 if skip_second_update else 50.0,
-                "total_tokens": 279.0 if skip_second_update else 324.0,
-                "cost_usd": 0.022 if skip_second_update else 0.026,
+                "num_records_with_tokens": rollout_with_tokens + update_with_tokens,
+                "input_tokens": rollout_input + update_input,
+                "cache_tokens": rollout_cache,
+                "output_tokens": rollout_output + update_output,
+                "total_tokens": (
+                    rollout_input
+                    + rollout_cache
+                    + rollout_output
+                    + update_input
+                    + update_output
+                ),
+                "cost_usd": rollout_cost + update_cost,
             },
         },
     }
@@ -842,9 +1388,462 @@ def test_accepts_receipted_error_batch_as_incomplete_without_counting_a_model_up
     assert updates[1]["skip_code"] == "no_usable_harbor_atif_evidence"
 
 
+def test_accepts_unattested_outer_failure_only_as_inconclusive_whole_batch_skip(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, unattested_second_update=True)
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["results_status"] == "completed_with_incomplete_training_evidence"
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+    assert result["evidence"]["unattested_harbor_failure_trials"] == 1
+    assert result["evidence"]["runtime_failure_receipt_trials"] == 0
+    assert result["evidence"]["verified_update_model_calls"] == 1
+    assert result["evidence"]["skipped_update_attempts"] == 1
+    assert updates[1]["model_call_executed"] is False
+    assert updates[1]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    unattested = [row for row in rows if row["unattested_harbor_failure"]]
+    assert len(unattested) == 1
+    assert unattested[0]["score"] == 0.0
+    assert unattested[0]["error_present"] is True
+    assert unattested[0]["attestation_sha256"] is None
+    assert unattested[0]["failure_receipt_sha256"] is None
+
+
+def test_accepts_atif_present_unreceipted_error_only_as_inconclusive_no_call(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        unattested_atif_second_update=True,
+    )
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["results_status"] == "completed_with_incomplete_training_evidence"
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+    assert result["evidence"]["unattested_harbor_failure_trials"] == 1
+    assert result["evidence"]["attested_rollout_model_calls"] == 24
+    assert updates[1]["model_call_executed"] is False
+    assert updates[1]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    failed = [row for row in rows if row["unattested_harbor_failure"]]
+    assert len(failed) == 1
+    assert failed[0]["attestation_sha256"] is not None
+    assert failed[0]["failure_receipt_sha256"] is None
+    assert failed[0]["training_evidence_complete"] is False
+
+
+def test_rejects_incomplete_attempt_when_its_verified_atif_set_changes(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, unattested_atif_second_update=True)
+    rows = [
+        json.loads(line)
+        for line in (run / "records" / "task_results.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    row = next(
+        item
+        for item in rows
+        if item["mode"] == "train"
+        and item["train_batch_index"] == 2
+        and item["error"] is None
+    )
+    result_path = Path(row["refs"]["result_path"])
+    trajectory_path = result_path.parent / "agent" / "trajectory.json"
+    attestation_path = result_path.parent / "agent" / "evoagent-attestation.json"
+    trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    trajectory["steps"][1]["timestamp"] = "2026-09-01T00:00:00Z"
+    _rewrite_self_consistent_evidence(
+        trajectory_path,
+        trajectory,
+        attestation_path,
+        attestation,
+    )
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["agent_result"]["metadata"]["atif_sha256"] = attestation["atif_sha256"]
+    result["agent_result"]["metadata"]["attestation_sha256"] = attestation[
+        "attestation_sha256"
+    ]
+    _write_json(result_path, result)
+
+    with pytest.raises(VerificationError, match="exact adapter projection"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+@pytest.mark.parametrize("reference_kind", ["missing", "cross_trial", "ambiguous"])
+def test_rejects_noncanonical_explicit_or_ambiguous_atif_reference(
+    tmp_path: Path,
+    reference_kind: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    first_result = Path(rows[3]["refs"]["result_path"])
+    if reference_kind == "missing":
+        rows[3]["refs"]["atif_path"] = str(first_result.parent / "agent" / "missing.json")
+    elif reference_kind == "cross_trial":
+        rows[3]["refs"]["atif_path"] = str(
+            Path(rows[4]["refs"]["result_path"]).parent / "agent" / "trajectory.json"
+        )
+    else:
+        source = first_result.parent / "agent" / "trajectory.json"
+        shutil.copyfile(source, source.with_name("atif.json"))
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="ATIF|ambiguous"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+def test_rejects_errored_row_with_nonzero_raw_score(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, unattested_atif_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row.get("error") is not None)
+    failed["score"] = 1.0
+    failed["success"] = True
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="raw zero score"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+def test_rejects_agent_result_metadata_raw_field_injection(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    result_path = next((run / "harbor" / "jobs").glob("job-*/trial-*/result.json"))
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["agent_result"]["metadata"]["raw_response"] = "model output"
+    _write_json(result_path, payload)
+
+    with pytest.raises(VerificationError, match="metadata"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+@pytest.mark.parametrize("tamper", ["update", "overall", "record_count"])
+def test_rejects_tampered_update_or_overall_metric_accounting(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    metrics_path = run / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    if tamper == "update":
+        metrics["tokens"]["update"]["input_tokens"] += 1
+        metrics["tokens"]["update"]["total_tokens"] += 1
+        metrics["tokens"]["overall"]["input_tokens"] += 1
+        metrics["tokens"]["overall"]["total_tokens"] += 1
+    elif tamper == "overall":
+        metrics["tokens"]["overall"]["cost_usd"] += 0.001
+    else:
+        metrics["tokens"]["overall"]["num_records_with_tokens"] -= 1
+    _write_json(metrics_path, metrics)
+
+    with pytest.raises(VerificationError, match="update|overall|record"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+def test_rejects_model_update_or_wrong_skip_code_for_unattested_train_failure(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, unattested_second_update=True)
+    updates_path = run / "records" / "agent_updates.jsonl"
+    updates = [json.loads(line) for line in updates_path.read_text(encoding="utf-8").splitlines()]
+    updates[1]["summary"]["logs"]["model_call_executed"] = True
+    updates[1]["summary"]["logs"].pop("skip_code")
+    updates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in updates) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(VerificationError, match="checkpoint attempt"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("tamper", ["request_digest", "usage", "provider", "status_code"])
+def test_rejects_tampered_unattested_skip_checkpoint_attempt(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, unattested_second_update=True)
+    checkpoint = run / "checkpoints" / "final"
+    state_root = _checkpoint_state_root(checkpoint)
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    attempt_path = state_root / state["attempt_refs"][1]
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    if tamper == "request_digest":
+        attempt["request_sha256"] = "0" * 64
+    elif tamper == "usage":
+        attempt["usage"]["prompt_tokens"] = 1
+        attempt["usage"]["total_tokens"] = 1
+    elif tamper == "provider":
+        attempt["provider"] = "Xiaomi"
+    else:
+        attempt["status"] = "skipped_no_usable_atif"
+    _write_json(attempt_path, attempt)
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="checkpoint"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_checkpoint_attempt_reference_omission(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "final"
+    state_path = _checkpoint_state_root(checkpoint) / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["attempt_refs"] = state["attempt_refs"][:1]
+    _write_json(state_path, state)
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="attempt references"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+    run, before, after = _fixture(tmp_path / "wrong-code", unattested_second_update=True)
+    updates_path = run / "records" / "agent_updates.jsonl"
+    updates = [json.loads(line) for line in updates_path.read_text(encoding="utf-8").splitlines()]
+    updates[1]["summary"]["logs"]["skip_code"] = "no_usable_harbor_atif_evidence"
+    updates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in updates) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(VerificationError, match="checkpoint attempt"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["usage", "response", "served_model"])
+def test_rejects_full_checkpoint_attempt_prefix_drift(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "E_1"
+    state_root = _checkpoint_state_root(checkpoint)
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    attempt_path = state_root / state["attempt_refs"][0]
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    if field == "usage":
+        attempt["usage"]["cost_usd"] = 0.002
+    elif field == "response":
+        attempt["response_sha256"] = "a" * 64
+    else:
+        attempt["served_model_id"] = "xiaomi/mimo-v2.5"
+    _write_json(attempt_path, attempt)
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="prefix stable"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_model_backed_checkpoint_attempt_without_token_evidence(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "E_1"
+    state_root = _checkpoint_state_root(checkpoint)
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    attempt_path = state_root / state["attempt_refs"][0]
+    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    attempt["usage"] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
+    _write_json(attempt_path, attempt)
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="no token evidence"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("metric", ["input_tokens", "output_tokens", "cost_usd"])
+def test_rejects_agent_update_usage_that_differs_from_checkpoint_attempt(
+    tmp_path: Path,
+    metric: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    updates_path = run / "records" / "agent_updates.jsonl"
+    updates = [json.loads(line) for line in updates_path.read_text(encoding="utf-8").splitlines()]
+    updates[0]["summary"]["metrics"][metric] = (
+        6 if metric == "input_tokens" else 2 if metric == "output_tokens" else 0.002
+    )
+    updates_path.write_text(
+        "\n".join(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in updates)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="differs from its checkpoint attempt"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["checkpoint_baseline_id", "state_baseline_id", "adapter_version", "state_metadata"],
+)
+def test_rejects_checkpoint_identity_and_state_metadata_drift(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "E_1"
+    manifest_path = checkpoint / "checkpoint.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if tamper == "checkpoint_baseline_id":
+        manifest["baseline"]["baseline_id"] = "other"
+        _write_json(manifest_path, manifest)
+    elif tamper == "state_metadata":
+        manifest["baseline"]["state_metadata"]["evaluation_only"] = False
+        _write_json(manifest_path, manifest)
+    else:
+        state_path = _checkpoint_state_root(checkpoint) / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if tamper == "state_baseline_id":
+            state["baseline_id"] = "other"
+        else:
+            state["adapter_version"] = "0.2.0"
+        _write_json(state_path, state)
+        _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="checkpoint"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("tamper", ["run_id", "trainer_updates", "checkpoint_dir"])
+def test_rejects_outer_checkpoint_identity_drift(tmp_path: Path, tamper: str) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "E_1"
+    manifest_path = checkpoint / "checkpoint.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if tamper == "run_id":
+        manifest["run_id"] = "other-run"
+    elif tamper == "trainer_updates":
+        manifest["trainer_state"]["updates_completed"] = 2
+    else:
+        manifest["baseline"]["checkpoint_dir"] = str(run / "checkpoints" / "initial")
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(VerificationError, match="checkpoint"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_accepts_relocated_checkpoint_artifact_with_locked_logical_identity(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    for checkpoint_id in ("initial", "E_1", "final"):
+        manifest_path = run / "checkpoints" / checkpoint_id / "checkpoint.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["baseline"]["checkpoint_dir"] = (
+            f"/home/runner/work/evoagent/run/checkpoints/{checkpoint_id}"
+        )
+        _write_json(manifest_path, manifest)
+
+    verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+
+def test_rejects_content_addressed_snapshot_with_extra_field(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "initial"
+    state_root = _checkpoint_state_root(checkpoint)
+    state_path = state_root / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    old_digest = state["a0_sha256"]
+    old_snapshot_path = state_root / "snapshots" / f"{old_digest}.json"
+    snapshot = json.loads(old_snapshot_path.read_text(encoding="utf-8"))
+    snapshot["unexpected"] = "bounded-but-forbidden"
+    unsigned = dict(snapshot)
+    unsigned.pop("snapshot_sha256")
+    new_digest = _canonical_sha(unsigned)
+    snapshot["snapshot_sha256"] = new_digest
+    old_snapshot_path.unlink()
+    _write_json(state_root / "snapshots" / f"{new_digest}.json", snapshot)
+    (state_root / "prompts" / f"{old_digest}.md").replace(
+        state_root / "prompts" / f"{new_digest}.md"
+    )
+    state["a0_sha256"] = new_digest
+    state["evaluation_candidate_sha256"] = new_digest
+    state["prompt_template"] = f"prompts/{new_digest}.md"
+    _write_json(state_path, state)
+    manifest_path = checkpoint / "checkpoint.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["baseline"]["state_metadata"].update(
+        {
+            "a0_sha256": new_digest,
+            "evaluation_candidate_sha256": new_digest,
+            "prompt_template": f"baseline_state/prompts/{new_digest}.md",
+        }
+    )
+    _write_json(manifest_path, manifest)
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="harness snapshot is invalid"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_prompt_projection_that_differs_from_snapshot(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    checkpoint = run / "checkpoints" / "E_1"
+    state_root = _checkpoint_state_root(checkpoint)
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    prompt_path = state_root / state["prompt_template"]
+    prompt_path.write_text("{{ instruction }}\n", encoding="utf-8")
+    _rehash_checkpoint(checkpoint)
+
+    with pytest.raises(VerificationError, match="prompt projection"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
 def test_accepts_atif_present_failure_receipt_but_marks_result_incomplete(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path)
-    _add_atif_present_failure_receipt(run, 3)
+    _add_atif_present_failure_receipt(run, 0)
 
     result, rows, _updates = verify_pilot(
         run_dir=run,
@@ -860,8 +1859,8 @@ def test_accepts_atif_present_failure_receipt_but_marks_result_incomplete(tmp_pa
     assert result["evidence"]["missing_atif_failure_receipt_trials"] == 0
     assert result["evidence"]["attested_rollout_model_calls"] == 24
     assert result["evidence"]["verified_update_model_calls"] == 2
-    assert rows[3]["training_evidence_complete"] is True
-    assert rows[3]["score"] == 0.0
+    assert rows[0]["training_evidence_complete"] is True
+    assert rows[0]["score"] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -919,6 +1918,27 @@ def test_rejects_missing_or_escaped_runtime_failure_receipt(tmp_path: Path) -> N
     )
     with pytest.raises(VerificationError, match="path escapes"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_explicit_null_runtime_failure_receipt_reference(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row.get("error") is not None)
+    failed["refs"]["failure_receipt_path"] = None
+    rows_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VerificationError, match="receipt reference"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
 
 
 def test_rejects_symlinked_runtime_failure_receipt(tmp_path: Path) -> None:
@@ -1315,9 +2335,24 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-def test_v10_attempt_ledger_extends_the_preserved_v9_ledger() -> None:
+def test_v11_attempt_ledger_extends_the_preserved_v10_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v10"]
+
+    assert amendment["diagnostic"]["run_id"] == 33553086805
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_preserved_v10_ledger_extends_the_preserved_v9_ledger() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["prior_amendment_v10"]
     prior = protocol["prior_amendment_v9"]
 
     assert amendment["diagnostic"]["run_id"] == 33537027914
@@ -1409,6 +2444,19 @@ def test_rejects_preserved_v9_amendment_drift(
     _write_json(path, protocol)
     monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
     with pytest.raises(VerificationError, match="preserved v9 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
+
+
+def test_rejects_preserved_v10_amendment_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v10"]["execution_change"]["receipt_synthesis_allowed"] = True
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v10 protocol amendment drifted"):
         pilot_verifier._validate_protocol(path)
 
 
@@ -1580,6 +2628,8 @@ def test_rejects_guard_proxy_runtime_evidence_drift(tmp_path: Path) -> None:
         ("root_sessions_observed", 23),
     ],
 )
+
+
 def test_rejects_guard_proxy_root_session_binding_drift(
     tmp_path: Path,
     field: str,

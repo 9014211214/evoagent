@@ -14,11 +14,13 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import hashlib
+import importlib
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import sys
 import tempfile
 from typing import Any, Iterable
 from uuid import UUID
@@ -32,6 +34,11 @@ MAX_RECORDS = 10_000
 FAILURE_RECEIPT_FILENAME = "evoagent-runtime-failure.json"
 FAILURE_RECEIPT_SCHEMA = "evoagent-runtime-failure-v1"
 NO_USABLE_ATIF_SKIP_CODE = "no_usable_harbor_atif_evidence"
+INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE = "incomplete_unattested_harbor_evidence"
+SKIP_STATUS_BY_CODE = {
+    NO_USABLE_ATIF_SKIP_CODE: "skipped_no_usable_atif",
+    INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE: "skipped_incomplete_evidence",
+}
 FAILURE_RECEIPT_CLASSES = {
     "mimocode_process_failed",
     "runtime_sanitization_failed",
@@ -97,8 +104,103 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
 }
 EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v10"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-01T20:58:07Z",
+    "benchmark_effect_claimed": False,
+    "change": "classify_incomplete_unattested_harbor_error_evidence_and_skip_the_whole_training_update",
+    "diagnostic": {
+        "artifact_id": 9819530153,
+        "artifact_zip_sha256": "a463bf5599b7619f0dd6fa973d690621b4ff3ecd79d4bde6ea0d3dce19cccce4",
+        "completed_singleton_jobs": 12,
+        "controller_commit": "5117afafc0aa8735d9666641aa0ec170faad5f2a",
+        "evoagent_public_commit": "28a733b973dd691af6acab60f81da37915a5e07a",
+        "first_update": {"changed": True, "status": "updated"},
+        "full_pilot_started": True,
+        "job_id": 100007152197,
+        "job_log_sha256": "6c796dca51a2df538610e1b39c2d1862f357894ec651431ddb41553d727ccb81",
+        "lifecycle_passed": True,
+        "observed_key_usage_delta_usd": 0.027092801,
+        "planned_singleton_jobs": 24,
+        "proxy": {
+            "completed_requests": 128,
+            "final_upstream_http_4xx_errors": 0,
+            "final_upstream_http_5xx_errors": 0,
+            "forwarded_requests": 128,
+            "rejected_requests": 0,
+            "root_sessions_observed": 12,
+            "upstream_attempts": 128,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+        },
+        "run_id": 33553086805,
+        "score_produced": False,
+        "second_update_error_code": "harbor_failure_receipt_missing",
+        "status": "unattested_harbor_errored_result",
+    },
+    "evidence_contract_change": {
+        "agent_evidence_inventory_exact_before_update": True,
+        "artifact_size_limits_match_final_verifier": True,
+        "binary_reward_and_error_zero_enforced_before_update": True,
+        "bound_artifacts_scanned_for_credentials_before_update": True,
+        "child_and_single_job_bundle_matches_final_verifier_before_update": True,
+        "classified_runtime_receipts_remain_identity_bound": True,
+        "errored_result_without_receipt_is_incomplete_regardless_of_atif": True,
+        "explicit_atif_reference_must_bind_to_its_result": True,
+        "explicit_missing_or_invalid_evidence_remains_fatal": True,
+        "explicit_null_atif_timestamp_rejected": True,
+        "final_verifier_recomputes_each_train_projection": True,
+        "incomplete_projection_binds_batch_task_job_identity": True,
+        "incomplete_projection_binds_verified_evidence_sets": True,
+        "job_provenance_hashes_bound_to_projection": True,
+        "mandatory_job_dir_and_task_checksum_refs_rechecked": True,
+        "normal_zero_score_still_requires_atif": True,
+        "normal_atif_requires_hash_bound_attestation_before_update": True,
+        "receipt_identity_checks_relaxed": False,
+        "synthetic_receipt_allowed": False,
+        "trajectory_fields_recomputed_from_bound_harbor_result": True,
+        "unattested_failure_may_update_agent": False,
+        "unattested_failure_requires_real_contained_result": True,
+        "update_attempt_history_and_usage_fully_cross_bound": True,
+        "whole_batch_partial_learning_allowed": False,
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "one_task_per_harbor_job": True,
+        "one_task_per_harbor_job_rechecked_by_update_projection": True,
+        "planned_slot_replacement_allowed": False,
+        "task_attempts_changed": False,
+        "unattested_training_batch_advances_as_no_call_skip": True,
+        "update_schedule_changed": False,
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "leaf_cause_status": {
+        "exact_exception_stage_or_type_confirmed": False,
+        "raw_exception_content_persisted": False,
+        "source_confirmed_mechanism": "harbor_child_exceptions_are_normalized_to_nonempty_trajectory_errors_while_only_mimocode_or_sanitizer_failures_can_create_the_runtime_receipt_missing_receipt_alone_does_not_identify_the_failure_stage",
+        "triggering_train_batch_confirmed": 2,
+    },
+    "observed_diagnostic_aggregates": {
+        "batch_1": {"logged_mean_score": 0.333333, "logged_successes": 1},
+        "batch_2": {"logged_mean_score": 0.0, "logged_successes": 0},
+        "effect_claimed_from_intermediate_values": False,
+        "used_to_select_model_tasks_split_or_order": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 17,
+    "prior_observed_usage_delta_usd": 0.368592617,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v10",
+    "final_comparison_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V10 = {
     "amended_at": "2026-09-01T18:06:10Z",
     "benchmark_effect_claimed": False,
     "change": "synchronize_committed_candidate_with_seagym_live_state_and_bind_atif_identity",
@@ -842,6 +944,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v10") != EXPECTED_PRIOR_AMENDMENT_V10:
+        raise VerificationError("preserved v10 protocol amendment drifted")
     if protocol.get("prior_amendment_v9") != EXPECTED_PRIOR_AMENDMENT_V9:
         raise VerificationError("preserved v9 protocol amendment drifted")
     if protocol.get("prior_amendment_v8") != EXPECTED_PRIOR_AMENDMENT_V8:
@@ -1101,19 +1205,279 @@ def _validate_batch_plan(run_dir: Path, split: dict[str, Any]) -> dict[str, Any]
     return plan
 
 
+def _adapter_snapshot_tools() -> tuple[type[Any], Any]:
+    """Load the checked-out adapter even when only the root package is installed."""
+
+    adapter_src = (
+        Path(__file__).resolve().parents[1]
+        / "adapters"
+        / "seagym_evoagent"
+        / "src"
+    ).resolve(strict=True)
+    adapter_src_text = str(adapter_src)
+    if adapter_src_text not in sys.path:
+        sys.path.insert(0, adapter_src_text)
+    loaded = sys.modules.get("seagym_evoagent")
+    loaded_path = getattr(loaded, "__file__", None)
+    if loaded_path is not None and adapter_src not in Path(loaded_path).resolve().parents:
+        for module_name in tuple(sys.modules):
+            if module_name == "seagym_evoagent" or module_name.startswith("seagym_evoagent."):
+                del sys.modules[module_name]
+    importlib.invalidate_caches()
+    try:
+        models = importlib.import_module("seagym_evoagent.models")
+        baseline = importlib.import_module("seagym_evoagent.baseline")
+    except (ImportError, OSError, RuntimeError) as exc:
+        raise VerificationError("the local SEAGym adapter snapshot validator is unavailable") from exc
+    models_path = Path(models.__file__).resolve(strict=True)
+    baseline_path = Path(baseline.__file__).resolve(strict=True)
+    if adapter_src not in models_path.parents or adapter_src not in baseline_path.parents:
+        raise VerificationError("the SEAGym adapter snapshot validator resolved outside this checkout")
+    return models.HarnessSnapshot, baseline.render_prompt_projection
+
+
+def _recorded_checkpoint_dir_matches(raw: Any, checkpoint_id: str) -> bool:
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
+        return False
+    path = (
+        PureWindowsPath(raw)
+        if "\\" in raw or re.match(r"^[A-Za-z]:", raw)
+        else PurePosixPath(raw)
+    )
+    if not path.is_absolute() or any(part in {".", ".."} for part in path.parts):
+        return False
+    return path.name == checkpoint_id and path.parent.name.casefold() == "checkpoints"
+
+
+def _validate_checkpoint_attempt(raw: Any, expected_index: int) -> dict[str, Any]:
+    common = {
+        "schema_version",
+        "attempt_index",
+        "status",
+        "model_call_executed",
+        "model_id",
+        "route_contract_sha256",
+        "seed",
+        "before_snapshot_sha256",
+        "candidate_snapshot_sha256",
+        "evidence_sha256",
+        "request_sha256",
+        "response_sha256",
+        "served_model_id",
+        "provider",
+        "usage",
+        "causal_attribution_claimed",
+        "promotion_claimed",
+    }
+    if not isinstance(raw, dict):
+        raise VerificationError("checkpoint update attempt is not an object")
+    status = raw.get("status")
+    allowed_statuses = {"accepted", "accepted_unchanged", *SKIP_STATUS_BY_CODE.values()}
+    expected_keys = common | ({"skip_code"} if status in SKIP_STATUS_BY_CODE.values() else set())
+    if status not in allowed_statuses or set(raw) != expected_keys:
+        raise VerificationError("checkpoint update attempt shape or status drifted")
+    if (
+        raw.get("schema_version") != "evoagent-seagym-update-attempt-v1"
+        or raw.get("attempt_index") != expected_index
+        or raw.get("seed") != 42
+        or raw.get("model_id") != EXPECTED_MODEL_API
+        or raw.get("route_contract_sha256") != EXPECTED_ROUTE_CONTRACT_SHA256
+    ):
+        raise VerificationError("checkpoint update attempt protocol identity drifted")
+    for key in (
+        "before_snapshot_sha256",
+        "candidate_snapshot_sha256",
+        "evidence_sha256",
+        "request_sha256",
+    ):
+        if not isinstance(raw.get(key), str) or not HEX64.fullmatch(raw[key]):
+            raise VerificationError("checkpoint update attempt hash is invalid")
+    if raw.get("causal_attribution_claimed") is not False or raw.get("promotion_claimed") is not False:
+        raise VerificationError("checkpoint update attempt exceeds the claim boundary")
+    usage = raw.get("usage")
+    if not isinstance(usage, dict) or set(usage) != {
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "cost_usd",
+    }:
+        raise VerificationError("checkpoint update attempt usage shape drifted")
+    prompt_tokens = _bounded_int(usage.get("prompt_tokens"), "checkpoint attempt prompt tokens")
+    completion_tokens = _bounded_int(
+        usage.get("completion_tokens"),
+        "checkpoint attempt completion tokens",
+    )
+    total_tokens = _bounded_int(usage.get("total_tokens"), "checkpoint attempt total tokens")
+    if total_tokens != prompt_tokens + completion_tokens:
+        raise VerificationError("checkpoint update attempt token accounting drifted")
+    cost_usd = _finite_number(usage.get("cost_usd"), "checkpoint attempt cost")
+    model_call_executed = raw.get("model_call_executed")
+    if not isinstance(model_call_executed, bool):
+        raise VerificationError("checkpoint update attempt lacks an explicit model-call decision")
+    skip_code = raw.get("skip_code")
+    if model_call_executed:
+        if status not in {"accepted", "accepted_unchanged"} or skip_code is not None:
+            raise VerificationError("model-backed checkpoint attempt claims a skip")
+        if (
+            not isinstance(raw.get("response_sha256"), str)
+            or not HEX64.fullmatch(raw["response_sha256"])
+            or raw.get("served_model_id")
+            not in {EXPECTED_MODEL_API, EXPECTED_CANONICAL_MODEL}
+            or raw.get("provider") != EXPECTED_PROVIDER
+        ):
+            raise VerificationError("checkpoint update model evidence drifted")
+        if total_tokens <= 0:
+            raise VerificationError("model-backed checkpoint attempt has no token evidence")
+    else:
+        if SKIP_STATUS_BY_CODE.get(skip_code) != status:
+            raise VerificationError("checkpoint no-call status and skip code disagree")
+        expected_request_sha256 = _canonical_sha(
+            {
+                "schema_version": "evoagent-seagym-no-model-call-v1",
+                "attempt_index": expected_index,
+                "before_snapshot_sha256": raw["before_snapshot_sha256"],
+                "evidence_sha256": raw["evidence_sha256"],
+                "skip_code": skip_code,
+            }
+        )
+        if (
+            raw["request_sha256"] != expected_request_sha256
+            or raw.get("response_sha256") is not None
+            or raw.get("served_model_id") is not None
+            or raw.get("provider") is not None
+            or prompt_tokens != 0
+            or completion_tokens != 0
+            or total_tokens != 0
+            or cost_usd != 0.0
+        ):
+            raise VerificationError("checkpoint no-call attempt evidence is invalid")
+    return {
+        "schema_version": "evoagent-seagym-update-attempt-v1",
+        "attempt_index": expected_index,
+        "status": status,
+        "model_call_executed": model_call_executed,
+        "model_id": raw["model_id"],
+        "route_contract_sha256": raw["route_contract_sha256"],
+        "seed": raw["seed"],
+        "before_snapshot_sha256": raw["before_snapshot_sha256"],
+        "candidate_snapshot_sha256": raw["candidate_snapshot_sha256"],
+        "evidence_sha256": raw["evidence_sha256"],
+        "request_sha256": raw["request_sha256"],
+        "response_sha256": raw["response_sha256"],
+        "served_model_id": raw["served_model_id"],
+        "provider": raw["provider"],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": cost_usd,
+        },
+        "skip_code": skip_code if isinstance(skip_code, str) else None,
+        "causal_attribution_claimed": False,
+        "promotion_claimed": False,
+    }
+
+
 def _checkpoint_snapshot(
     run_dir: Path,
     checkpoint_id: str,
-) -> tuple[str, str, dict[str, dict[str, str]]]:
+    *,
+    expected_run_id: str,
+    expected_experiment_id: str,
+) -> tuple[str, str, dict[str, dict[str, str]], list[dict[str, Any]]]:
+    expected_update_index = {"initial": 0, "E_1": 1, "final": 2}.get(checkpoint_id)
+    expected_checkpoint_type = {
+        "initial": "initial",
+        "E_1": "evaluation_point",
+        "final": "final",
+    }.get(checkpoint_id)
+    if expected_update_index is None or expected_checkpoint_type is None:
+        raise VerificationError(f"unsupported frozen checkpoint id: {checkpoint_id}")
     checkpoints_root = (run_dir / "checkpoints").resolve(strict=True)
     checkpoint_dir = _regular_file(
         checkpoints_root / checkpoint_id / "checkpoint.json",
         root=checkpoints_root,
     ).parent
     manifest = _load_json(checkpoint_dir / "checkpoint.json", root=checkpoints_root)
+    required_outer_keys = {
+        "checkpoint_id",
+        "checkpoint_type",
+        "created_at",
+        "run_id",
+        "experiment_id",
+        "trainer_state",
+        "metadata",
+        "refs",
+        "baseline",
+    }
+    if not isinstance(manifest, dict) or not required_outer_keys <= set(manifest):
+        raise VerificationError(f"invalid outer SEAGym checkpoint: {checkpoint_id}")
+    if (
+        manifest.get("checkpoint_id") != checkpoint_id
+        or manifest.get("checkpoint_type") != expected_checkpoint_type
+        or manifest.get("run_id") != expected_run_id
+        or manifest.get("experiment_id") != expected_experiment_id
+    ):
+        raise VerificationError(f"outer checkpoint identity drifted: {checkpoint_id}")
+    _validate_iso_timestamp(manifest.get("created_at"), "checkpoint created_at")
+    if not isinstance(manifest.get("metadata"), dict) or not isinstance(manifest.get("refs"), dict):
+        raise VerificationError(f"outer checkpoint metadata is invalid: {checkpoint_id}")
+    trainer_state = manifest.get("trainer_state")
+    if (
+        not isinstance(trainer_state, dict)
+        or trainer_state.get("checkpoint_id") != checkpoint_id
+        or trainer_state.get("updates_completed") != expected_update_index
+        or trainer_state.get("global_step") != expected_update_index
+        or trainer_state.get("train_batch_index") != expected_update_index
+        or trainer_state.get("num_train_tasks_seen") != expected_update_index * 3
+    ):
+        raise VerificationError(f"outer checkpoint trainer state drifted: {checkpoint_id}")
     baseline = manifest.get("baseline") if isinstance(manifest, dict) else None
-    if not isinstance(baseline, dict) or baseline.get("schema_version") != "evoagent-seagym-checkpoint-v1":
+    direct_baseline_keys = {
+        "type",
+        "schema_version",
+        "baseline_id",
+        "state_ref",
+        "update_index",
+        "state_inventory",
+        "state_inventory_sha256",
+        "state_metadata",
+        "checkpoint_dir",
+    }
+    expected_baseline_keys = (
+        direct_baseline_keys | {"alias_of", "source_checkpoint_id"}
+        if checkpoint_id == "final"
+        else direct_baseline_keys
+    )
+    expected_baseline_type = (
+        "baseline_checkpoint_alias"
+        if checkpoint_id == "final"
+        else "evoagent_seagym_checkpoint"
+    )
+    if (
+        not isinstance(baseline, dict)
+        or set(baseline) != expected_baseline_keys
+        or baseline.get("type") != expected_baseline_type
+        or baseline.get("schema_version") != "evoagent-seagym-checkpoint-v1"
+        or baseline.get("baseline_id") != "evoagent"
+        or baseline.get("update_index") != expected_update_index
+    ):
         raise VerificationError(f"invalid EvoAgent checkpoint: {checkpoint_id}")
+    if checkpoint_id == "final":
+        if (
+            baseline.get("alias_of") != "epoch_0001"
+            or baseline.get("source_checkpoint_id") != "epoch_0001"
+            or str(baseline.get("state_ref")).replace("\\", "/")
+            != "../epoch_0001/baseline_state"
+        ):
+            raise VerificationError("final checkpoint alias identity drifted")
+    elif baseline.get("state_ref") != "baseline_state":
+        raise VerificationError(f"checkpoint state_ref drifted: {checkpoint_id}")
+    raw_checkpoint_dir = baseline.get("checkpoint_dir")
+    if not _recorded_checkpoint_dir_matches(raw_checkpoint_dir, checkpoint_id):
+        raise VerificationError(f"checkpoint directory identity drifted: {checkpoint_id}")
+    if manifest["refs"].get("baseline_state") != baseline.get("state_ref"):
+        raise VerificationError(f"outer checkpoint baseline reference drifted: {checkpoint_id}")
     state_ref = baseline.get("state_ref")
     if not isinstance(state_ref, str):
         raise VerificationError(f"checkpoint state_ref missing: {checkpoint_id}")
@@ -1140,68 +1504,168 @@ def _checkpoint_snapshot(
     if baseline.get("state_inventory") != inventory or baseline.get("state_inventory_sha256") != _canonical_sha(inventory):
         raise VerificationError("checkpoint state inventory is invalid")
     state = _load_json(state_dir / "state.json", root=state_dir)
-    if not isinstance(state, dict) or state.get("schema_version") != "evoagent-seagym-state-v1":
+    expected_state_keys = {
+        "schema_version",
+        "baseline_id",
+        "adapter_version",
+        "model_id",
+        "route_contract_sha256",
+        "seed",
+        "update_index",
+        "a0_sha256",
+        "evaluation_candidate_sha256",
+        "prompt_template",
+        "attempt_refs",
+        "causal_attribution_claimed",
+        "promotion_claimed",
+    }
+    if (
+        not isinstance(state, dict)
+        or set(state) != expected_state_keys
+        or state.get("schema_version") != "evoagent-seagym-state-v1"
+    ):
         raise VerificationError("checkpoint state manifest is invalid")
-    if state.get("seed") != 42 or state.get("model_id") != EXPECTED_MODEL_API:
-        raise VerificationError("checkpoint state model or seed drifted")
+    update_index = state.get("update_index")
+    if (
+        state.get("baseline_id") != "evoagent"
+        or state.get("adapter_version") != "0.1.0"
+        or state.get("seed") != 42
+        or state.get("model_id") != EXPECTED_MODEL_API
+        or state.get("route_contract_sha256") != EXPECTED_ROUTE_CONTRACT_SHA256
+        or isinstance(update_index, bool)
+        or not isinstance(update_index, int)
+        or update_index != expected_update_index
+        or baseline.get("update_index") != update_index
+    ):
+        raise VerificationError("checkpoint state identity or protocol lock drifted")
     if state.get("causal_attribution_claimed") is not False or state.get("promotion_claimed") is not False:
         raise VerificationError("checkpoint state claims causality or promotion")
     a0 = state.get("a0_sha256")
     candidate = state.get("evaluation_candidate_sha256")
     if not isinstance(a0, str) or not HEX64.fullmatch(a0) or not isinstance(candidate, str) or not HEX64.fullmatch(candidate):
         raise VerificationError("checkpoint snapshot hashes are invalid")
+    expected_state_metadata = {
+        "a0_sha256": a0,
+        "evaluation_candidate_sha256": candidate,
+        "prompt_template": f"baseline_state/prompts/{candidate}.md",
+        "route_contract_sha256": EXPECTED_ROUTE_CONTRACT_SHA256,
+        "evaluation_only": True,
+        "causal_attribution_claimed": False,
+        "promotion_claimed": False,
+    }
+    if baseline.get("state_metadata") != expected_state_metadata:
+        raise VerificationError("checkpoint state metadata differs from the validated state")
+    snapshot_refs = sorted(
+        reference
+        for reference in inventory
+        if re.fullmatch(r"snapshots/[0-9a-f]{64}\.json", reference)
+    )
+    HarnessSnapshot, render_prompt_projection = _adapter_snapshot_tools()
     component_hashes_by_snapshot: dict[str, dict[str, str]] = {}
-    for digest in (a0, candidate):
-        snapshot = _load_json(state_dir / "snapshots" / f"{digest}.json", root=state_dir)
-        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != "evoagent-seagym-harness-v1":
-            raise VerificationError("harness snapshot schema is invalid")
-        if snapshot.get("snapshot_sha256") != digest:
+    snapshots: dict[str, Any] = {}
+    for reference in snapshot_refs:
+        digest = Path(reference).stem
+        raw_snapshot = _load_json(state_dir / reference, root=state_dir)
+        try:
+            snapshot = HarnessSnapshot.from_dict(raw_snapshot)
+        except (TypeError, ValueError) as exc:
+            raise VerificationError("harness snapshot is invalid") from exc
+        if snapshot.snapshot_sha256 != digest:
             raise VerificationError("harness snapshot content address is invalid")
-        if snapshot.get("evaluation_only") is not True:
-            raise VerificationError("harness snapshot is not evaluation-only")
-        if snapshot.get("causal_attribution_claimed") is not False or snapshot.get("promotion_claimed") is not False:
-            raise VerificationError("harness snapshot exceeds the claim boundary")
-        components = snapshot.get("components")
-        component_hashes = snapshot.get("component_sha256")
-        if not isinstance(components, dict) or set(components) != {"skills", "memory", "router", "policy"}:
-            raise VerificationError("harness components are invalid")
-        expected_components = {name: _canonical_sha(components[name]) for name in sorted(components)}
-        if component_hashes != expected_components:
-            raise VerificationError("harness component hashes are invalid")
+        expected_components = dict(snapshot.component_sha256)
         previous_components = component_hashes_by_snapshot.get(digest)
         if previous_components is not None and previous_components != expected_components:
             raise VerificationError("duplicate snapshot digest has conflicting component hashes")
         component_hashes_by_snapshot[digest] = expected_components
-        unsigned = dict(snapshot)
-        unsigned.pop("snapshot_sha256")
-        if _canonical_sha(unsigned) != digest:
-            raise VerificationError("harness snapshot hash is invalid")
-    for relative in sorted(key for key in inventory if key.startswith("attempts/")):
-        attempt = _load_json(state_dir / relative, root=state_dir)
-        if (
-            not isinstance(attempt, dict)
-            or attempt.get("schema_version") != "evoagent-seagym-update-attempt-v1"
-            or attempt.get("seed") != 42
-            or attempt.get("model_id") != EXPECTED_MODEL_API
+        snapshots[digest] = snapshot
+    if a0 not in snapshots or candidate not in snapshots:
+        raise VerificationError("checkpoint state references a missing snapshot")
+    if snapshots[a0].generation != 0 or snapshots[a0].parent_snapshot_sha256 is not None:
+        raise VerificationError("checkpoint A0 lineage is invalid")
+    for digest, snapshot in snapshots.items():
+        if digest == a0:
+            continue
+        parent_digest = snapshot.parent_snapshot_sha256
+        parent = snapshots.get(parent_digest)
+        if parent is None or snapshot.generation != parent.generation + 1:
+            raise VerificationError("checkpoint snapshot lineage is incomplete")
+        seen: set[str] = set()
+        cursor = snapshot
+        while cursor.snapshot_sha256 != a0:
+            if cursor.snapshot_sha256 in seen:
+                raise VerificationError("checkpoint snapshot lineage contains a cycle")
+            seen.add(cursor.snapshot_sha256)
+            cursor = snapshots.get(cursor.parent_snapshot_sha256)
+            if cursor is None:
+                raise VerificationError("checkpoint snapshot lineage is not rooted at A0")
+    expected_prompt_refs = {f"prompts/{digest}.md" for digest in snapshots}
+    actual_prompt_refs = {
+        reference for reference in inventory if reference.startswith("prompts/")
+    }
+    if actual_prompt_refs != expected_prompt_refs:
+        raise VerificationError("checkpoint prompt inventory differs from its snapshots")
+    for digest, snapshot in snapshots.items():
+        prompt_path = _regular_file(
+            state_dir / f"prompts/{digest}.md",
+            root=state_dir,
+            max_bytes=2 * 1024 * 1024,
+        )
+        if prompt_path.read_bytes() != render_prompt_projection(snapshot).encode("utf-8"):
+            raise VerificationError("checkpoint prompt projection differs from its snapshot")
+    if state.get("prompt_template") != f"prompts/{candidate}.md" or state["prompt_template"] not in inventory:
+        raise VerificationError("checkpoint prompt does not bind the current candidate")
+    attempt_refs = state.get("attempt_refs")
+    if not isinstance(attempt_refs, list) or len(attempt_refs) != update_index:
+        raise VerificationError("checkpoint attempt references do not match update index")
+    expected_attempt_inventory = set(attempt_refs)
+    actual_attempt_inventory = {
+        reference for reference in inventory if reference.startswith("attempts/")
+    }
+    if actual_attempt_inventory != expected_attempt_inventory:
+        raise VerificationError("checkpoint attempt inventory differs from its manifest")
+    attempts: list[dict[str, Any]] = []
+    current = a0
+    for expected_index, reference in enumerate(attempt_refs, start=1):
+        if not isinstance(reference, str) or not re.fullmatch(
+            rf"attempts/{expected_index:06d}-[0-9a-f]{{64}}\.json",
+            reference,
         ):
-            raise VerificationError("update attempt model or seed drifted")
-        model_call_executed = attempt.get("model_call_executed")
-        if not isinstance(model_call_executed, bool):
-            raise VerificationError("update attempt lacks an explicit model-call decision")
-        if model_call_executed:
-            if attempt.get("status") == "skipped_no_usable_atif" or attempt.get("skip_code") is not None:
-                raise VerificationError("model-backed attempt claims an ATIF skip")
-        elif (
-            attempt.get("status") != "skipped_no_usable_atif"
-            or attempt.get("skip_code") != NO_USABLE_ATIF_SKIP_CODE
-            or attempt.get("response_sha256") is not None
-            or attempt.get("served_model_id") is not None
-            or attempt.get("provider") is not None
-            or attempt.get("usage")
-            != {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
-        ):
-            raise VerificationError("update attempt no-call evidence is invalid")
-    return a0, candidate, component_hashes_by_snapshot
+            raise VerificationError("checkpoint attempt reference is invalid")
+        attempt = _load_json(state_dir / reference, root=state_dir)
+        safe_attempt = _validate_checkpoint_attempt(attempt, expected_index)
+        if reference != f"attempts/{expected_index:06d}-{attempt['request_sha256']}.json":
+            raise VerificationError("checkpoint attempt filename differs from its request hash")
+        if safe_attempt["before_snapshot_sha256"] != current:
+            raise VerificationError("checkpoint attempt lineage drifted")
+        next_candidate = safe_attempt["candidate_snapshot_sha256"]
+        if safe_attempt["status"] == "accepted":
+            snapshot = snapshots.get(next_candidate)
+            current_snapshot = snapshots.get(current)
+            if (
+                snapshot is None
+                or current_snapshot is None
+                or snapshot.parent_snapshot_sha256 != current
+                or snapshot.generation != current_snapshot.generation + 1
+                or snapshot.evidence_sha256 != safe_attempt["evidence_sha256"]
+            ):
+                raise VerificationError("checkpoint accepted attempt lacks a valid child snapshot")
+            current = next_candidate
+        elif next_candidate != current:
+            raise VerificationError("checkpoint unchanged attempt changed the candidate")
+        attempts.append(safe_attempt)
+    if current != candidate:
+        raise VerificationError("checkpoint attempt chain differs from the current candidate")
+    expected_snapshot_inventory = {
+        a0,
+        *(
+            attempt["candidate_snapshot_sha256"]
+            for attempt in attempts
+            if attempt["status"] == "accepted"
+        ),
+    }
+    if set(snapshots) != expected_snapshot_inventory:
+        raise VerificationError("checkpoint snapshot inventory differs from accepted lineage")
+    return a0, candidate, component_hashes_by_snapshot, attempts
 
 
 def _validate_updates(run_dir: Path) -> tuple[list[dict[str, Any]], dict[int, str]]:
@@ -1232,34 +1696,53 @@ def _validate_updates(run_dir: Path) -> tuple[list[dict[str, Any]], dict[int, st
         metrics = summary.get("metrics") or {}
         if not isinstance(metrics, dict):
             raise VerificationError("agent update metrics are invalid")
+        input_tokens = _bounded_int(metrics.get("input_tokens"), "agent update input tokens")
+        output_tokens = _bounded_int(metrics.get("output_tokens"), "agent update output tokens")
+        cost_usd = _finite_number(metrics.get("cost_usd"), "agent update cost")
         model_call_executed = logs.get("model_call_executed")
         if not isinstance(model_call_executed, bool):
             raise VerificationError("agent update lacks an explicit model-call decision")
         skip_code = logs.get("skip_code")
+        evidence_sha256 = logs.get("evidence_sha256")
+        if not isinstance(evidence_sha256, str) or not HEX64.fullmatch(evidence_sha256):
+            raise VerificationError("agent update evidence hash is invalid")
+        request_sha256 = logs.get("request_sha256")
+        response_sha256 = logs.get("response_sha256")
         if model_call_executed:
-            if skip_code is not None:
-                raise VerificationError("a model-backed update cannot claim a no-evidence skip")
+            if (
+                skip_code is not None
+                or not isinstance(request_sha256, str)
+                or not HEX64.fullmatch(request_sha256)
+                or not isinstance(response_sha256, str)
+                or not HEX64.fullmatch(response_sha256)
+                or input_tokens + output_tokens <= 0
+                or summary.get("status") != ("updated" if summary.get("changed") is True else "unchanged")
+            ):
+                raise VerificationError("agent update cannot match a model-backed checkpoint attempt")
         else:
             if (
-                skip_code != NO_USABLE_ATIF_SKIP_CODE
+                SKIP_STATUS_BY_CODE.get(skip_code) is None
                 or summary.get("changed") is not False
                 or summary.get("status") != "unchanged"
                 or candidate is None
+                or request_sha256 is not None
+                or response_sha256 is not None
             ):
                 raise VerificationError("agent no-call update is not the frozen ATIF skip")
-            for key in ("input_tokens", "output_tokens", "cost_usd"):
-                if _finite_number(metrics.get(key), f"skipped update {key}") != 0.0:
-                    raise VerificationError("skipped update contains fabricated model usage")
+            if input_tokens != 0 or output_tokens != 0 or cost_usd != 0.0:
+                raise VerificationError("skipped update contains fabricated model usage")
         safe.append(
             {
                 "update_index": expected_index,
                 "changed": summary.get("changed") is True,
                 "status": str(summary.get("status", "unknown"))[:40],
                 "candidate_sha256": candidate,
-                "evidence_sha256": logs.get("evidence_sha256") if isinstance(logs.get("evidence_sha256"), str) else None,
-                "input_tokens": _optional_number(metrics.get("input_tokens")),
-                "output_tokens": _optional_number(metrics.get("output_tokens")),
-                "cost_usd": _optional_number(metrics.get("cost_usd")),
+                "evidence_sha256": evidence_sha256,
+                "request_sha256": request_sha256 if isinstance(request_sha256, str) else None,
+                "response_sha256": response_sha256 if isinstance(response_sha256, str) else None,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_usd": cost_usd,
                 "model_call_executed": model_call_executed,
                 "skip_code": skip_code if isinstance(skip_code, str) else None,
                 "causal_attribution_claimed": False,
@@ -1678,6 +2161,7 @@ def _validate_atif(
 
 def _validate_attestation(
     result_path: Path,
+    atif_path: Path,
     expected_snapshot: str,
     expected_component_hashes: dict[str, str],
 ) -> tuple[dict[str, Any], str, int]:
@@ -1691,6 +2175,16 @@ def _validate_attestation(
         raise VerificationError("Harbor agent evidence directory is missing") from exc
     if _is_linklike(agent_dir) or agent_dir.parent != trial_dir.resolve(strict=True):
         raise VerificationError("Harbor agent evidence directory is invalid")
+    controlled_atif = _regular_file(
+        atif_path,
+        root=trial_dir,
+        max_bytes=8 * 1024 * 1024,
+    )
+    if controlled_atif.parent != agent_dir or controlled_atif.name not in {
+        "trajectory.json",
+        "atif.json",
+    }:
+        raise VerificationError("Harbor ATIF is not the canonical trial agent evidence")
     attestation_path = _regular_file(agent_dir / "evoagent-attestation.json", root=trial_dir)
     _scan_secret_bytes(attestation_path)
     attestation = _load_json(attestation_path, root=trial_dir)
@@ -1761,7 +2255,7 @@ def _validate_attestation(
         if attestation.get(key) is not False:
             raise VerificationError(f"Harbor attestation violates boundary: {key}")
     llm_call_count = _validate_atif(
-        agent_dir / "trajectory.json",
+        controlled_atif,
         attestation,
         expected_snapshot=expected_snapshot,
         expected_component_hashes=expected_component_hashes,
@@ -1789,8 +2283,9 @@ def _validate_failure_receipt(
         raise VerificationError("Harbor failure evidence directory is invalid")
     receipt_path = _regular_file(agent_dir / FAILURE_RECEIPT_FILENAME, root=trial_dir, max_bytes=64 * 1024)
     refs = row.get("refs") or {}
+    explicit_declared = isinstance(refs, dict) and "failure_receipt_path" in refs
     explicit = refs.get("failure_receipt_path") if isinstance(refs, dict) else None
-    if explicit is not None:
+    if explicit_declared:
         if not isinstance(explicit, str) or not explicit:
             raise VerificationError("task failure receipt reference is invalid")
         jobs_root = result_path.parents[2].resolve(strict=True)
@@ -1870,6 +2365,59 @@ def _validate_failure_receipt(
     return receipt, claimed_hash
 
 
+def _validate_agent_result_metadata(
+    agent_context: dict[str, Any],
+    *,
+    expected_snapshot: str,
+    attestation: dict[str, Any] | None,
+    attestation_hash: str | None,
+    failure_receipt: dict[str, Any] | None,
+    failure_receipt_hash: str | None,
+) -> None:
+    """Lock Harbor AgentContext metadata to the adapter's production schemas."""
+
+    metadata = agent_context.get("metadata")
+    if not isinstance(metadata, dict):
+        raise VerificationError("Harbor child AgentContext metadata is invalid")
+    if attestation is not None:
+        if attestation_hash is None:
+            raise VerificationError("Harbor ATIF metadata lacks an attestation identity")
+        expected = {
+            "attestation_sha256": attestation_hash,
+            "atif_sha256": attestation["atif_sha256"],
+            "snapshot_sha256": expected_snapshot,
+            "model_id": EXPECTED_MODEL_API,
+            "seed": 42,
+            "route_contract_sha256": EXPECTED_ROUTE_CONTRACT_SHA256,
+            "privacy_projection": True,
+        }
+        if failure_receipt is not None:
+            if failure_receipt_hash is None:
+                raise VerificationError("Harbor receipt metadata lacks a receipt identity")
+            expected["runtime_failure_receipt_sha256"] = failure_receipt_hash
+    elif failure_receipt is not None:
+        if failure_receipt_hash is None:
+            raise VerificationError("Harbor receipt metadata lacks a receipt identity")
+        expected = {
+            "runtime_failure_receipt_sha256": failure_receipt_hash,
+            "runtime_failure_class": failure_receipt["failure_class"],
+            "runtime_failure_stage": failure_receipt["failure_stage"],
+            "mimocode_exit_class": failure_receipt["mimocode_exit_class"],
+            "snapshot_sha256": expected_snapshot,
+            "model_id": EXPECTED_MODEL_API,
+            "seed": 42,
+            "route_contract_sha256": EXPECTED_ROUTE_CONTRACT_SHA256,
+            "privacy_projection": True,
+        }
+    else:
+        # Harbor outer exceptions occur before the adapter can populate a safe
+        # attestation or classified-receipt context.  No arbitrary metadata is
+        # accepted as a substitute for either evidence contract.
+        expected = {}
+    if metadata != expected:
+        raise VerificationError("Harbor child AgentContext metadata drifted from production")
+
+
 def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str, int | float]:
     agent_result = payload.get("agent_result")
     if agent_result is None:
@@ -1894,12 +2442,307 @@ def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str
             parsed_row = _finite_number(row_value, "failed normalized cost")
         else:
             parsed_payload = _bounded_int(payload_value, f"failed Harbor {output_name}")
-            parsed_row = _bounded_int(row_value, f"failed normalized {output_name}")
+            numeric_row = _finite_number(row_value, f"failed normalized {output_name}")
+            if not float(numeric_row).is_integer() or not 0 <= numeric_row <= 10**12:
+                raise VerificationError(
+                    f"failed normalized {output_name} must be a bounded integer value"
+                )
+            parsed_row = int(numeric_row)
         if parsed_payload != parsed_row:
             raise VerificationError("failed Harbor usage differs from the normalized row")
         usage[output_name] = parsed_row
     usage["reasoning_tokens"] = 0
     return usage
+
+
+def _resolve_row_atif_path(
+    row: dict[str, Any],
+    result_path: Path,
+    jobs_root: Path,
+) -> Path | None:
+    """Resolve exactly one ATIF that is canonically bound to this child result."""
+
+    refs = row.get("refs")
+    if not isinstance(refs, dict):
+        raise VerificationError("task row refs are invalid")
+    trial_dir = result_path.parent.resolve(strict=True)
+    agent_dir = trial_dir / "agent"
+    derived = (agent_dir / "trajectory.json", agent_dir / "atif.json")
+    existing: list[Path] = []
+    for candidate in derived:
+        if not candidate.exists() and not _is_linklike(candidate):
+            continue
+        existing.append(
+            _regular_file(
+                candidate,
+                root=trial_dir,
+                max_bytes=8 * 1024 * 1024,
+            )
+        )
+    if len(existing) > 1:
+        raise VerificationError("Harbor trial contains ambiguous ATIF evidence")
+    canonical = existing[0] if existing else None
+
+    explicit_paths: list[Path] = []
+    for key in ("atif_path", "trajectory_path"):
+        if key not in refs:
+            continue
+        raw_path = refs[key]
+        if not isinstance(raw_path, str) or not raw_path:
+            raise VerificationError("task ATIF reference must be non-empty text")
+        explicit_path = Path(raw_path)
+        if not explicit_path.is_absolute():
+            explicit_path = jobs_root / explicit_path
+        try:
+            controlled_explicit_path = _regular_file(
+                explicit_path,
+                root=jobs_root,
+                max_bytes=8 * 1024 * 1024,
+            )
+        except VerificationError as exc:
+            raise VerificationError("task ATIF reference is invalid or missing") from exc
+        explicit_paths.append(controlled_explicit_path)
+    if explicit_paths:
+        if len(set(explicit_paths)) != 1:
+            raise VerificationError("task row declares conflicting ATIF references")
+        if canonical is None or explicit_paths[0] != canonical:
+            raise VerificationError("task ATIF reference does not match its Harbor trial")
+    return canonical
+
+
+def _validate_agent_evidence_inventory(
+    result_path: Path,
+    allowed_files: set[Path],
+) -> None:
+    trial_dir = result_path.parent.resolve(strict=True)
+    lexical_agent_dir = trial_dir / "agent"
+    if _is_linklike(lexical_agent_dir):
+        raise VerificationError("Harbor agent evidence directory is link-like")
+    try:
+        agent_dir = lexical_agent_dir.resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError("Harbor agent evidence directory is missing") from exc
+    if (
+        _is_linklike(agent_dir)
+        or not agent_dir.is_dir()
+        or agent_dir.parent != trial_dir
+    ):
+        raise VerificationError("Harbor agent evidence directory is invalid")
+    actual: set[Path] = set()
+    for candidate in agent_dir.iterdir():
+        if _is_linklike(candidate) or not candidate.is_file():
+            raise VerificationError("Harbor agent evidence directory contains an unexpected entry")
+        actual.add(_regular_file(candidate, root=trial_dir, max_bytes=8 * 1024 * 1024))
+    controlled_allowed = {
+        _regular_file(path, root=trial_dir, max_bytes=8 * 1024 * 1024)
+        for path in allowed_files
+    }
+    if actual != controlled_allowed:
+        raise VerificationError("Harbor agent evidence inventory is inconsistent")
+
+
+def _validate_unattested_harbor_failure(
+    row: dict[str, Any],
+    result_path: Path,
+    *,
+    allowed_agent_evidence: set[Path],
+) -> str:
+    """Bind an errored result without treating its unreceipted evidence as learnable."""
+
+    refs = row.get("refs")
+    if not isinstance(refs, dict) or "failure_receipt_path" in refs:
+        raise VerificationError("unattested Harbor failure declares a runtime receipt")
+    _validate_agent_evidence_inventory(result_path, allowed_agent_evidence)
+    return _sha256(result_path)
+
+
+def _adapter_evidence_tools() -> tuple[Any, type[ValueError], type[ValueError]]:
+    """Load the exact checked-out adapter evidence projector."""
+
+    adapter_src = (
+        Path(__file__).resolve().parents[1]
+        / "adapters"
+        / "seagym_evoagent"
+        / "src"
+    ).resolve(strict=True)
+    adapter_src_text = str(adapter_src)
+    if adapter_src_text not in sys.path:
+        sys.path.insert(0, adapter_src_text)
+    try:
+        evidence = importlib.import_module("seagym_evoagent.evidence")
+    except (ImportError, OSError, RuntimeError) as exc:
+        raise VerificationError("the local SEAGym adapter evidence projector is unavailable") from exc
+    evidence_path = Path(evidence.__file__).resolve(strict=True)
+    if adapter_src not in evidence_path.parents:
+        raise VerificationError("the SEAGym adapter evidence projector resolved outside this checkout")
+    return (
+        evidence.project_train_batch,
+        evidence.NoUsableHarborATIFEvidence,
+        evidence.IncompleteHarborTrainEvidence,
+    )
+
+
+def _project_train_batch_rows(
+    batch_rows: list[dict[str, Any]],
+    *,
+    run_dir: Path,
+    expected_snapshot: str,
+    expected_component_hashes: dict[str, str],
+) -> tuple[Any, str | None]:
+    """Recreate the adapter's exact update-time evidence projection."""
+
+    project_train_batch, no_usable_error, incomplete_error = _adapter_evidence_tools()
+    trajectories: list[argparse.Namespace] = []
+    for row in batch_rows:
+        rewards = row.get("rewards")
+        if not isinstance(rewards, dict) or set(rewards) != {"reward"}:
+            raise VerificationError("train row reward evidence is invalid")
+        refs = row.get("refs")
+        raw_result_path = refs.get("result_path") if isinstance(refs, dict) else None
+        if not isinstance(raw_result_path, str) or not raw_result_path:
+            raise VerificationError("train row lacks a result-bound attempt identity")
+        jobs_root = (run_dir / "harbor" / "jobs").resolve(strict=True)
+        result_path = Path(raw_result_path)
+        if not result_path.is_absolute():
+            result_path = jobs_root / result_path
+        result_payload = _load_json(result_path, root=jobs_root)
+        trial_id = result_payload.get("id") if isinstance(result_payload, dict) else None
+        try:
+            canonical_trial_id = str(UUID(str(trial_id)))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise VerificationError("train row result attempt identity is invalid") from exc
+        if canonical_trial_id != trial_id:
+            raise VerificationError("train row result attempt identity is non-canonical")
+        trial_name = result_payload.get("trial_name")
+        if not isinstance(trial_name, str) or not trial_name:
+            raise VerificationError("train row result trial name is invalid")
+        pinned_attempt_id = refs.get("attempt_id") or refs.get("trial_name") or refs.get("trial_uri")
+        if not isinstance(pinned_attempt_id, str) or not pinned_attempt_id:
+            raise VerificationError("train row lacks the pinned SEAGym attempt identity")
+        if pinned_attempt_id != trial_name:
+            raise VerificationError("train row attempt identity differs from its Harbor trial name")
+        declared_attempt_id = row.get("attempt_id")
+        if declared_attempt_id is not None and declared_attempt_id != pinned_attempt_id:
+            raise VerificationError("train row attempt_id differs from its Harbor trial")
+        trajectories.append(
+            argparse.Namespace(
+                mode=row.get("mode"),
+                view_name=row.get("view_name"),
+                success=row.get("success"),
+                score=row.get("score"),
+                reward=rewards["reward"],
+                rewards=rewards,
+                runtime_seconds=row.get("runtime_seconds"),
+                error=row.get("error"),
+                attempt_id=pinned_attempt_id,
+                cost=row.get("cost"),
+                refs=refs,
+                task_id=row.get("task_id"),
+            )
+        )
+    batch = argparse.Namespace(
+        mode="train",
+        view_name="train",
+        trajectories=trajectories,
+        task_ids=[row.get("task_id") for row in batch_rows],
+    )
+    try:
+        projection = project_train_batch(
+            batch,
+            atif_root=(run_dir / "harbor" / "jobs"),
+            expected_snapshot_sha256=expected_snapshot,
+            expected_component_sha256=expected_component_hashes,
+            expected_route_contract_sha256=EXPECTED_ROUTE_CONTRACT_SHA256,
+            expected_seed=42,
+        )
+        return projection, None
+    except no_usable_error as exc:
+        return exc.projection, NO_USABLE_ATIF_SKIP_CODE
+    except incomplete_error as exc:
+        return exc.projection, INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE
+    except ValueError as exc:
+        raise VerificationError("adapter rejected the persisted train evidence") from exc
+
+
+class _UpdateRequestCaptured(RuntimeError):
+    pass
+
+
+def _adapter_update_request_sha256(
+    *,
+    evidence_summary: dict[str, Any],
+    current_components: dict[str, Any],
+) -> str:
+    """Hash the request body by executing the checked-out producer builder."""
+
+    adapter_src = (
+        Path(__file__).resolve().parents[1]
+        / "adapters"
+        / "seagym_evoagent"
+        / "src"
+    ).resolve(strict=True)
+    try:
+        openrouter = importlib.import_module("seagym_evoagent.openrouter")
+    except (ImportError, OSError, RuntimeError) as exc:
+        raise VerificationError("the local update request builder is unavailable") from exc
+    module_path = Path(openrouter.__file__).resolve(strict=True)
+    if adapter_src not in module_path.parents:
+        raise VerificationError("the update request builder resolved outside this checkout")
+
+    captured: list[bytes] = []
+
+    def capture_transport(
+        _endpoint: str,
+        _headers: dict[str, str],
+        body: bytes,
+        _timeout: float,
+    ) -> bytes:
+        captured.append(body)
+        raise _UpdateRequestCaptured
+
+    key_name = "OPENROUTER_API_KEY"
+    had_key = key_name in os.environ
+    previous_key = os.environ.get(key_name)
+    # The injected transport stops before any network I/O.  A fixed placeholder
+    # avoids reading a real credential into the deterministic reconstruction.
+    os.environ[key_name] = "evoagent-offline-verifier-placeholder"
+    try:
+        client = openrouter.OpenRouterStructuredClient(transport=capture_transport)
+        try:
+            client.complete(
+                evidence=evidence_summary,
+                current_components=current_components,
+                seed=42,
+            )
+        except _UpdateRequestCaptured:
+            pass
+    finally:
+        if had_key:
+            assert previous_key is not None
+            os.environ[key_name] = previous_key
+        else:
+            os.environ.pop(key_name, None)
+    if len(captured) != 1:
+        raise VerificationError("the update request builder did not emit exactly one body")
+    return hashlib.sha256(captured[0]).hexdigest()
+
+
+def _snapshot_components_for_update(run_dir: Path, snapshot_sha256: str) -> dict[str, Any]:
+    state_root = (run_dir / "checkpoints" / "E_1" / "baseline_state").resolve(
+        strict=True
+    )
+    raw_snapshot = _load_json(
+        state_root / "snapshots" / f"{snapshot_sha256}.json",
+        root=state_root,
+    )
+    HarnessSnapshot, _render_prompt_projection = _adapter_snapshot_tools()
+    try:
+        snapshot = HarnessSnapshot.from_dict(raw_snapshot)
+    except (TypeError, ValueError) as exc:
+        raise VerificationError("update request snapshot is invalid") from exc
+    if snapshot.snapshot_sha256 != snapshot_sha256:
+        raise VerificationError("update request snapshot content address drifted")
+    return snapshot.components.to_dict()
 
 
 def _row_expected_snapshot(row: dict[str, Any], snapshots: dict[str, str]) -> str:
@@ -1945,6 +2788,7 @@ def _validate_rows(
     safe_rows: list[dict[str, Any]] = []
     attestation_hashes: list[str] = []
     failure_receipt_hashes: list[str] = []
+    unattested_failure_hashes: list[str] = []
     failure_receipt_paths: set[Path] = set()
     harbor_job_dirs: set[Path] = set()
     harbor_job_ids: set[str] = set()
@@ -1952,6 +2796,7 @@ def _validate_rows(
     harbor_result_paths: set[Path] = set()
     harbor_task_by_job_dir: dict[Path, str] = {}
     missing_atif_receipt_count = 0
+    unattested_harbor_failure_count = 0
     rollout_llm_call_count = 0
     for row in rows:
         _reject_nonempty_reasoning(row)
@@ -1963,11 +2808,19 @@ def _validate_rows(
         score = _finite_number(row.get("score"), "task score", maximum=1.0)
         if score not in (0.0, 1.0):
             raise VerificationError("Terminal-Bench pilot score must be binary")
-        success = row.get("success") is True
-        error_present = row.get("error") not in (None, "")
-        effective_score = 0.0 if error_present else score
-        if success != (effective_score >= 1.0):
-            raise VerificationError("task success and effective score disagree")
+        if not isinstance(row.get("success"), bool):
+            raise VerificationError("task success must be boolean")
+        success = row["success"]
+        row_error = row.get("error")
+        if row_error is not None and (
+            not isinstance(row_error, str) or not row_error.strip()
+        ):
+            raise VerificationError("task error must be non-empty text or null")
+        error_present = row_error is not None
+        if error_present and score != 0.0:
+            raise VerificationError("errored task row must preserve its raw zero score")
+        if success != (score >= 1.0):
+            raise VerificationError("task success and raw score disagree")
         role = row.get("baseline_role")
         mode = row.get("mode")
         if role == "A_0":
@@ -2234,8 +3087,15 @@ def _validate_rows(
         reward = rewards.get("reward", 0.0) if isinstance(rewards, dict) else 0.0
         normalized_reward = _finite_number(reward, "Harbor reward", maximum=1.0)
         row_reward = ((row.get("rewards") or {}).get("reward", 0.0))
-        if _finite_number(row_reward, "normalized reward", maximum=1.0) != normalized_reward:
+        normalized_row_reward = _finite_number(
+            row_reward,
+            "normalized reward",
+            maximum=1.0,
+        )
+        if normalized_row_reward != normalized_reward:
             raise VerificationError("Harbor reward differs from the normalized row")
+        if normalized_row_reward != score:
+            raise VerificationError("normalized task score differs from its Harbor reward")
         if (payload.get("exception_info") is not None) != error_present:
             raise VerificationError("Harbor exception state differs from the normalized row")
         expected_snapshot = _row_expected_snapshot(row, snapshots)
@@ -2243,20 +3103,20 @@ def _validate_rows(
         if expected_component_hashes is None:
             raise VerificationError("trial snapshot lacks independently verified component hashes")
         agent_dir = result_path.parent / "agent"
-        trajectory_path = agent_dir / "trajectory.json"
-        alternate_atif_path = agent_dir / "atif.json"
-        atif_present = any(
-            path.exists() or _is_linklike(path)
-            for path in (trajectory_path, alternate_atif_path)
-        )
+        atif_path = _resolve_row_atif_path(row, result_path, jobs_root)
+        atif_present = atif_path is not None
+        attestation: dict[str, Any] | None = None
+        failure_receipt: dict[str, Any] | None = None
         attestation_hash: str | None = None
         failure_receipt_hash: str | None = None
         failure_class: str | None = None
         failure_stage: str | None = None
         mimocode_exit_class: str | None = None
         if atif_present:
+            assert atif_path is not None
             attestation, attestation_hash, llm_call_count = _validate_attestation(
                 result_path,
+                atif_path,
                 expected_snapshot,
                 expected_component_hashes,
             )
@@ -2276,19 +3136,26 @@ def _validate_rows(
                 if key not in cost or not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
                     raise VerificationError(f"normalized task cost differs from attestation: {key}")
             receipt_path = agent_dir / FAILURE_RECEIPT_FILENAME
-            if receipt_path.exists() or _is_linklike(receipt_path):
+            explicit_receipt_declared = (
+                isinstance(refs, dict) and "failure_receipt_path" in refs
+            )
+            if (
+                explicit_receipt_declared
+                or receipt_path.exists()
+                or _is_linklike(receipt_path)
+            ):
                 if not error_present:
                     raise VerificationError("runtime failure receipt requires an errored task row")
-                receipt, failure_receipt_hash = _validate_failure_receipt(
+                failure_receipt, failure_receipt_hash = _validate_failure_receipt(
                     row,
                     result_path,
                     expected_snapshot,
                     expected_component_hashes,
                     expected_atif_present=True,
                 )
-                failure_class = receipt["failure_class"]
-                failure_stage = receipt["failure_stage"]
-                mimocode_exit_class = receipt["mimocode_exit_class"]
+                failure_class = failure_receipt["failure_class"]
+                failure_stage = failure_receipt["failure_stage"]
+                mimocode_exit_class = failure_receipt["mimocode_exit_class"]
                 failure_receipt_hashes.append(failure_receipt_hash)
                 controlled_receipt_path = _regular_file(
                     receipt_path,
@@ -2302,28 +3169,85 @@ def _validate_rows(
                     raise VerificationError("ATIF attestation does not bind its runtime failure receipt")
             elif attestation.get("runtime_failure_receipt_sha256") is not None:
                 raise VerificationError("ATIF attestation references a missing runtime failure receipt")
+            if error_present and failure_receipt_hash is None:
+                unattested_failure_hashes.append(
+                    _validate_unattested_harbor_failure(
+                        row,
+                        result_path,
+                        allowed_agent_evidence={
+                            atif_path,
+                            result_path.parent / "agent" / "evoagent-attestation.json",
+                        },
+                    )
+                )
+                unattested_harbor_failure_count += 1
+            elif failure_receipt_hash is not None:
+                _validate_agent_evidence_inventory(
+                    result_path,
+                    {
+                        atif_path,
+                        result_path.parent / "agent" / "evoagent-attestation.json",
+                        receipt_path,
+                    },
+                )
+            else:
+                _validate_agent_evidence_inventory(
+                    result_path,
+                    {
+                        atif_path,
+                        result_path.parent / "agent" / "evoagent-attestation.json",
+                    },
+                )
         else:
             if not error_present:
                 raise VerificationError("non-errored Harbor trial is missing ATIF evidence")
             receipt_path = agent_dir / FAILURE_RECEIPT_FILENAME
-            receipt, failure_receipt_hash = _validate_failure_receipt(
-                row,
-                result_path,
-                expected_snapshot,
-                expected_component_hashes,
-                expected_atif_present=False,
+            refs = row.get("refs")
+            explicit_receipt_declared = (
+                isinstance(refs, dict) and "failure_receipt_path" in refs
             )
-            controlled_receipt_path = _regular_file(receipt_path, root=result_path.parent, max_bytes=64 * 1024)
-            if controlled_receipt_path in failure_receipt_paths:
-                raise VerificationError("a runtime failure receipt was reused across trials")
-            failure_receipt_paths.add(controlled_receipt_path)
-            failure_receipt_hashes.append(failure_receipt_hash)
-            missing_atif_receipt_count += 1
-            failure_class = receipt["failure_class"]
-            failure_stage = receipt["failure_stage"]
-            mimocode_exit_class = receipt["mimocode_exit_class"]
+            if explicit_receipt_declared or receipt_path.exists() or _is_linklike(receipt_path):
+                failure_receipt, failure_receipt_hash = _validate_failure_receipt(
+                    row,
+                    result_path,
+                    expected_snapshot,
+                    expected_component_hashes,
+                    expected_atif_present=False,
+                )
+                controlled_receipt_path = _regular_file(
+                    receipt_path,
+                    root=result_path.parent,
+                    max_bytes=64 * 1024,
+                )
+                if controlled_receipt_path in failure_receipt_paths:
+                    raise VerificationError("a runtime failure receipt was reused across trials")
+                failure_receipt_paths.add(controlled_receipt_path)
+                failure_receipt_hashes.append(failure_receipt_hash)
+                missing_atif_receipt_count += 1
+                failure_class = failure_receipt["failure_class"]
+                failure_stage = failure_receipt["failure_stage"]
+                mimocode_exit_class = failure_receipt["mimocode_exit_class"]
+                _validate_agent_evidence_inventory(result_path, {receipt_path})
+            else:
+                unattested_failure_hashes.append(
+                    _validate_unattested_harbor_failure(
+                        row,
+                        result_path,
+                        allowed_agent_evidence=set(),
+                    )
+                )
+                unattested_harbor_failure_count += 1
             usage = _failure_row_usage(payload, row)
             llm_call_count = 0
+        _validate_agent_result_metadata(
+            agent_context,
+            expected_snapshot=expected_snapshot,
+            attestation=attestation,
+            attestation_hash=attestation_hash,
+            failure_receipt=failure_receipt,
+            failure_receipt_hash=failure_receipt_hash,
+        )
+        unattested_error = error_present and failure_receipt_hash is None
         safe_rows.append(
             {
                 "task_id": task_id,
@@ -2333,7 +3257,7 @@ def _validate_rows(
                 "evaluation_point_id": row.get("evaluation_point_id"),
                 "baseline_role": role,
                 "train_batch_index": row.get("train_batch_index"),
-                "score": effective_score,
+                "score": score,
                 "success": success,
                 "error_present": error_present,
                 "runtime_seconds": _optional_number(row.get("runtime_seconds")),
@@ -2349,7 +3273,10 @@ def _validate_rows(
                 "failure_class": failure_class,
                 "failure_stage": failure_stage,
                 "mimocode_exit_class": mimocode_exit_class,
-                "training_evidence_complete": attestation_hash is not None,
+                "training_evidence_complete": (
+                    attestation_hash is not None and not unattested_error
+                ),
+                "unattested_harbor_failure": unattested_error,
                 "harbor_job_result_sha256": _sha256(aggregate_path),
                 "harbor_returncode": 0,
                 "harbor_result_sha256": _sha256(result_path),
@@ -2401,7 +3328,15 @@ def _validate_rows(
         raise VerificationError("replay execution order drifted")
     if phase_tasks["final"] != splits["test"] or phase_tasks["final_baseline"] != splits["test"]:
         raise VerificationError("final A0/AT held-out task order drifted")
-    if len(attestation_hashes) + missing_atif_receipt_count != 24:
+    evidence_covered_rows = sum(
+        bool(
+            row["attestation_sha256"]
+            or row["failure_receipt_sha256"]
+            or row["unattested_harbor_failure"]
+        )
+        for row in safe_rows
+    )
+    if evidence_covered_rows != 24:
         raise VerificationError("trial ATIF or failure-receipt coverage is incomplete")
     if (
         len(harbor_job_dirs) != 24
@@ -2460,6 +3395,10 @@ def _validate_rows(
     summary = _recompute_summary(safe_rows)
     summary["failure_receipt_trials"] = len(failure_receipt_paths)
     summary["missing_atif_failure_receipt_trials"] = missing_atif_receipt_count
+    summary["unattested_harbor_failure_trials"] = unattested_harbor_failure_count
+    summary["unattested_harbor_failure_set_sha256"] = _canonical_sha(
+        sorted(unattested_failure_hashes)
+    )
     summary["failure_receipt_set_sha256"] = _canonical_sha(sorted(failure_receipt_hashes))
     summary["runtime_failure_classes"] = dict(
         sorted(Counter(row["failure_class"] for row in safe_rows if row["failure_class"] is not None).items())
@@ -2540,6 +3479,12 @@ def _recompute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "rollout_attested_total_tokens": sum(
             int(row["input_tokens"]) + int(row["output_tokens"]) + int(row["reasoning_tokens"])
             for row in rows
+            if row["attestation_sha256"] is not None
+        ),
+        "rollout_records_with_tokens": sum(
+            int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
+            > 0
+            for row in rows
         ),
         "seagym_rollout_total_tokens": sum(
             int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
@@ -2561,7 +3506,11 @@ def _domain_macro(rows: Iterable[dict[str, Any]]) -> float:
     return sum(sum(values) / len(values) for values in grouped.values()) / len(grouped)
 
 
-def _validate_metrics(run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
+def _validate_metrics(
+    run_dir: Path,
+    summary: dict[str, Any],
+    updates: list[dict[str, Any]],
+) -> dict[str, Any]:
     metrics = _load_json(run_dir / "metrics.json", root=run_dir)
     if not isinstance(metrics, dict):
         raise VerificationError("SEAGym metrics are invalid")
@@ -2598,16 +3547,58 @@ def _validate_metrics(run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
     rollout = tokens.get("rollout")
     update = tokens.get("update")
     overall = tokens.get("overall")
-    if not isinstance(rollout, dict) or rollout.get("num_records") != 24:
+    expected_group_keys = {
+        "num_records",
+        "num_records_with_tokens",
+        "input_tokens",
+        "cache_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cost_usd",
+    }
+    if (
+        not isinstance(rollout, dict)
+        or set(rollout) != expected_group_keys
+        or rollout.get("num_records") != 24
+    ):
         raise VerificationError("SEAGym rollout token record count drifted")
-    if not isinstance(update, dict) or update.get("num_records") != 2:
+    if (
+        not isinstance(update, dict)
+        or set(update) != expected_group_keys
+        or update.get("num_records") != 2
+    ):
         raise VerificationError("SEAGym update token record count drifted")
-    if not isinstance(overall, dict) or overall.get("num_records") != 26:
+    if (
+        not isinstance(overall, dict)
+        or set(overall) != expected_group_keys
+        or overall.get("num_records") != 26
+    ):
         raise VerificationError("SEAGym overall token record count drifted")
     for group in (rollout, update, overall):
-        for key in ("input_tokens", "output_tokens", "total_tokens", "cost_usd"):
-            if key in group:
-                _finite_number(group[key], f"SEAGym tokens.{key}")
+        num_records = _bounded_int(group["num_records"], "SEAGym token record count")
+        records_with_tokens = _bounded_int(
+            group["num_records_with_tokens"],
+            "SEAGym nonempty token record count",
+        )
+        if records_with_tokens > num_records:
+            raise VerificationError("SEAGym nonempty token record count is impossible")
+        for key in (
+            "input_tokens",
+            "cache_tokens",
+            "output_tokens",
+            "total_tokens",
+            "cost_usd",
+        ):
+            _finite_number(group[key], f"SEAGym tokens.{key}")
+        if not math.isclose(
+            _finite_number(group["total_tokens"], "SEAGym total tokens"),
+            sum(
+                _finite_number(group[field], f"SEAGym {field}")
+                for field in ("input_tokens", "cache_tokens", "output_tokens")
+            ),
+            abs_tol=1e-6,
+        ):
+            raise VerificationError("SEAGym token group total is internally inconsistent")
     if not math.isclose(
         _finite_number(rollout.get("total_tokens"), "rollout total tokens"),
         summary["seagym_rollout_total_tokens"],
@@ -2624,13 +3615,53 @@ def _validate_metrics(run_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
             raise VerificationError(f"SEAGym rollout {field} differs from trial attestations")
     if not math.isclose(_finite_number(rollout.get("cost_usd"), "rollout cost"), summary["rollout_cost_usd"], abs_tol=1e-8):
         raise VerificationError("SEAGym rollout cost differs from trial attestations")
+    if rollout["num_records_with_tokens"] != summary["rollout_records_with_tokens"]:
+        raise VerificationError("SEAGym rollout nonempty record count differs from trials")
+
+    expected_update = {
+        "num_records": len(updates),
+        "num_records_with_tokens": sum(
+            int(update_row["input_tokens"]) + int(update_row["output_tokens"]) > 0
+            for update_row in updates
+        ),
+        "input_tokens": sum(int(update_row["input_tokens"]) for update_row in updates),
+        "cache_tokens": 0,
+        "output_tokens": sum(int(update_row["output_tokens"]) for update_row in updates),
+        "total_tokens": sum(
+            int(update_row["input_tokens"]) + int(update_row["output_tokens"])
+            for update_row in updates
+        ),
+        "cost_usd": sum(float(update_row["cost_usd"]) for update_row in updates),
+    }
+    for field, expected_value in expected_update.items():
+        if field in {"num_records", "num_records_with_tokens"}:
+            if update[field] != expected_value:
+                raise VerificationError(f"SEAGym update {field} differs from update attempts")
+        elif not math.isclose(
+            _finite_number(update[field], f"SEAGym update {field}"),
+            float(expected_value),
+            abs_tol=1e-8 if field == "cost_usd" else 1e-6,
+        ):
+            raise VerificationError(f"SEAGym update {field} differs from update attempts")
+
+    for field in expected_group_keys:
+        if field in {"num_records", "num_records_with_tokens"}:
+            if overall[field] != rollout[field] + update[field]:
+                raise VerificationError(f"SEAGym overall {field} is not rollout plus update")
+        elif not math.isclose(
+            _finite_number(overall[field], f"SEAGym overall {field}"),
+            _finite_number(rollout[field], f"SEAGym rollout {field}")
+            + _finite_number(update[field], f"SEAGym update {field}"),
+            abs_tol=1e-8 if field == "cost_usd" else 1e-6,
+        ):
+            raise VerificationError(f"SEAGym overall {field} is not rollout plus update")
     return {
         "rollout_attested_total_tokens": summary["rollout_attested_total_tokens"],
         "seagym_rollout_total_tokens": rollout["total_tokens"],
         "seagym_update_total_tokens": update.get("total_tokens", 0),
         "seagym_overall_total_tokens": overall["total_tokens"],
         "rollout_reasoning_tokens": summary["rollout_reasoning_tokens"],
-        "token_accounting_note": "Attested totals include bounded provider-reported reasoning-token usage; SEAGym total_tokens separately adds cache_tokens to cache-inclusive Harbor input_tokens and excludes reasoning telemetry. Both conventions are retained.",
+        "token_accounting_note": "Attested totals include only trials with validated ATIF and bounded provider-reported reasoning-token usage. SEAGym total_tokens retains every normalized trial, separately adds cache_tokens to cache-inclusive Harbor input_tokens, and excludes reasoning telemetry; any unattested outer-Harbor failure is reported as incomplete evidence.",
         "rollout_cost_usd": rollout["cost_usd"],
         "update_cost_usd": update.get("cost_usd", 0),
         "overall_cost_usd": overall["cost_usd"],
@@ -2863,6 +3894,8 @@ def _usage_cost(before_path: Path, after_path: Path) -> dict[str, Any]:
 
 
 def _classification(summary: dict[str, Any]) -> str:
+    if summary.get("unattested_harbor_failure_trials", 0):
+        return "inconclusive_incomplete_training_evidence"
     gain = summary["held_out"]["gain_vs_A_0"]
     validation_delta = summary["frozen_validation"]["delta"]
     if summary["errors"] or gain < 0 or validation_delta < 0:
@@ -2885,13 +3918,32 @@ def verify_pilot(
     protocol, repo_root = _validate_protocol(protocol_path)
     _config, split, task_index = _validate_frozen_inputs(protocol, repo_root, run_dir)
     plan = _validate_batch_plan(run_dir, split)
-    initial_a0, initial_candidate, initial_components = _checkpoint_snapshot(run_dir, "initial")
+    initial_a0, initial_candidate, initial_components, initial_attempts = _checkpoint_snapshot(
+        run_dir,
+        "initial",
+        expected_run_id=plan["run_id"],
+        expected_experiment_id=plan["experiment_id"],
+    )
     if initial_a0 != initial_candidate:
         raise VerificationError("initial A0 checkpoint is not the unevolved snapshot")
-    e1_a0, e1, e1_components = _checkpoint_snapshot(run_dir, "E_1")
-    final_a0, final_candidate, final_components = _checkpoint_snapshot(run_dir, "final")
+    e1_a0, e1, e1_components, e1_attempts = _checkpoint_snapshot(
+        run_dir,
+        "E_1",
+        expected_run_id=plan["run_id"],
+        expected_experiment_id=plan["experiment_id"],
+    )
+    final_a0, final_candidate, final_components, final_attempts = _checkpoint_snapshot(
+        run_dir,
+        "final",
+        expected_run_id=plan["run_id"],
+        expected_experiment_id=plan["experiment_id"],
+    )
     if not (initial_a0 == e1_a0 == final_a0):
         raise VerificationError("A0 snapshot changed across checkpoints")
+    if initial_attempts or len(e1_attempts) != 1 or len(final_attempts) != 2:
+        raise VerificationError("checkpoint update-attempt counts drifted")
+    if final_attempts[:1] != e1_attempts:
+        raise VerificationError("checkpoint update-attempt history is not prefix stable")
     component_hashes_by_snapshot: dict[str, dict[str, str]] = {}
     for source in (initial_components, e1_components, final_components):
         for digest, component_hashes in source.items():
@@ -2907,6 +3959,32 @@ def verify_pilot(
         changed = update["changed"] is True
         if changed == (candidate == expected_before):
             raise VerificationError(f"update {index} changed flag disagrees with snapshot lineage")
+        attempt = final_attempts[index - 1]
+        expected_attempt_status = (
+            "accepted"
+            if update["model_call_executed"] is True and changed
+            else "accepted_unchanged"
+            if update["model_call_executed"] is True
+            else SKIP_STATUS_BY_CODE.get(update["skip_code"])
+        )
+        if (
+            attempt["status"] != expected_attempt_status
+            or attempt["candidate_snapshot_sha256"] != candidate
+            or attempt["evidence_sha256"] != update["evidence_sha256"]
+            or attempt["model_call_executed"] is not update["model_call_executed"]
+            or attempt["skip_code"] != update["skip_code"]
+            or (
+                update["model_call_executed"] is True
+                and (
+                    attempt["request_sha256"] != update["request_sha256"]
+                    or attempt["response_sha256"] != update["response_sha256"]
+                )
+            )
+            or attempt["usage"]["prompt_tokens"] != update["input_tokens"]
+            or attempt["usage"]["completion_tokens"] != update["output_tokens"]
+            or attempt["usage"]["cost_usd"] != update["cost_usd"]
+        ):
+            raise VerificationError("agent update record differs from its checkpoint attempt")
         expected_before = candidate
     snapshots = {"A0": initial_a0, "E1": e1, "AT": final_candidate}
     safe_rows, summary, rollout_llm_call_count = _validate_rows(
@@ -2917,30 +3995,65 @@ def verify_pilot(
         snapshots,
         component_hashes_by_snapshot,
     )
+    persisted_rows = _load_jsonl(
+        run_dir / "records" / "task_results.jsonl",
+        root=run_dir,
+        expected=24,
+    )
     for update in updates:
         index = update["update_index"]
         batch_rows = [
             row
-            for row in safe_rows
+            for row in persisted_rows
             if row["mode"] == "train" and row["train_batch_index"] == index
         ]
-        all_missing_atif = len(batch_rows) == 3 and all(
-            row["training_evidence_complete"] is False for row in batch_rows
+        if len(batch_rows) != 3:
+            raise VerificationError("train batch evidence cardinality drifted")
+        expected_snapshot = snapshots["A0" if index == 1 else "E1"]
+        expected_components = component_hashes_by_snapshot.get(expected_snapshot)
+        if expected_components is None:
+            raise VerificationError("train batch snapshot component evidence is missing")
+        projection, expected_skip_code = _project_train_batch_rows(
+            batch_rows,
+            run_dir=run_dir,
+            expected_snapshot=expected_snapshot,
+            expected_component_hashes=expected_components,
         )
-        if update["model_call_executed"] is False and not all_missing_atif:
-            raise VerificationError("ATIF skip does not correspond to an all-receipted error batch")
-        if update["model_call_executed"] is True and all_missing_atif:
-            raise VerificationError("update model was called for a batch with no usable ATIF evidence")
-    metric_usage = _validate_metrics(run_dir, summary)
+        if update["evidence_sha256"] != projection.evidence_sha256:
+            raise VerificationError("agent update evidence differs from the exact adapter projection")
+        if expected_skip_code is None:
+            if update["model_call_executed"] is not True or update["skip_code"] is not None:
+                raise VerificationError("usable train evidence did not execute its frozen update")
+            expected_request_sha256 = _adapter_update_request_sha256(
+                evidence_summary=projection.summary,
+                current_components=_snapshot_components_for_update(
+                    run_dir,
+                    expected_snapshot,
+                ),
+            )
+            if update["request_sha256"] != expected_request_sha256:
+                raise VerificationError(
+                    "agent update request hash differs from the exact producer request"
+                )
+        elif (
+            update["model_call_executed"] is not False
+            or update["skip_code"] != expected_skip_code
+        ):
+            raise VerificationError("train evidence skip differs from the exact adapter projection")
+    metric_usage = _validate_metrics(run_dir, summary, updates)
     _validate_evaluation_points(run_dir, summary)
     update_llm_call_count = sum(update["model_call_executed"] is True for update in updates)
     skipped_update_count = sum(update["model_call_executed"] is False for update in updates)
     failure_receipt_trials = int(summary["failure_receipt_trials"])
     missing_atif_failure_receipt_trials = int(summary["missing_atif_failure_receipt_trials"])
+    unattested_harbor_failure_trials = int(summary["unattested_harbor_failure_trials"])
     proxy_health = _validate_guard_proxy_health(
         run_dir,
         minimum_logical_requests=rollout_llm_call_count,
-        maximum_logical_requests=rollout_llm_call_count + missing_atif_failure_receipt_trials * 32,
+        maximum_logical_requests=(
+            rollout_llm_call_count
+            + (missing_atif_failure_receipt_trials + unattested_harbor_failure_trials) * 32
+        ),
     )
     verified_rollout_logical_requests = int(proxy_health["forwarded_requests"])
     verified_total_logical_requests = verified_rollout_logical_requests + update_llm_call_count
@@ -2953,7 +4066,7 @@ def verify_pilot(
         "experiment_id": plan["experiment_id"],
         "results_status": (
             "completed_with_incomplete_training_evidence"
-            if failure_receipt_trials or skipped_update_count
+            if failure_receipt_trials or skipped_update_count or unattested_harbor_failure_trials
             else "verified_completed_real_pilot"
         ),
         "pilot_kind": "real_external_scientific_pilot",
@@ -2986,6 +4099,7 @@ def verify_pilot(
             "attested_rollout_model_calls": rollout_llm_call_count,
             "runtime_failure_receipt_trials": failure_receipt_trials,
             "missing_atif_failure_receipt_trials": missing_atif_failure_receipt_trials,
+            "unattested_harbor_failure_trials": unattested_harbor_failure_trials,
             "verified_update_model_calls": update_llm_call_count,
             "skipped_update_attempts": skipped_update_count,
             "verified_guard_proxy_logical_requests": verified_rollout_logical_requests,

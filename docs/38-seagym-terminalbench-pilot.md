@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v10 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v11 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,14 +108,40 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v10, a score-blind state-propagation and evidence-binding
-amendment. Sixteen controller attempts reached progressively deeper parts of
+This is protocol v11, a final-comparison-blind incomplete-evidence classification and
+whole-batch no-call amendment. Seventeen controller attempts reached progressively deeper parts of
 the pinned external pipeline, but none completed the A_0/A_T comparison and
 none produced a score. Their cumulative observed key-usage delta was USD
-0.341499816 across separately bounded observation windows. This is observed
+0.368592617 across separately bounded observation windows. This is observed
 key-wide telemetry, not an exact invoice attribution.
 
-The latest incomplete run `33537027914`, against controller commit
+The latest incomplete run `33553086805`, against controller commit
+`5117afafc0aa8735d9666641aa0ec170faad5f2a` and public EvoAgent commit
+`28a733b973dd691af6acab60f81da37915a5e07a`, passed every source, route,
+oracle, and real lifecycle gate. It completed the first 12 of 24 unique
+singleton Harbor jobs in the frozen order. Update 1 completed with
+`status=updated` and `changed=true`; update 2 stopped at
+`Harbor failure receipt is missing`. It produced no A_0, A_T, comparison,
+delta, full report, or reportable score. The guard proxy completed 128 of 128
+forwarded requests with zero rejection, upstream error, retry, HTTP 4xx, or
+HTTP 5xx result, so this was not a provider, route, budget, runner, or
+concurrency failure. The run observed a USD 0.027092801 key-wide delta.
+The diagnostic log did expose train-batch aggregates of 1 success with
+`mean_score=0.333333` for batch 1 and 0 successes with `mean_score=0.000000`
+for batch 2. Those intermediate values were not an A_0/A_T comparison, were
+not used to select the model, tasks, split, order, or amendment, and support no
+effect claim.
+
+Artifact `9819530153` is bound by GitHub Actions artifact-ZIP SHA-256
+`a463bf5599b7619f0dd6fa973d690621b4ff3ecd79d4bde6ea0d3dce19cccce4`;
+the downloaded job-log bytes have SHA-256
+`6c796dca51a2df538610e1b39c2d1862f357894ec651431ddb41553d727ccb81`.
+The preserved evidence identifies an errored second-batch trajectory with a
+real Harbor child result but neither ATIF nor a classified runtime-failure
+receipt. It does not preserve the raw exception content, so the exact outer
+Harbor stage and exception type are unknown and are not claimed.
+
+The preceding v10 diagnostic run `33537027914`, against controller commit
 `b3375d7e02860d5fb6e391238f67a907f2f360d2` and public EvoAgent commit
 `0217429e776e60c005396e26c9903c815c711ce0`, passed every source, route,
 oracle, and real lifecycle gate. It then completed the first 12 of 24 unique
@@ -371,6 +397,78 @@ The experiment config bytes remain unchanged at SHA-256
 No partial task outcome was used to choose the amendment, and no benchmark
 effect is claimed.
 
+Protocol v11 closes the distinct exception-semantics gap exposed only after
+v10 crossed the stale-state blocker. Pinned Harbor writes setup, Agent,
+log-sync, post-hook, verifier, and teardown exceptions into the same child
+`exception_info` field. Pinned SEAGym normalizes all of them to a non-empty
+trajectory error. A MiMo or sanitizer failure can create EvoAgent's strictly
+identity-bound runtime receipt. A missing receipt alone does not prove which
+Harbor stage failed, and the run did not preserve the raw exception type or
+content.
+
+The adapter now distinguishes three cases. A normal zero-score task with no
+exception still requires a valid ATIF. A classified MiMo/sanitizer exception
+still requires its existing receipt, and a declared, malformed, missing,
+stale, escaped, linked, or partially present receipt/ATIF remains fatal. Any
+explicit errored trajectory backed by a real contained `result.json` but no
+valid receipt is classified neutrally as incomplete, unattested Harbor error
+evidence, whether or not a separately valid ATIF exists. No failure stage is
+inferred and no receipt is synthesized.
+
+If any train trajectory has that third shape, the entire three-task update is
+ineligible for learning. The update model is not called, zero update tokens
+and cost are persisted, the candidate remains unchanged, and the frozen update
+slot advances so later validation and A_0/A_T evaluation can complete. Valid
+ATIF from other tasks in the same batch is not used for a partial update. A
+completed bundle separately counts and hashes these failures, marks the result
+`completed_with_incomplete_training_evidence`, and classifies it as
+`inconclusive_incomplete_training_evidence`; raw A_0/A_T values may remain
+inspectable, but no positive effect claim is permitted from such a run.
+
+The final verifier independently recomputes each three-task training projection
+from the exact trial-bound ATIF and receipt files. It binds that digest through
+the update record, immutable attempt, child snapshot, E_1/final checkpoint
+prefix, and aggregate update-token metrics. An explicit ATIF reference is a
+mandatory constraint, not a hint: a missing path, a path to another trial, two
+competing derived ATIF files, or a rewritten historical request fails closed.
+The request digest is independently reconstructed from the frozen request body.
+The response digest, provider, and usage are internally cross-bound across the
+producer record, update record, and checkpoints; the raw provider response is
+intentionally not retained, so its digest is not independently re-derived.
+
+The update-time projector now closes the same boundary before any paid learning
+call. It recomputes every normalized trajectory field from the bound Harbor
+`result.json`, enforces unique task and one-task-per-job identities, and requires
+each ATIF to have the production attestation and AgentContext metadata bound to
+its result, snapshot, components, route, model, runtime, usage, and optional
+failure receipt. Both normal and incomplete projections hash the verified
+result/ATIF/attestation/receipt bundles. Incomplete no-call evidence additionally
+hashes the verified ATIF set, receipt set, and batch task/job identity, so a
+self-consistent rewrite of any retained evidence changes the durable attempt
+digest rather than being hidden behind document counts.
+
+The same pre-call boundary now requires binary task reward (`0` or `1`) and
+zero reward for every errored child. It validates the exact production child,
+TrialConfig, AgentContext, ExceptionInfo, phase timing, single-task job config,
+child config, and completed aggregate; cross-checks UUIDs, usage, cost, reward,
+and error counts; and binds the job-config, child-config, and aggregate hashes
+into the projection. The normal ATIF, ATIF-plus-receipt, receipt-only, and empty
+unattested agent-directory inventories are exact. Every bound result, config,
+aggregate, ATIF, attestation, and receipt is credential-scanned before its data
+can enter a projection or update request. Runtime limits match the final
+verifier (16 MiB Harbor JSON, 8 MiB ATIF, and 64 KiB attestation/receipt), and
+mandatory job-directory/task-checksum references plus any explicitly present
+ATIF timestamp are revalidated rather than defaulted.
+
+Checkpoint verification now also requires each durable attempt reference to
+match its ordered content-addressed record, snapshot lineage, model-call
+decision, skip code, request digest, zero-use no-call evidence, and the
+corresponding SEAGym update record. This is a verification hardening, not new
+learning evidence. Protocol v11 does not change the model or provider, tasks
+or split, order, seed, attempts, metrics, budgets, timeouts, update schedule,
+or interpretation rule. The experiment config SHA-256 remains
+`d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
+
 The public protocol also pins guard-proxy source SHA-256
 `e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
 health schema v5, and all request, response, concurrency, token and timeout
@@ -411,7 +509,7 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
-Protocol v9 and v10 isolate every planned slot into a unique Harbor job;
+Protocol v9, v10, and v11 isolate every planned slot into a unique Harbor job;
 this changes process containment, not the frozen logical concurrency or batch
 schedule.
 

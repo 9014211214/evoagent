@@ -645,9 +645,10 @@ def _validated_harbor_result_identity(
     if (
         not isinstance(trajectory_task_id, str)
         or not isinstance(task_name, str)
-        or task_name not in {trajectory_task_id, trajectory_task_id.rsplit("/", 1)[-1]}
+        or task_name != trajectory_task_id
     ):
         raise ValueError("Harbor train result has an invalid task identity")
+    task_leaf = trajectory_task_id.rsplit("/", 1)[-1]
     if "harbor_task_name" in refs and refs["harbor_task_name"] != task_name:
         raise ValueError("Harbor train result differs from its declared task name")
     serialized_task_id = result.get("task_id")
@@ -655,7 +656,7 @@ def _validated_harbor_result_identity(
         not isinstance(serialized_task_id, dict)
         or set(serialized_task_id) != {"path"}
         or not isinstance(serialized_task_id.get("path"), str)
-        or Path(serialized_task_id["path"]).name != task_name
+        or Path(serialized_task_id["path"]).name != task_leaf
     ):
         raise ValueError("Harbor train result has an invalid task binding")
     task_checksum = result.get("task_checksum")
@@ -863,6 +864,7 @@ def _validate_harbor_job_provenance(
 
     job_dir = result_path.parent.parent
     task_name = result["task_name"]
+    task_leaf = task_name.rsplit("/", 1)[-1]
     trial_name = result["trial_name"]
     child_config = result["config"]
     agent_context = result["agent_result"]
@@ -918,7 +920,7 @@ def _validate_harbor_job_provenance(
         or not Path(raw_dataset_path).is_absolute()
         or contained_path(root, Path(raw_dataset_path), must_exist=True)
         != controlled_patched_job
-        or dataset.get("task_names") != [task_name]
+        or dataset.get("task_names") != [task_leaf]
         or dataset.get("n_tasks") != 1
     ):
         raise ValueError("Harbor job config patched dataset identity drifted")
@@ -927,7 +929,7 @@ def _validate_harbor_job_provenance(
         len(patched_children) != 1
         or _is_linklike(patched_children[0])
         or not patched_children[0].is_dir()
-        or patched_children[0].name != task_name
+        or patched_children[0].name != task_leaf
     ):
         raise ValueError("Harbor patched taskset does not contain exactly its frozen task")
     serialized_task_path = Path(result["task_id"]["path"])
@@ -1275,15 +1277,16 @@ def _unattested_harbor_result_digest(
     if (
         not isinstance(trajectory_task_id, str)
         or not isinstance(task_name, str)
-        or task_name not in {trajectory_task_id, trajectory_task_id.rsplit("/", 1)[-1]}
+        or task_name != trajectory_task_id
     ):
         raise ValueError("unattested Harbor errored result has invalid task identity")
+    task_leaf = trajectory_task_id.rsplit("/", 1)[-1]
     serialized_task_id = result.get("task_id")
     if (
         not isinstance(serialized_task_id, dict)
         or set(serialized_task_id) != {"path"}
         or not isinstance(serialized_task_id.get("path"), str)
-        or Path(serialized_task_id["path"]).name != task_name
+        or Path(serialized_task_id["path"]).name != task_leaf
     ):
         raise ValueError("unattested Harbor errored result has invalid task binding")
     config = result.get("config")

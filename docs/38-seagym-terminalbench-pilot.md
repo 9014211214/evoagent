@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v11 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v12 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,14 +108,45 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v11, a final-comparison-blind incomplete-evidence classification and
-whole-batch no-call amendment. Seventeen controller attempts reached progressively deeper parts of
-the pinned external pipeline, but none completed the A_0/A_T comparison and
-none produced a score. Their cumulative observed key-usage delta was USD
-0.368592617 across separately bounded observation windows. This is observed
-key-wide telemetry, not an exact invoice attribution.
+This is protocol v12, a final-comparison-blind task-identity correction. Eighteen
+controller attempts reached progressively deeper parts of the pinned external
+pipeline, but none completed the A_0/A_T comparison and none produced a score.
+Their cumulative observed key-usage delta was USD 1.068024329 across separately
+bounded observation windows. This is observed key-wide telemetry, not an exact
+invoice attribution.
 
-The latest incomplete run `33553086805`, against controller commit
+The latest incomplete run `33893733107`, against controller commit
+`a18e061644d4a71873784fd3322a08d22561ea19` and public EvoAgent commit
+`d9e4ebe298b623816cb6cf459716b8cded518b32`, passed every source, route,
+official Harbor oracle, and real lifecycle gate. It started the full pilot and
+completed the first six of 24 unique singleton Harbor jobs: the three initial
+validation tasks and the first three-task training batch. Before update 1 could
+call the learning model, the evidence projector stopped with `Harbor train
+result has an invalid task binding`. It produced no A_0, A_T, comparison,
+delta, full report, or reportable score, and completed zero updates.
+
+Pinned Harbor serializes each child result's canonical `task_name`, such as
+`terminal-bench/fix-git`, while its `LocalTaskId` path, single-task dataset
+filter, and patched task directory use the leaf `fix-git`. The v11 projector
+incorrectly required those distinct representations to be the same string.
+This source-confirmed mismatch, rather than a task substitution, caused the
+direct controller exception. The guard proxy forwarded and completed 57
+requests with zero rejection or retry. It recorded one upstream identity error
+and no final HTTP 4xx or 5xx response; that separate provider event is not
+claimed as the cause of the controller exception. The run observed a USD
+0.699431712 key-wide usage delta. The diagnostic log exposed one success and
+`mean_score=1.0` for the first training batch. This intermediate value is not an
+A_0/A_T comparison, was not used to select the model, tasks, split, order, or
+amendment, and supports no effect claim.
+
+Artifact `9945806075` is bound by GitHub Actions artifact-ZIP SHA-256
+`e6efff42a960ca049a971c55898501a42d67e4128f4f179023f1145ab561ddc5`;
+the downloaded job-log bytes have SHA-256
+`836a020a8e59aead31db59c9515c77b86b97fc4c5b1bc65d5dbee7cce2ddface`.
+The artifact explicitly records `score_produced=false`, contains no result or
+comparison directory, and passed an independent checksum and credential scan.
+
+The preceding v11 diagnostic run `33553086805`, against controller commit
 `5117afafc0aa8735d9666641aa0ec170faad5f2a` and public EvoAgent commit
 `28a733b973dd691af6acab60f81da37915a5e07a`, passed every source, route,
 oracle, and real lifecycle gate. It completed the first 12 of 24 unique
@@ -469,6 +500,27 @@ or split, order, seed, attempts, metrics, budgets, timeouts, update schedule,
 or interpretation rule. The experiment config SHA-256 remains
 `d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
 
+Protocol v12 closes the task-representation mismatch exposed only after v11
+allowed the first training batch to reach update projection. A frozen task has
+two deliberately different representations in pinned Harbor: the child result
+uses the full canonical Terminal-Bench name, while its local path and
+single-task execution scaffolding use only that name's leaf. The adapter now
+requires the full child `task_name` to equal the frozen task ID exactly, then
+separately binds the `LocalTaskId` path, dataset filter, and patched task
+directory to the derived leaf. The unattested-error path and final verifier use
+the same distinction. Namespace aliases, a wrong path leaf, a cross-task
+dataset, or a substituted patched directory still fail closed before any
+learning-model call.
+
+This is an identity correction, not weaker evidence validation and not new
+learning evidence. It adds no retry or replacement task and does not change the
+model or provider, task set or split, order, seed, attempts, metrics, budgets,
+timeouts, update schedule, interpretation rule, or experiment config bytes.
+The config SHA-256 remains
+`d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
+No intermediate task outcome was used to choose this correction, and no
+benchmark effect is claimed.
+
 The public protocol also pins guard-proxy source SHA-256
 `e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
 health schema v5, and all request, response, concurrency, token and timeout
@@ -509,9 +561,9 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
-Protocol v9, v10, and v11 isolate every planned slot into a unique Harbor job;
-this changes process containment, not the frozen logical concurrency or batch
-schedule.
+Protocol v9, v10, v11, and v12 isolate every planned slot into a unique Harbor
+job; this changes process containment, not the frozen logical concurrency or
+batch schedule.
 
 The full pilot command is bounded to 13,200 seconds and the lifecycle gate to
 2,400 seconds. Together with the 600-second MiMo route canary, this reserves

@@ -108,12 +108,13 @@ def write_raw_atif(
     snapshot: HarnessSnapshot | None = None,
     seed: int = 43,
     trial_name: str = "trial-a",
+    task_id: str = CANARY,
 ) -> Path:
     snapshot = snapshot or default_a0()
     result_path = _write_harbor_result_identity(
         root,
         trial_name=trial_name,
-        task_id=CANARY,
+        task_id=task_id,
         errored=False,
     )
     trial = result_path.parent
@@ -253,9 +254,10 @@ def _write_harbor_result_identity(
     job_dir = root / f"job-{trial_name}"
     trial = job_dir / trial_name
     result_path = trial / "result.json"
-    task_name = task_id.rsplit("/", 1)[-1]
+    task_name = task_id
+    task_leaf = task_id.rsplit("/", 1)[-1]
     patched_job_dir = root / "_patched_tasksets" / job_dir.name
-    task_dir = patched_job_dir / task_name
+    task_dir = patched_job_dir / task_leaf
     task_dir.mkdir(parents=True, exist_ok=True)
     (trial / "agent").mkdir(parents=True, exist_ok=True)
     task_path = task_dir.resolve().as_posix()
@@ -368,7 +370,7 @@ def _write_harbor_result_identity(
             "datasets": [
                 {
                     "path": patched_job_dir.resolve().as_posix(),
-                    "task_names": [task_name],
+                    "task_names": [task_leaf],
                     "n_tasks": 1,
                 }
             ],
@@ -438,16 +440,26 @@ def train_batch(
     *,
     snapshot: HarnessSnapshot | None = None,
     trial_name: str = "trial-a",
+    task_id: str = CANARY,
 ) -> SimpleNamespace:
-    result_path = write_raw_atif(root, snapshot=snapshot, trial_name=trial_name)
-    return train_batch_from_result(result_path)
+    result_path = write_raw_atif(
+        root,
+        snapshot=snapshot,
+        trial_name=trial_name,
+        task_id=task_id,
+    )
+    return train_batch_from_result(result_path, task_id=task_id)
 
 
-def train_batch_from_result(result_path: Path) -> SimpleNamespace:
+def train_batch_from_result(
+    result_path: Path,
+    *,
+    task_id: str = CANARY,
+) -> SimpleNamespace:
     result = read_json(result_path)
     trial_name = result["trial_name"]
     trajectory = SimpleNamespace(
-        task_id=CANARY,
+        task_id=task_id,
         attempt_id=trial_name,
         view_name="train",
         mode="train",
@@ -478,7 +490,7 @@ def train_batch_from_result(result_path: Path) -> SimpleNamespace:
     )
     return SimpleNamespace(
         trajectories=[trajectory],
-        task_ids=[CANARY],
+        task_ids=[task_id],
         view_name="train",
         mode="train",
         batch_index=0,
@@ -775,6 +787,79 @@ class BaselineTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "task identity"):
             baseline.update(batch, state)
+
+    def test_train_projection_accepts_canonical_task_name_with_local_path_leaf(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        task_id = "terminal-bench/fix-git"
+        batch = train_batch(self.root / "harbor", task_id=task_id)
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        payload = read_json(result_path)
+
+        self.assertEqual(payload["task_name"], task_id)
+        self.assertEqual(Path(payload["task_id"]["path"]).name, "fix-git")
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "updated")
+        self.assertEqual(len(client.calls), 1)
+
+    def test_train_projection_rejects_leaf_alias_for_canonical_task_name(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(
+            self.root / "harbor",
+            task_id="terminal-bench/fix-git",
+        )
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        payload = read_json(result_path)
+        payload["task_name"] = "fix-git"
+        batch.trajectories[0].refs["harbor_task_name"] = "fix-git"
+        atomic_write_json(result_path, payload)
+
+        with self.assertRaisesRegex(ValueError, "task identity"):
+            baseline.update(batch, state)
+        self.assertEqual(client.calls, [])
+
+    def test_train_projection_rejects_wrong_local_leaf_for_canonical_task_name(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        batch = train_batch(
+            self.root / "harbor",
+            task_id="terminal-bench/fix-git",
+        )
+        result_path = Path(batch.trajectories[0].refs["result_path"])
+        payload = read_json(result_path)
+        wrong_task = result_path.parent.parent.parent / "wrong-task"
+        wrong_task.mkdir()
+        wrong_path = wrong_task.resolve().as_posix()
+        payload["task_id"] = {"path": wrong_path}
+        payload["config"]["task"] = {"path": wrong_path}
+        atomic_write_json(result_path, payload)
+
+        with self.assertRaisesRegex(ValueError, "task binding"):
+            baseline.update(batch, state)
+        self.assertEqual(client.calls, [])
 
     def test_train_projection_recomputes_every_pinned_normalized_field_before_call(self) -> None:
         tamper_values = {
@@ -2003,6 +2088,40 @@ class BaselineTests(unittest.TestCase):
         self.assertFalse(attempt["model_call_executed"])
         self.assertEqual(attempt["usage"]["total_tokens"], 0)
         self.assertNotIn(SECRET, json.dumps(attempt, sort_keys=True))
+
+    def test_canonical_unattested_failure_with_local_leaf_skips_without_model_call(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        task_id = "terminal-bench/vulnerable-secret"
+        result_path = write_unattested_harbor_result(
+            self.root / "harbor",
+            task_id=task_id,
+        )
+        payload = read_json(result_path)
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[task_id],
+            view_name="train",
+            mode="train",
+            batch_index=0,
+            epoch=0,
+        )
+
+        self.assertEqual(payload["task_name"], task_id)
+        self.assertEqual(Path(payload["task_id"]["path"]).name, "vulnerable-secret")
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "unchanged")
+        self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertEqual(client.calls, [])
 
     def test_incomplete_projection_hash_binds_verified_evidence_and_batch_identity(self) -> None:
         batch = train_batch(self.root / "harbor")

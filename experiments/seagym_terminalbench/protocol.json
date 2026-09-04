@@ -43,6 +43,86 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
+    "amended_at": "2026-09-04T16:51:00Z",
+    "benchmark_effect_claimed": false,
+    "change": "bind_canonical_harbor_task_names_to_local_task_path_leaves",
+    "diagnostic": {
+      "artifact_id": 9945806075,
+      "artifact_zip_sha256": "e6efff42a960ca049a971c55898501a42d67e4128f4f179023f1145ab561ddc5",
+      "completed_singleton_jobs": 6,
+      "controller_commit": "a18e061644d4a71873784fd3322a08d22561ea19",
+      "evoagent_public_commit": "d9e4ebe298b623816cb6cf459716b8cded518b32",
+      "full_pilot_started": true,
+      "job_id": 101091345604,
+      "job_log_sha256": "836a020a8e59aead31db59c9515c77b86b97fc4c5b1bc65d5dbee7cce2ddface",
+      "lifecycle_passed": true,
+      "observed_key_usage_delta_usd": 0.699431712,
+      "planned_singleton_jobs": 24,
+      "proxy": {
+        "completed_requests": 57,
+        "final_upstream_http_4xx_errors": 0,
+        "final_upstream_http_5xx_errors": 0,
+        "forwarded_requests": 57,
+        "identity_invalid_errors": 1,
+        "rejected_requests": 0,
+        "root_sessions_observed": 6,
+        "tool_choice_none_normalizations": 2,
+        "upstream_attempts": 57,
+        "upstream_errors": 1,
+        "upstream_retries": 0
+      },
+      "run_id": 33893733107,
+      "score_produced": false,
+      "status": "canonical_task_name_path_leaf_binding_rejected",
+      "triggering_train_batch": 1,
+      "updates_completed": 0
+    },
+    "evidence_contract_change": {
+      "canonical_task_name_must_equal_frozen_task_id": true,
+      "cross_task_aliases_remain_rejected": true,
+      "final_verifier_uses_the_same_binding": true,
+      "job_dataset_filter_must_equal_frozen_task_leaf": true,
+      "local_task_path_leaf_must_equal_frozen_task_leaf": true,
+      "patched_task_directory_must_equal_frozen_task_leaf": true,
+      "task_identity_checks_relaxed": false,
+      "unattested_error_evidence_uses_the_same_binding": true
+    },
+    "execution_change": {
+      "harbor_cli_retries_added": 0,
+      "planned_slot_replacement_allowed": false,
+      "task_attempts_changed": false,
+      "update_schedule_changed": false
+    },
+    "frozen_scientific_identity": {
+      "budgets_changed": false,
+      "metrics_changed": false,
+      "model_or_provider_changed": false,
+      "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "seed_or_order_changed": false,
+      "tasks_or_split_changed": false
+    },
+    "leaf_cause_status": {
+      "exact_exception_stage_or_type_confirmed": true,
+      "pinned_harbor_semantics_confirmed": true,
+      "source_confirmed_mechanism": "harbor_serializes_the_canonical_task_toml_name_but_local_task_id_paths_datasets_and_patched_directories_use_the_task_leaf_the_v11_projector_compared_those_distinct_identifiers_as_one_string",
+      "triggering_exception": "Harbor train result has an invalid task binding"
+    },
+    "observed_diagnostic_aggregates": {
+      "batch_1": {
+        "logged_mean_score": 1.0,
+        "logged_successes": 1
+      },
+      "effect_claimed_from_intermediate_values": false,
+      "used_to_select_model_tasks_split_or_order": false
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 18,
+    "prior_observed_usage_delta_usd": 1.068024329,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11",
+    "final_comparison_blind": true
+  },
+  "prior_amendment_v11": {
     "amended_at": "2026-09-01T20:58:07Z",
     "benchmark_effect_claimed": false,
     "change": "classify_incomplete_unattested_harbor_error_evidence_and_skip_the_whole_training_update",
@@ -647,7 +727,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,

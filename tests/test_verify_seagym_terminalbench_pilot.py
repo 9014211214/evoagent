@@ -442,9 +442,10 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
     }
     _write_json(agent / "evoagent-attestation.json", {**unsigned, "attestation_sha256": _canonical_sha(unsigned)})
     checksum = hashlib.sha256(task_id.encode()).hexdigest()
-    task_name = task_id.rsplit("/", 1)[-1]
+    task_name = task_id
+    task_leaf = task_id.rsplit("/", 1)[-1]
     patched_job_dir = run / "harbor" / "jobs" / "_patched_tasksets" / job_dir.name
-    patched_task_dir = patched_job_dir / task_name
+    patched_task_dir = patched_job_dir / task_leaf
     patched_task_dir.mkdir(parents=True, exist_ok=True)
     task_path = patched_task_dir.resolve().as_posix()
     trial_name = f"trial-{index:02d}"
@@ -545,7 +546,7 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
             "datasets": [
                 {
                     "path": patched_job_dir.resolve().as_posix(),
-                    "task_names": [task_name],
+                    "task_names": [task_leaf],
                     "n_tasks": 1,
                 }
             ],
@@ -985,7 +986,7 @@ def _fixture(
                         "trial_uri": result_path.parent.as_uri(),
                         "job_id": f"00000000-0000-0000-0000-{trial_index:012d}",
                         "harbor_source": result_path.parent.parent.name,
-                        "harbor_task_name": task_id.rsplit("/", 1)[-1],
+                        "harbor_task_name": task_id,
                     },
                     "rewards": {"reward": float(score)},
                     "run_id": plan["run_id"],
@@ -1326,6 +1327,16 @@ def _rewrite_self_consistent_evidence(
 
 def test_verifies_real_pilot_and_writes_privacy_bounded_bundle(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path)
+    first_child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    first_child = json.loads(first_child_path.read_text(encoding="utf-8"))
+    first_job = json.loads(
+        (run / "harbor" / "jobs" / "job-01" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert first_child["task_name"] == "terminal-bench/cancel-async-tasks"
+    assert Path(first_child["task_id"]["path"]).name == "cancel-async-tasks"
+    assert first_job["datasets"][0]["task_names"] == ["cancel-async-tasks"]
     result, rows, updates = verify_pilot(
         run_dir=run,
         protocol_path=PROTOCOL,
@@ -2155,6 +2166,40 @@ def test_rejects_child_path_outside_its_patched_dataset(tmp_path: Path) -> None:
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
+def test_rejects_leaf_alias_instead_of_canonical_harbor_task_name(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["task_name"] = "cancel-async-tasks"
+    _write_json(child_path, child)
+
+    with pytest.raises(VerificationError, match="task name drifted"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
+def test_rejects_canonical_name_in_local_dataset_leaf_filter(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    job_config_path = run / "harbor" / "jobs" / "job-01" / "config.json"
+    job_config = json.loads(job_config_path.read_text(encoding="utf-8"))
+    job_config["datasets"][0]["task_names"] = [
+        "terminal-bench/cancel-async-tasks"
+    ]
+    _write_json(job_config_path, job_config)
+
+    with pytest.raises(VerificationError, match="patched dataset identity drifted"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
+
+
 def test_rejects_direct_task_job_config_instead_of_patched_dataset(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path)
     job_config_path = run / "harbor" / "jobs" / "job-01" / "config.json"
@@ -2335,9 +2380,24 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-def test_v11_attempt_ledger_extends_the_preserved_v10_ledger() -> None:
+def test_v12_attempt_ledger_extends_the_preserved_v11_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v11"]
+
+    assert amendment["diagnostic"]["run_id"] == 33893733107
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_preserved_v11_ledger_extends_the_preserved_v10_ledger() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["prior_amendment_v11"]
     prior = protocol["prior_amendment_v10"]
 
     assert amendment["diagnostic"]["run_id"] == 33553086805

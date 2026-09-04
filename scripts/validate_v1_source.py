@@ -380,7 +380,9 @@ if (
     protocol.get("protocol_id") != pilot_verifier.EXPECTED_PROTOCOL_ID
     or protocol.get("amendment") != pilot_verifier.EXPECTED_AMENDMENT
 ):
-    raise SystemExit("SEAGym pilot final-comparison-blind v11 amendment changed")
+    raise SystemExit("SEAGym pilot final-comparison-blind v12 amendment changed")
+if protocol.get("prior_amendment_v11") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V11:
+    raise SystemExit("SEAGym pilot preserved v11 amendment changed")
 if protocol.get("prior_amendment_v10") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V10:
     raise SystemExit("SEAGym pilot preserved v10 amendment changed")
 if protocol.get("prior_amendment_v9") != pilot_verifier.EXPECTED_PRIOR_AMENDMENT_V9:

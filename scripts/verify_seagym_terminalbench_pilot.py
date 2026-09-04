@@ -104,8 +104,85 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
 }
 EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-04T16:51:00Z",
+    "benchmark_effect_claimed": False,
+    "change": "bind_canonical_harbor_task_names_to_local_task_path_leaves",
+    "diagnostic": {
+        "artifact_id": 9945806075,
+        "artifact_zip_sha256": "e6efff42a960ca049a971c55898501a42d67e4128f4f179023f1145ab561ddc5",
+        "completed_singleton_jobs": 6,
+        "controller_commit": "a18e061644d4a71873784fd3322a08d22561ea19",
+        "evoagent_public_commit": "d9e4ebe298b623816cb6cf459716b8cded518b32",
+        "full_pilot_started": True,
+        "job_id": 101091345604,
+        "job_log_sha256": "836a020a8e59aead31db59c9515c77b86b97fc4c5b1bc65d5dbee7cce2ddface",
+        "lifecycle_passed": True,
+        "observed_key_usage_delta_usd": 0.699431712,
+        "planned_singleton_jobs": 24,
+        "proxy": {
+            "completed_requests": 57,
+            "final_upstream_http_4xx_errors": 0,
+            "final_upstream_http_5xx_errors": 0,
+            "forwarded_requests": 57,
+            "identity_invalid_errors": 1,
+            "rejected_requests": 0,
+            "root_sessions_observed": 6,
+            "tool_choice_none_normalizations": 2,
+            "upstream_attempts": 57,
+            "upstream_errors": 1,
+            "upstream_retries": 0,
+        },
+        "run_id": 33893733107,
+        "score_produced": False,
+        "status": "canonical_task_name_path_leaf_binding_rejected",
+        "triggering_train_batch": 1,
+        "updates_completed": 0,
+    },
+    "evidence_contract_change": {
+        "canonical_task_name_must_equal_frozen_task_id": True,
+        "cross_task_aliases_remain_rejected": True,
+        "final_verifier_uses_the_same_binding": True,
+        "job_dataset_filter_must_equal_frozen_task_leaf": True,
+        "local_task_path_leaf_must_equal_frozen_task_leaf": True,
+        "patched_task_directory_must_equal_frozen_task_leaf": True,
+        "task_identity_checks_relaxed": False,
+        "unattested_error_evidence_uses_the_same_binding": True,
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "planned_slot_replacement_allowed": False,
+        "task_attempts_changed": False,
+        "update_schedule_changed": False,
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "leaf_cause_status": {
+        "exact_exception_stage_or_type_confirmed": True,
+        "pinned_harbor_semantics_confirmed": True,
+        "source_confirmed_mechanism": "harbor_serializes_the_canonical_task_toml_name_but_local_task_id_paths_datasets_and_patched_directories_use_the_task_leaf_the_v11_projector_compared_those_distinct_identifiers_as_one_string",
+        "triggering_exception": "Harbor train result has an invalid task binding",
+    },
+    "observed_diagnostic_aggregates": {
+        "batch_1": {"logged_mean_score": 1.0, "logged_successes": 1},
+        "effect_claimed_from_intermediate_values": False,
+        "used_to_select_model_tasks_split_or_order": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 18,
+    "prior_observed_usage_delta_usd": 1.068024329,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v11",
+    "final_comparison_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V11 = {
     "amended_at": "2026-09-01T20:58:07Z",
     "benchmark_effect_claimed": False,
     "change": "classify_incomplete_unattested_harbor_error_evidence_and_skip_the_whole_training_update",
@@ -944,6 +1021,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v11") != EXPECTED_PRIOR_AMENDMENT_V11:
+        raise VerificationError("preserved v11 protocol amendment drifted")
     if protocol.get("prior_amendment_v10") != EXPECTED_PRIOR_AMENDMENT_V10:
         raise VerificationError("preserved v10 protocol amendment drifted")
     if protocol.get("prior_amendment_v9") != EXPECTED_PRIOR_AMENDMENT_V9:
@@ -1821,9 +1900,10 @@ def _validate_harbor_trial_result_shape(
     if trial_id != payload.get("id"):
         raise VerificationError("Harbor child trial id is non-canonical")
 
-    task_name = task_id.rsplit("/", 1)[-1]
-    if payload.get("task_name") != task_name:
+    task_name = payload.get("task_name")
+    if task_name != task_id:
         raise VerificationError("Harbor child task name drifted")
+    task_leaf = task_id.rsplit("/", 1)[-1]
     trial_name = payload.get("trial_name")
     if not isinstance(trial_name, str) or not trial_name or trial_name != result_path.parent.name:
         raise VerificationError("Harbor child trial name is invalid")
@@ -1834,7 +1914,7 @@ def _validate_harbor_trial_result_shape(
     if not isinstance(serialized_task_id, dict) or set(serialized_task_id) != {"path"}:
         raise VerificationError("Harbor child LocalTaskId schema drifted")
     task_path = serialized_task_id.get("path")
-    if not isinstance(task_path, str) or not task_path or Path(task_path).name != task_name:
+    if not isinstance(task_path, str) or not task_path or Path(task_path).name != task_leaf:
         raise VerificationError("Harbor child LocalTaskId does not bind the frozen task")
     if not isinstance(payload.get("source"), str) or not payload["source"]:
         raise VerificationError("Harbor child task source is invalid")
@@ -1933,7 +2013,7 @@ def _validate_harbor_job_config_payload(
     if not isinstance(agents, list) or len(agents) != 1 or not isinstance(agents[0], dict):
         raise VerificationError("Harbor job config agent cardinality drifted")
 
-    task_name = task_id.rsplit("/", 1)[-1]
+    task_leaf = task_id.rsplit("/", 1)[-1]
     tasks = config.get("tasks")
     datasets = config.get("datasets")
     if not isinstance(tasks, list) or not isinstance(datasets, list):
@@ -1947,7 +2027,7 @@ def _validate_harbor_job_config_payload(
         not isinstance(raw_dataset_path, str)
         or not Path(raw_dataset_path).is_absolute()
         or Path(raw_dataset_path).resolve() != patched_job_dir.resolve(strict=True)
-        or dataset.get("task_names") != [task_name]
+        or dataset.get("task_names") != [task_leaf]
         or dataset.get("n_tasks") != 1
     ):
         raise VerificationError("Harbor job config patched dataset identity drifted")
@@ -3079,7 +3159,7 @@ def _validate_rows(
         if exception_stats != expected_exception_stats:
             raise VerificationError("Harbor aggregate exception stats differ from its child")
         harbor_name = payload.get("task_name")
-        if harbor_name not in {task_id, task_id.rsplit("/", 1)[-1]}:
+        if harbor_name != task_id:
             raise VerificationError("Harbor trial task identity drifted")
         if refs.get("task_checksum") != payload.get("task_checksum"):
             raise VerificationError("Harbor task checksum does not match the normalized row")
@@ -3371,7 +3451,7 @@ def _validate_rows(
     if {path.name for path in patched_entries} != expected_job_names or len(patched_entries) != 24:
         raise VerificationError("Harbor patched-taskset inventory differs from the frozen jobs")
     for patched_job in patched_entries:
-        expected_task_name = harbor_task_by_job_dir[
+        expected_task_leaf = harbor_task_by_job_dir[
             next(job for job in harbor_job_dirs if job.name == patched_job.name)
         ].rsplit("/", 1)[-1]
         patched_children = list(patched_job.iterdir())
@@ -3379,7 +3459,7 @@ def _validate_rows(
             len(patched_children) != 1
             or _is_linklike(patched_children[0])
             or not patched_children[0].is_dir()
-            or patched_children[0].name != expected_task_name
+            or patched_children[0].name != expected_task_leaf
         ):
             raise VerificationError("Harbor patched taskset does not contain exactly its frozen task")
     discovered_aggregates = {

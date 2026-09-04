@@ -102,6 +102,13 @@ and MiMoCode runtime identity in both its root and Agent `extra` blocks. The two
 blocks must be identical. A stale or missing identity is rejected rather than
 being treated as evidence for the current candidate.
 
+Pinned Harbor represents one task in two forms. The child `result.json`
+`task_name` must equal the frozen canonical task ID exactly (for example,
+`terminal-bench/fix-git`), while its `LocalTaskId` path, one-task dataset filter,
+and patched task directory must use the derived leaf (`fix-git`). These forms
+are checked separately. A namespace alias, wrong leaf, cross-task dataset, or
+substituted directory is rejected before the update model can be called.
+
 An errored Harbor trial may lack ATIF only when its own contained, regular
 failure receipt is present, self-hashed, identity-bound, and declares
 `atif_present=false`. It contributes a real zero to the experiment and bounded

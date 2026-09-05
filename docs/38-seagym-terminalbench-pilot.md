@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v12 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v13 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,14 +108,51 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v12, a final-comparison-blind task-identity correction. Eighteen
+This is protocol v13, a final-comparison-blind evidence-schema correction. Nineteen
 controller attempts reached progressively deeper parts of the pinned external
 pipeline, but none completed the A_0/A_T comparison and none produced a score.
-Their cumulative observed key-usage delta was USD 1.068024329 across separately
+Their cumulative observed key-usage delta was USD 1.404834753 across separately
 bounded observation windows. This is observed key-wide telemetry, not an exact
 invoice attribution.
 
-The latest incomplete run `33893733107`, against controller commit
+The latest incomplete run `33928934542`, against controller commit
+`eb8a7fd20b5a09521852096e700c9fefdaac9c8f` and public EvoAgent commit
+`f2672b3399ef3b687984faf314a49c3f7410de94`, passed every source, route,
+official Harbor oracle, and real lifecycle gate. It started the full pilot and
+completed the first six of 24 unique singleton Harbor jobs: the three initial
+validation tasks and the first three-task training batch. Before update 1 could
+call the learning model, the evidence projector stopped with `Harbor train
+result has an invalid config binding`. It produced no A_0, A_T, comparison,
+delta, full report, or reportable score, and completed zero updates.
+
+Pinned Harbor's local `TaskConfig` serializer emits eight fields: `path`,
+`git_url`, `git_commit_id`, `name`, `ref`, `overwrite`, `download_dir`, and
+`source`. For the patched local dataset, `path` binds the serialized
+`LocalTaskId`, `source` is the unique Harbor job name, `overwrite` is false, and
+the five remote/package fields are null. The v12 projector's artificial test
+fixture emitted only `path`, and its validator required that incomplete shape,
+so it rejected every faithful pinned-Harbor result. Protocol v13 fixes the
+fixture and requires the exact canonical eight-field shape in the normal
+projection, unattested-error path, and final verifier. Missing or extra fields,
+remote/package values, source or path drift, and overwrite still fail closed.
+
+The guard proxy forwarded and completed 52 requests with zero rejection,
+retry, upstream error, or final HTTP 4xx/5xx response across six root sessions.
+The run observed a USD 0.336810424 key-wide usage delta; its budget guard stopped
+because the child failed, not because the USD 0.90 stop line was reached. The
+diagnostic log exposed zero successes and `mean_score=0.333333` for the first
+training batch. This intermediate value is not an A_0/A_T comparison, was not
+used to select the model, tasks, split, order, or amendment, and supports no
+effect claim.
+
+Artifact `9958092092` is bound by GitHub Actions artifact-ZIP SHA-256
+`e4b74311c6ccbe75234328d3c2d8891975c8dd0947204f1fe724efa8c03ef81b`;
+the downloaded job-log bytes have SHA-256
+`3df8c0a5241139f078e660d96fc6e9c014ea6b44172fa951e4f058a553e499b0`.
+The artifact explicitly records `score_produced=false`, contains no result or
+comparison directory, and passed independent checksum and credential scans.
+
+The preceding v12 diagnostic run `33893733107`, against controller commit
 `a18e061644d4a71873784fd3322a08d22561ea19` and public EvoAgent commit
 `d9e4ebe298b623816cb6cf459716b8cded518b32`, passed every source, route,
 official Harbor oracle, and real lifecycle gate. It started the full pilot and
@@ -521,6 +558,23 @@ The config SHA-256 remains
 No intermediate task outcome was used to choose this correction, and no
 benchmark effect is claimed.
 
+Protocol v13 closes the local `TaskConfig` serialization mismatch exposed only
+after v12 allowed the first train batch to reach update projection. Pinned
+Harbor writes all eight model fields, including null remote/package fields and
+the false overwrite default. The adapter and final verifier now require that
+exact key set and bind the local path, job source, defaults, and nulls before an
+update-model call or final comparison can be accepted. This is stricter than
+the v12 one-field fixture: arbitrary extra fields and every non-local field
+remain rejected.
+
+This schema correction adds no retry or replacement task and does not change
+the model or provider, task set or split, order, seed, attempts, metrics,
+budgets, timeouts, update schedule, interpretation rule, or experiment config
+bytes. The config SHA-256 remains
+`d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87`.
+No intermediate task outcome was used to choose this correction, and no
+benchmark effect is claimed.
+
 The public protocol also pins guard-proxy source SHA-256
 `e2cea221758f09c8658a65e120be3056d4dc5948eccb93668c3e3561d363fe29`,
 health schema v5, and all request, response, concurrency, token and timeout
@@ -561,7 +615,7 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
-Protocol v9, v10, v11, and v12 isolate every planned slot into a unique Harbor
+Protocol v9 through v13 isolate every planned slot into a unique Harbor
 job; this changes process containment, not the frozen logical concurrency or
 batch schedule.
 

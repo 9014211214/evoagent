@@ -43,6 +43,101 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
+    "amended_at": "2026-09-04T23:45:13Z",
+    "benchmark_effect_claimed": false,
+    "change": "bind_full_pinned_harbor_local_task_config_schema",
+    "diagnostic": {
+      "artifact_id": 9958092092,
+      "artifact_zip_sha256": "e4b74311c6ccbe75234328d3c2d8891975c8dd0947204f1fe724efa8c03ef81b",
+      "completed_singleton_jobs": 6,
+      "controller_commit": "eb8a7fd20b5a09521852096e700c9fefdaac9c8f",
+      "evoagent_public_commit": "f2672b3399ef3b687984faf314a49c3f7410de94",
+      "full_pilot_started": true,
+      "job_id": 101203371254,
+      "job_log_sha256": "3df8c0a5241139f078e660d96fc6e9c014ea6b44172fa951e4f058a553e499b0",
+      "lifecycle_passed": true,
+      "observed_key_usage_delta_usd": 0.336810424,
+      "planned_singleton_jobs": 24,
+      "proxy": {
+        "completed_requests": 52,
+        "final_upstream_http_4xx_errors": 0,
+        "final_upstream_http_5xx_errors": 0,
+        "forwarded_requests": 52,
+        "rejected_requests": 0,
+        "root_sessions_observed": 6,
+        "tool_choice_none_normalizations": 2,
+        "upstream_attempts": 52,
+        "upstream_errors": 0,
+        "upstream_retries": 0
+      },
+      "run_id": 33928934542,
+      "score_produced": false,
+      "status": "pinned_harbor_local_task_config_schema_rejected",
+      "triggering_train_batch": 1,
+      "updates_completed": 0
+    },
+    "evidence_contract_change": {
+      "arbitrary_local_task_config_fields_rejected": true,
+      "exact_local_task_config_keys": [
+        "download_dir",
+        "git_commit_id",
+        "git_url",
+        "name",
+        "overwrite",
+        "path",
+        "ref",
+        "source"
+      ],
+      "final_verifier_uses_the_same_binding": true,
+      "non_local_source_fields_must_be_null": [
+        "download_dir",
+        "git_commit_id",
+        "git_url",
+        "name",
+        "ref"
+      ],
+      "overwrite_must_be_false": true,
+      "path_must_equal_serialized_local_task_id": true,
+      "source_must_equal_child_source_and_job_directory_name": true,
+      "task_identity_checks_relaxed": false,
+      "unattested_error_evidence_uses_the_same_binding": true
+    },
+    "execution_change": {
+      "harbor_cli_retries_added": 0,
+      "planned_slot_replacement_allowed": false,
+      "task_attempts_changed": false,
+      "update_schedule_changed": false
+    },
+    "frozen_scientific_identity": {
+      "budgets_changed": false,
+      "metrics_changed": false,
+      "model_or_provider_changed": false,
+      "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "seed_or_order_changed": false,
+      "tasks_or_split_changed": false
+    },
+    "leaf_cause_status": {
+      "exact_exception_stage_or_type_confirmed": true,
+      "pinned_harbor_semantics_confirmed": true,
+      "source_confirmed_mechanism": "pinned_harbor_serializes_all_eight_local_task_config_fields_including_null_and_default_values_while_the_v12_projector_expected_only_path",
+      "triggering_exception": "Harbor train result has an invalid config binding"
+    },
+    "observed_diagnostic_aggregates": {
+      "batch_1": {
+        "logged_mean_score": 0.333333,
+        "logged_successes": 0
+      },
+      "effect_claimed_from_intermediate_values": false,
+      "used_to_select_model_tasks_split_or_order": false
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 19,
+    "prior_observed_usage_delta_usd": 1.404834753,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12",
+    "final_comparison_blind": true
+  },
+  "prior_amendment_v12": {
     "amended_at": "2026-09-04T16:51:00Z",
     "benchmark_effect_claimed": false,
     "change": "bind_canonical_harbor_task_names_to_local_task_path_leaves",
@@ -727,7 +822,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,

@@ -87,6 +87,23 @@ EXPECTED_TRIAL_CONFIG_KEYS = {
     "extra_instruction_paths",
     "job_id",
 }
+EXPECTED_LOCAL_TASK_CONFIG_KEYS = {
+    "path",
+    "git_url",
+    "git_commit_id",
+    "name",
+    "ref",
+    "overwrite",
+    "download_dir",
+    "source",
+}
+LOCAL_TASK_CONFIG_NULL_KEYS = {
+    "git_url",
+    "git_commit_id",
+    "name",
+    "ref",
+    "download_dir",
+}
 EXPECTED_AGENT_CONTEXT_KEYS = {
     "n_input_tokens",
     "n_cache_tokens",
@@ -95,6 +112,26 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
     "rollout_details",
     "metadata",
 }
+
+
+def _is_pinned_local_task_config(
+    value: Any,
+    *,
+    task_path: str,
+    source: str,
+) -> bool:
+    """Match pinned Harbor's canonical local TaskConfig serialization exactly."""
+
+    return (
+        isinstance(value, dict)
+        and set(value) == EXPECTED_LOCAL_TASK_CONFIG_KEYS
+        and value.get("path") == task_path
+        and value.get("source") == source
+        and value.get("overwrite") is False
+        and all(value.get(key) is None for key in LOCAL_TASK_CONFIG_NULL_KEYS)
+    )
+
+
 EXPECTED_AGGREGATE_KEYS = {
     "finished_at",
     "id",
@@ -668,9 +705,11 @@ def _validated_harbor_result_identity(
         or set(config) != EXPECTED_TRIAL_CONFIG_KEYS
         or config.get("trial_name") != trial_name
         or config.get("install_only") is not False
-        or not isinstance(config.get("task"), dict)
-        or set(config["task"]) != {"path"}
-        or config["task"].get("path") != serialized_task_id["path"]
+        or not _is_pinned_local_task_config(
+            config.get("task"),
+            task_path=serialized_task_id["path"],
+            source=job_dir.name,
+        )
         or not isinstance(config.get("trials_dir"), str)
         or contained_path(root, Path(config["trials_dir"]), must_exist=True) != job_dir
     ):
@@ -1290,11 +1329,16 @@ def _unattested_harbor_result_digest(
     ):
         raise ValueError("unattested Harbor errored result has invalid task binding")
     config = result.get("config")
+    job_dir = result_path.parent.parent
     if (
         not isinstance(config, dict)
         or config.get("trial_name") != trial_name
-        or not isinstance(config.get("task"), dict)
-        or config["task"].get("path") != serialized_task_id["path"]
+        or result.get("source") != job_dir.name
+        or not _is_pinned_local_task_config(
+            config.get("task"),
+            task_path=serialized_task_id["path"],
+            source=job_dir.name,
+        )
     ):
         raise ValueError("unattested Harbor errored result has invalid config binding")
     allowed = set() if allowed_agent_evidence is None else {

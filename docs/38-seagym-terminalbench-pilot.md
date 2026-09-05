@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v14 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v15 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,7 +108,39 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-Protocol v14 corrects the timestamp contract after an offline source review.
+Protocol v15 separates upstream raw scoring from the pilot's existing rule
+that errored trials count as zero. Controller run 121 (`33942199178`) passed
+the exact route, official oracle, and real lifecycle gates, then completed
+six of 24 singleton jobs. Five children recorded an exception. Before the
+first update-model call, v14 rejected a child with both an exception and a
+nonzero raw verifier reward. No update completed, and no final A0/A_T result,
+comparison, delta, or project score was produced.
+
+Pinned Harbor can retain a verifier reward of one alongside exception metadata;
+pinned SEAGym consequently retains raw score one while setting success false.
+This is a valid source shape, not permission to count an errored task as a
+success. The v15 projector and independent final verifier validate the original
+child, aggregate, normalized row, and source metrics without rewriting them.
+Only the effective learning and scientific scores apply the error-to-zero rule.
+Raw `mean_score` and score-derived upstream diagnostics are checked separately
+from success-based metrics. Published gains and the pilot classification use
+effective scores. Unknown usage is not imputed as zero, and unattested train
+errors still skip the entire update batch rather than become learning evidence.
+
+The specific stage/type behind run 121's Harbor exceptions was not retained
+and remains unknown. Accepting the valid reward/exception combination does not
+repair or explain those underlying exceptions. The run's observed whole-key
+usage delta was USD 0.016065648, below the stop threshold. Its artifact ZIP
+SHA-256 is `82c8ba36c13e7ffa979aa33e0ff61f4e398f93fb3776b45ef37043ac09d66aac`;
+all 15 manifest entries were independently verified. These are diagnostic
+observations, not task-success scores or an exact per-request invoice.
+
+The v15 ledger includes 21 controller attempts, zero complete comparisons, and
+USD 1.420900401 cumulative measured whole-key deltas. Model/provider, tasks,
+splits, order, seed, retries, update schedule, declared metrics, budget, and
+timeouts remain frozen. No failed slot is replaced or silently retried.
+
+Protocol v14 corrected the timestamp contract after an offline source review.
 Pinned Harbor creates job-aggregate and exception timestamps with local
 `datetime.now()`, without an offset, while trial and runtime evidence use
 timezone-aware timestamps. The v13 update projector incorrectly required an

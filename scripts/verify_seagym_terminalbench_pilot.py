@@ -121,8 +121,75 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
 }
 EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v14"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v15"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-05T05:42:20Z",
+    "benchmark_effect_claimed": False,
+    "change": "separate_raw_harbor_reward_from_effective_errored_trial_score",
+    "diagnostic": {
+        "artifact_id": 9962397990,
+        "artifact_zip_sha256": "82c8ba36c13e7ffa979aa33e0ff61f4e398f93fb3776b45ef37043ac09d66aac",
+        "completed_singleton_jobs": 6,
+        "controller_commit": "c28d8f2819119612731b2c649e141a8c9c241022",
+        "evoagent_public_commit": "d222f8ddcd2a8a7d81b587c0e4ed11a3409032a5",
+        "full_pilot_started": True,
+        "job_id": 101241669798,
+        "job_log_sha256": "a190e9f12f438eb6ec04ed10ad75800277891387cbf52619c27b178f883324bf",
+        "lifecycle_passed": True,
+        "observed_key_usage_delta_usd": 0.016065648,
+        "planned_singleton_jobs": 24,
+        "proxy": {
+            "completed_requests": 67,
+            "forwarded_requests": 67,
+            "root_sessions_observed": 6,
+            "upstream_attempts": 67,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+            "rejected_requests": 0
+        },
+        "run_id": 33942199178,
+        "score_produced": False,
+        "status": "raw_positive_reward_with_harbor_exception_rejected_before_first_update",
+        "trials_with_exception": 5,
+        "updates_completed": 0
+    },
+    "evidence_contract_change": {
+        "effective_errored_score_is_zero": True,
+        "final_metrics_recomputed_from_effective_scores": True,
+        "learning_summary_uses_effective_scores": True,
+        "raw_child_and_aggregate_rewards_preserved": True,
+        "raw_seagym_metrics_recomputed_separately": True,
+        "source_success_requires_no_exception": True,
+        "unknown_usage_not_imputed_as_zero": True,
+        "upstream_normalization_unmodified": True
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "planned_slot_replacement_allowed": False,
+        "task_attempts_changed": False,
+        "update_schedule_changed": False
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False
+    },
+    "leaf_cause_status": {
+        "pinned_harbor_semantics_confirmed": True,
+        "source_confirmed_mechanism": "pinned_harbor_can_retain_verifier_reward_one_alongside_exception_info_and_seagym_preserves_raw_score_while_success_is_false",
+        "triggering_harbor_exception_type_or_stage_confirmed": False
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 21,
+    "prior_observed_usage_delta_usd": 1.420900401,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v14",
+    "final_comparison_blind": True
+}
+EXPECTED_PRIOR_AMENDMENT_V14 = {
     "amended_at": "2026-09-05T02:23:53Z",
     "benchmark_effect_claimed": False,
     "change": "bind_pinned_harbor_wall_clock_timestamps_without_inventing_timezone",
@@ -1190,6 +1257,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v14") != EXPECTED_PRIOR_AMENDMENT_V14:
+        raise VerificationError("preserved v14 protocol amendment drifted")
     if protocol.get("prior_amendment_v13") != EXPECTED_PRIOR_AMENDMENT_V13:
         raise VerificationError("preserved v13 protocol amendment drifted")
     if protocol.get("prior_amendment_v12") != EXPECTED_PRIOR_AMENDMENT_V12:
@@ -2743,8 +2812,10 @@ def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str
     }
     usage: dict[str, int | float] = {}
     for output_name, (payload_name, row_name) in fields.items():
-        payload_value = agent_result.get(payload_name, 0)
-        row_value = cost.get(row_name, 0)
+        if payload_name not in agent_result or row_name not in cost:
+            raise VerificationError("failed Harbor usage evidence is missing")
+        payload_value = agent_result[payload_name]
+        row_value = cost[row_name]
         if output_name == "cost_usd":
             parsed_payload: int | float = _finite_number(payload_value, "failed Harbor cost")
             parsed_row = _finite_number(row_value, "failed normalized cost")
@@ -3108,6 +3179,8 @@ def _validate_rows(
     rollout_llm_call_count = 0
     for row in rows:
         _reject_nonempty_reasoning(row)
+        if {"raw_score", "raw_success", "effective_score", "effective_success"} & set(row):
+            raise VerificationError("task row contains verifier-owned outcome fields")
         task_id = row.get("task_id")
         if task_id not in known_tasks:
             raise VerificationError("task result contains an unknown task")
@@ -3125,10 +3198,10 @@ def _validate_rows(
         ):
             raise VerificationError("task error must be non-empty text or null")
         error_present = row_error is not None
-        if error_present and score != 0.0:
-            raise VerificationError("errored task row must preserve its raw zero score")
-        if success != (score >= 1.0):
-            raise VerificationError("task success and raw score disagree")
+        # Pinned SEAGym preserves Harbor's raw reward even when an exception
+        # coexists with it; only its success flag is conditioned on no error.
+        if success != (not error_present and score >= 1.0):
+            raise VerificationError("task success and raw score/error state disagree")
         role = row.get("baseline_role")
         mode = row.get("mode")
         if role == "A_0":
@@ -3387,10 +3460,13 @@ def _validate_rows(
             raise VerificationError("Harbor trial task identity drifted")
         if refs.get("task_checksum") != payload.get("task_checksum"):
             raise VerificationError("Harbor task checksum does not match the normalized row")
-        rewards = ((payload.get("verifier_result") or {}).get("rewards") or {})
-        reward = rewards.get("reward", 0.0) if isinstance(rewards, dict) else 0.0
+        rewards = payload["verifier_result"]["rewards"]
+        reward = rewards["reward"]
         normalized_reward = _finite_number(reward, "Harbor reward", maximum=1.0)
-        row_reward = ((row.get("rewards") or {}).get("reward", 0.0))
+        row_rewards = row.get("rewards")
+        if not isinstance(row_rewards, dict) or set(row_rewards) != {"reward"}:
+            raise VerificationError("normalized task reward inventory drifted")
+        row_reward = row_rewards["reward"]
         normalized_row_reward = _finite_number(
             row_reward,
             "normalized reward",
@@ -3561,7 +3637,11 @@ def _validate_rows(
                 "evaluation_point_id": row.get("evaluation_point_id"),
                 "baseline_role": role,
                 "train_batch_index": row.get("train_batch_index"),
-                "score": score,
+                # Preserve source outcomes for independent source-metric
+                # reconciliation, never as scientific or learning credit.
+                "raw_score": score,
+                "raw_success": success,
+                "score": 0.0 if error_present else score,
                 "success": success,
                 "error_present": error_present,
                 "runtime_seconds": _optional_number(row.get("runtime_seconds")),
@@ -3810,40 +3890,64 @@ def _domain_macro(rows: Iterable[dict[str, Any]]) -> float:
     return sum(sum(values) / len(values) for values in grouped.values()) / len(grouped)
 
 
+def _source_outcome_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Recompute upstream metrics without confusing raw reward with valid credit."""
+
+    outcomes: dict[str, dict[str, float]] = {
+        "success_rate": {},
+        "mean_score": {},
+        "domain_macro_success_rate": {},
+    }
+    for role in ("A_0", "A_T"):
+        phase = [row for row in rows if row["baseline_role"] == role]
+        if len(phase) != 3:
+            raise VerificationError("source comparison phases are incomplete")
+        key = f"id_test.{role}"
+        outcomes["success_rate"][key] = sum(int(row["raw_success"]) for row in phase) / len(phase)
+        outcomes["mean_score"][key] = sum(float(row["raw_score"]) for row in phase) / len(phase)
+        outcomes["domain_macro_success_rate"][key] = _domain_macro(
+            {**row, "score": float(row["raw_success"])} for row in phase
+        )
+    outcomes["final_gain"] = {
+        "id_test": outcomes["mean_score"]["id_test.A_T"] - outcomes["mean_score"]["id_test.A_0"]
+    }
+    return outcomes
+
+
 def _validate_metrics(
     run_dir: Path,
     summary: dict[str, Any],
     updates: list[dict[str, Any]],
+    source_outcomes: dict[str, Any],
 ) -> dict[str, Any]:
     metrics = _load_json(run_dir / "metrics.json", root=run_dir)
     if not isinstance(metrics, dict):
         raise VerificationError("SEAGym metrics are invalid")
-    expected = summary["held_out"]
     for section in ("success_rate", "mean_score"):
         values = metrics.get(section)
         if not isinstance(values, dict):
             raise VerificationError(f"SEAGym metric section missing: {section}")
-        if not math.isclose(_finite_number(values.get("id_test.A_0"), section), expected["A_0_mean_score"], abs_tol=1e-12):
+        if not math.isclose(_finite_number(values.get("id_test.A_0"), section), source_outcomes[section]["id_test.A_0"], abs_tol=1e-12):
             raise VerificationError(f"SEAGym {section} A0 differs from trial evidence")
-        if not math.isclose(_finite_number(values.get("id_test.A_T"), section), expected["A_T_mean_score"], abs_tol=1e-12):
+        if not math.isclose(_finite_number(values.get("id_test.A_T"), section), source_outcomes[section]["id_test.A_T"], abs_tol=1e-12):
             raise VerificationError(f"SEAGym {section} AT differs from trial evidence")
     domain_macro = metrics.get("domain_macro_success_rate")
     if not isinstance(domain_macro, dict):
         raise VerificationError("SEAGym domain-macro metric section is missing")
     if not math.isclose(
         _finite_number(domain_macro.get("id_test.A_0"), "domain macro A0"),
-        expected["A_0_domain_macro_success_rate"],
+        source_outcomes["domain_macro_success_rate"]["id_test.A_0"],
         abs_tol=1e-12,
     ):
         raise VerificationError("SEAGym domain-macro A0 differs from trial evidence")
     if not math.isclose(
         _finite_number(domain_macro.get("id_test.A_T"), "domain macro AT"),
-        expected["A_T_domain_macro_success_rate"],
+        source_outcomes["domain_macro_success_rate"]["id_test.A_T"],
         abs_tol=1e-12,
     ):
         raise VerificationError("SEAGym domain-macro AT differs from trial evidence")
     final_gain = metrics.get("final_gain")
-    if not isinstance(final_gain, dict) or not math.isclose(_finite_number(final_gain.get("id_test"), "final gain", minimum=-1.0, maximum=1.0), expected["gain_vs_A_0"], abs_tol=1e-12):
+    if not isinstance(final_gain, dict) or not math.isclose(_finite_number(final_gain.get("id_test"), "final gain", minimum=-1.0, maximum=1.0), source_outcomes["final_gain"]["id_test"], abs_tol=1e-12):
         raise VerificationError("SEAGym final gain differs from trial evidence")
     tokens = metrics.get("tokens")
     if not isinstance(tokens, dict):
@@ -3972,7 +4076,7 @@ def _validate_metrics(
     }
 
 
-def _validate_evaluation_points(run_dir: Path, summary: dict[str, Any]) -> None:
+def _validate_evaluation_points(run_dir: Path, source_outcomes: dict[str, Any]) -> None:
     points = _load_jsonl(run_dir / "records" / "evaluation_points.jsonl", root=run_dir, expected=4)
     if [point.get("evaluation_point_id") for point in points] != ["E_0", "E_1", "E_2", "E_T"]:
         raise VerificationError("SEAGym evaluation-point sequence drifted")
@@ -3981,13 +4085,12 @@ def _validate_evaluation_points(run_dir: Path, summary: dict[str, Any]) -> None:
     view = evaluations.get("id_test") if isinstance(evaluations, dict) else None
     if not isinstance(view, dict) or view.get("agent_checkpoint_id") != "A_T" or view.get("baseline_checkpoint_id") != "A_0":
         raise VerificationError("SEAGym final checkpoint comparison is invalid")
-    held_out = summary["held_out"]
     expected = {
         "num_tasks": 3,
         "num_baseline_tasks": 3,
-        "score": held_out["A_T_mean_score"],
-        "baseline_score": held_out["A_0_mean_score"],
-        "gain_vs_A_0": held_out["gain_vs_A_0"],
+        "score": source_outcomes["mean_score"]["id_test.A_T"],
+        "baseline_score": source_outcomes["mean_score"]["id_test.A_0"],
+        "gain_vs_A_0": source_outcomes["final_gain"]["id_test"],
     }
     for key, value in expected.items():
         if isinstance(value, int):
@@ -4344,8 +4447,9 @@ def verify_pilot(
             or update["skip_code"] != expected_skip_code
         ):
             raise VerificationError("train evidence skip differs from the exact adapter projection")
-    metric_usage = _validate_metrics(run_dir, summary, updates)
-    _validate_evaluation_points(run_dir, summary)
+    source_outcomes = _source_outcome_metrics(safe_rows)
+    metric_usage = _validate_metrics(run_dir, summary, updates, source_outcomes)
+    _validate_evaluation_points(run_dir, source_outcomes)
     update_llm_call_count = sum(update["model_call_executed"] is True for update in updates)
     skipped_update_count = sum(update["model_call_executed"] is False for update in updates)
     failure_receipt_trials = int(summary["failure_receipt_trials"])

@@ -180,6 +180,8 @@ def _checkpoint(
     update_index: int,
     *,
     intermediate: dict[str, object] | None = None,
+    first_skip_code: str | None = None,
+    first_evidence_sha256: str | None = None,
     second_skip_code: str | None = None,
     second_evidence_sha256: str | None = None,
     first_request_sha256: str | None = None,
@@ -197,8 +199,9 @@ def _checkpoint(
                 1,
                 a0,
                 first_candidate,
-                evidence_sha256=str(first_candidate["evidence_sha256"]),
+                evidence_sha256=first_evidence_sha256 or str(first_candidate["evidence_sha256"]),
                 request_sha256=first_request_sha256,
+                skip_code=first_skip_code,
             )
         )
     if update_index >= 2:
@@ -776,9 +779,13 @@ def _replace_trial_with_unattested_harbor_failure(result_path: Path) -> None:
     _write_json(aggregate_path, aggregate)
 
 
-def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
+def _mark_atif_present_unreceipted_failure(
+    result_path: Path,
+    *,
+    raw_reward: float = 0.0,
+) -> None:
     payload = json.loads(result_path.read_text(encoding="utf-8"))
-    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["verifier_result"] = {"rewards": {"reward": raw_reward}}
     payload["exception_info"] = {
         "exception_type": "OuterHarborFailure",
         "exception_message": "unattested_after_atif",
@@ -791,8 +798,8 @@ def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
     aggregate["stats"]["n_errored_trials"] = 1
     eval_stats = next(iter(aggregate["stats"]["evals"].values()))
     eval_stats["n_errors"] = 1
-    eval_stats["metrics"] = [{"mean": 0.0}]
-    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["metrics"] = [{"mean": raw_reward}]
+    eval_stats["reward_stats"] = {"reward": {str(raw_reward): [payload["trial_name"]]}}
     eval_stats["exception_stats"] = {"OuterHarborFailure": [payload["trial_name"]]}
     _write_json(aggregate_path, aggregate)
 
@@ -890,6 +897,8 @@ def _fixture(
     skip_second_update: bool = False,
     unattested_second_update: bool = False,
     unattested_atif_second_update: bool = False,
+    unattested_atif_first_update: bool = False,
+    raw_reward_error_slots: tuple[int, ...] = (),
 ) -> tuple[Path, Path, Path]:
     run = tmp_path / "run"
     shutil.copyfile(CONFIG, run / "inputs" / "experiment_config.json") if (run / "inputs").mkdir(parents=True, exist_ok=True) is None else None
@@ -923,6 +932,9 @@ def _fixture(
         nonlocal trial_index
         for task_id, score in zip(task_ids, scores, strict=True):
             trial_index += 1
+            raw_positive_error = trial_index in raw_reward_error_slots
+            if raw_positive_error:
+                score = 1
             result_path, checksum = _trial(run, trial_index, task_id, score, snapshot)
             runtime_failure = skip_second_update and mode == "train" and batch == 2
             unattested_failure = (
@@ -932,17 +944,21 @@ def _fixture(
                 and task_id == split["train"][3]
             )
             unattested_atif_failure = (
-                unattested_atif_second_update
-                and mode == "train"
-                and batch == 2
-                and task_id == split["train"][3]
+                mode == "train"
+                and (
+                    unattested_atif_second_update and batch == 2 and task_id == split["train"][3]
+                    or unattested_atif_first_update and batch == 1 and task_id == split["train"][0]
+                )
             )
             if runtime_failure:
                 _replace_trial_with_receipted_runtime_failure(result_path, snapshot)
             elif unattested_failure:
                 _replace_trial_with_unattested_harbor_failure(result_path)
-            elif unattested_atif_failure:
-                _mark_atif_present_unreceipted_failure(result_path)
+            elif unattested_atif_failure or raw_positive_error:
+                _mark_atif_present_unreceipted_failure(
+                    result_path,
+                    raw_reward=1.0 if raw_positive_error else 0.0,
+                )
             result_payload = json.loads(result_path.read_text(encoding="utf-8"))
             normalized_error = (
                 None
@@ -1002,7 +1018,7 @@ def _fixture(
                     "runtime_seconds": 1.0,
                     "score": float(score),
                     "split_id": plan["split_id"],
-                    "success": bool(score),
+                    "success": normalized_error is None and bool(score),
                     "task_id": task_id,
                     "train_batch_index": batch,
                     "update_repeat_index": 1 if mode == "train" else None,
@@ -1024,16 +1040,24 @@ def _fixture(
         expected_snapshot=str(a0["snapshot_sha256"]),
         expected_component_hashes=dict(a0["component_sha256"]),
     )
-    assert first_skip is None
-    first_request_sha256 = pilot_verifier._adapter_update_request_sha256(
-        evidence_summary=first_projection.summary,
-        current_components=dict(a0["components"]),
+    assert first_skip == (
+        "incomplete_unattested_harbor_evidence" if unattested_atif_first_update else None
     )
-    e1 = _snapshot(
-        1,
-        str(a0["snapshot_sha256"]),
-        "e1",
-        evidence_sha256=first_projection.evidence_sha256,
+    first_request_sha256 = (
+        None if first_skip is not None
+        else pilot_verifier._adapter_update_request_sha256(
+            evidence_summary=first_projection.summary,
+            current_components=dict(a0["components"]),
+        )
+    )
+    e1 = (
+        a0 if first_skip is not None
+        else _snapshot(
+            1,
+            str(a0["snapshot_sha256"]),
+            "e1",
+            evidence_sha256=first_projection.evidence_sha256,
+        )
     )
 
     append_phase("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1)
@@ -1076,7 +1100,7 @@ def _fixture(
         e1
         if no_call_second_update
         else _snapshot(
-            2,
+            int(e1["generation"]) + 1,
             str(e1["snapshot_sha256"]),
             "at",
             evidence_sha256=second_projection.evidence_sha256,
@@ -1095,6 +1119,8 @@ def _fixture(
         a0,
         e1,
         1,
+        first_skip_code=first_skip,
+        first_evidence_sha256=first_projection.evidence_sha256,
         first_request_sha256=first_request_sha256,
     )
     _checkpoint(
@@ -1104,13 +1130,15 @@ def _fixture(
         final_candidate,
         2,
         intermediate=e1,
+        first_skip_code=first_skip,
+        first_evidence_sha256=first_projection.evidence_sha256,
         second_skip_code=second_skip_code,
         second_evidence_sha256=second_projection.evidence_sha256,
         first_request_sha256=first_request_sha256,
         second_request_sha256=second_request_sha256,
     )
     updates = [
-        (1, e1, first_projection.evidence_sha256, None, first_request_sha256),
+        (1, e1, first_projection.evidence_sha256, first_skip, first_request_sha256),
         (
             2,
             final_candidate,
@@ -1180,15 +1208,30 @@ def _fixture(
         > 0
         for row in persisted_rows
     )
-    update_input = 5.0 if no_call_second_update else 10.0
-    update_output = 1.0 if no_call_second_update else 2.0
-    update_cost = 0.001 if no_call_second_update else 0.002
-    update_with_tokens = 1 if no_call_second_update else 2
+    update_with_tokens = int(first_skip is None) + int(not no_call_second_update)
+    update_input = 5.0 * update_with_tokens
+    update_output = 1.0 * update_with_tokens
+    update_cost = 0.001 * update_with_tokens
+    source_means = {}
+    source_success = {}
+    source_domain_macro = {}
+    for role in ("A_0", "A_T"):
+        phase = [row for row in persisted_rows if row["baseline_role"] == role]
+        key = f"id_test.{role}"
+        source_means[key] = sum(row["score"] for row in phase) / len(phase)
+        source_success[key] = sum(row["success"] for row in phase) / len(phase)
+        domains = {row["attributes"]["domain"] for row in phase}
+        domain_values = []
+        for domain in domains:
+            members = [row for row in phase if row["attributes"]["domain"] == domain]
+            domain_values.append(sum(row["success"] for row in members) / len(members))
+        source_domain_macro[key] = sum(domain_values) / len(domain_values)
+    source_gain = source_means["id_test.A_T"] - source_means["id_test.A_0"]
     metrics = {
-        "success_rate": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
-        "mean_score": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
-        "domain_macro_success_rate": {"id_test.A_0": 0.25, "id_test.A_T": 0.75},
-        "final_gain": {"id_test": 1 / 3},
+        "success_rate": source_success,
+        "mean_score": source_means,
+        "domain_macro_success_rate": source_domain_macro,
+        "final_gain": {"id_test": source_gain},
         "tokens": {
             "rollout": {
                 "num_records": 24,
@@ -1238,9 +1281,9 @@ def _fixture(
                     "baseline_checkpoint_id": "A_0",
                     "num_tasks": 3,
                     "num_baseline_tasks": 3,
-                    "score": 2 / 3,
-                    "baseline_score": 1 / 3,
-                    "gain_vs_A_0": 1 / 3,
+                    "score": source_means["id_test.A_T"],
+                    "baseline_score": source_means["id_test.A_0"],
+                    "gain_vs_A_0": source_gain,
                 }
             },
         },
@@ -1539,7 +1582,7 @@ def test_rejects_noncanonical_explicit_or_ambiguous_atif_reference(
         )
 
 
-def test_rejects_errored_row_with_nonzero_raw_score(tmp_path: Path) -> None:
+def test_rejects_errored_row_claiming_raw_success(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path, unattested_atif_second_update=True)
     rows_path = run / "records" / "task_results.jsonl"
     rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
@@ -1552,13 +1595,186 @@ def test_rejects_errored_row_with_nonzero_raw_score(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(VerificationError, match="raw zero score"):
+    with pytest.raises(VerificationError, match="raw score/error state"):
         verify_pilot(
             run_dir=run,
             protocol_path=PROTOCOL,
             usage_before=before,
             usage_after=after,
         )
+
+
+def test_raw_positive_error_preserves_source_outcomes_but_receives_no_scientific_credit(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(7, 13, 19))
+    source_rows = (run / "records" / "task_results.jsonl").read_bytes()
+    source_metrics = (run / "metrics.json").read_bytes()
+    source_points = (run / "records" / "evaluation_points.jsonl").read_bytes()
+
+    result, rows, _updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    failed = [row for row in rows if row["error_present"]]
+    assert len(failed) == 3
+    assert all(row["raw_score"] == 1.0 and row["raw_success"] is False for row in failed)
+    assert all(row["score"] == 0.0 and row["success"] is False for row in failed)
+    assert result["comparison"]["held_out"]["gain_vs_A_0"] == 0.0
+    assert result["comparison"]["held_out"]["A_T_mean_score"] == pytest.approx(1 / 3)
+    assert result["comparison"]["frozen_validation"]["delta"] == pytest.approx(-1 / 3)
+    assert result["comparison"]["replay_mean_score"] == pytest.approx(5 / 6)
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+    assert (run / "records" / "task_results.jsonl").read_bytes() == source_rows
+    assert (run / "metrics.json").read_bytes() == source_metrics
+    assert (run / "records" / "evaluation_points.jsonl").read_bytes() == source_points
+    upstream_metrics = json.loads(source_metrics)
+    assert upstream_metrics["mean_score"]["id_test.A_T"] == pytest.approx(2 / 3)
+    assert upstream_metrics["success_rate"]["id_test.A_T"] == pytest.approx(1 / 3)
+    assert upstream_metrics["final_gain"]["id_test"] == pytest.approx(1 / 3)
+
+
+def test_raw_positive_training_error_is_bound_to_whole_batch_skip_and_checkpoint(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        unattested_atif_second_update=True,
+        raw_reward_error_slots=(10,),
+    )
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    failed = next(row for row in rows if row["error_present"])
+    assert failed["raw_score"] == 1.0 and failed["score"] == 0.0
+    assert failed["training_evidence_complete"] is False
+    assert updates[1]["model_call_executed"] is False
+    assert updates[1]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    assert result["snapshots"]["E1"] == result["snapshots"]["AT"]
+    assert result["comparison"]["train_mean_score"] == pytest.approx(4 / 6)
+
+
+@pytest.mark.parametrize("skip_second", [False, True])
+def test_raw_positive_first_train_error_preserves_a0_and_valid_checkpoint_progress(
+    tmp_path: Path, skip_second: bool,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        unattested_atif_first_update=True,
+        unattested_atif_second_update=skip_second,
+        raw_reward_error_slots=(4, 10) if skip_second else (4,),
+    )
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["snapshots"]["A0"] == result["snapshots"]["E1"]
+    assert (result["snapshots"]["AT"] == result["snapshots"]["A0"]) is skip_second
+    assert updates[0]["model_call_executed"] is False
+    assert updates[0]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    assert updates[1]["model_call_executed"] is (not skip_second)
+    assert result["evidence"]["verified_update_model_calls"] == int(not skip_second)
+    failed = [row for row in rows if row["error_present"]]
+    assert len(failed) == 1 + int(skip_second)
+    assert all(row["raw_score"] == 1.0 and row["score"] == 0.0 for row in failed)
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "tampered"),
+    [
+        ("mean_score", "id_test.A_T", 1 / 3),
+        ("success_rate", "id_test.A_T", 2 / 3),
+        ("domain_macro_success_rate", "id_test.A_T", 0.75),
+        ("final_gain", "id_test", 0.0),
+    ],
+)
+def test_rejects_source_metrics_rewritten_to_wrong_raw_or_effective_semantics(
+    tmp_path: Path, section: str, key: str, tampered: float,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    metrics_path = run / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert metrics[section][key] != tampered
+    metrics[section][key] = tampered
+    _write_json(metrics_path, metrics)
+
+    with pytest.raises(VerificationError, match="differs from trial evidence"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_source_evaluation_point_rewritten_to_effective_score(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    points_path = run / "records" / "evaluation_points.jsonl"
+    points = [json.loads(line) for line in points_path.read_text(encoding="utf-8").splitlines()]
+    points[-1]["evaluations"]["id_test"]["score"] = 1 / 3
+    points_path.write_text("\n".join(json.dumps(point) for point in points) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="final evaluation point differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["score", "rewards", "success", "effective_score", "effective_success"])
+def test_rejects_tampered_raw_positive_error_or_injected_effective_credit(
+    tmp_path: Path, field: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row["error"] is not None)
+    failed[field] = (
+        {"reward": 0.0} if field == "rewards"
+        else 0.0 if field == "score"
+        else 1.0 if field == "effective_score"
+        else True
+    )
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="reward|raw score/error|verifier-owned outcome"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("section", ["metrics", "reward_stats"])
+def test_rejects_harbor_raw_reward_statistics_rewritten_as_error_zero(
+    tmp_path: Path, section: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    aggregate_path = run / "harbor" / "jobs" / "job-19" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    evaluation = next(iter(aggregate["stats"]["evals"].values()))
+    evaluation[section] = (
+        [{"mean": 0.0}] if section == "metrics"
+        else {"reward": {"0.0": ["trial-19"]}}
+    )
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="Harbor aggregate .*differ"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"])
+def test_rejects_missing_error_usage_instead_of_imputing_zero(tmp_path: Path, field: str) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row["error"] is not None)
+    assert failed["cost"].pop(field) == 0
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="usage evidence is missing"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
 def test_rejects_agent_result_metadata_raw_field_injection(tmp_path: Path) -> None:
@@ -2520,7 +2736,7 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
 
 def test_v14_cancelled_attempt_preserves_unknown_usage_and_observed_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-    amendment = protocol["amendment"]
+    amendment = protocol["prior_amendment_v14"]
     prior = protocol["prior_amendment_v13"]
 
     assert amendment["diagnostic"]["run_id"] == 33938703704
@@ -2529,6 +2745,36 @@ def test_v14_cancelled_attempt_preserves_unknown_usage_and_observed_ledger() -> 
     assert amendment["diagnostic"]["observed_key_usage_delta_usd"] is None
     assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
     assert amendment["prior_observed_usage_delta_usd"] == prior["prior_observed_usage_delta_usd"]
+
+
+def test_v15_ledger_preserves_raw_error_diagnostic_without_claiming_a_score() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v14"]
+
+    assert amendment["diagnostic"]["run_id"] == 33942199178
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["diagnostic"]["updates_completed"] == 0
+    assert amendment["diagnostic"]["completed_singleton_jobs"] == 6
+    assert amendment["diagnostic"]["trials_with_exception"] == 5
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_rejects_preserved_v14_amendment_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v14"]["diagnostic"]["observed_key_usage_delta_usd"] = 0.0
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v14 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
 
 
 def test_preserved_v13_ledger_extends_the_preserved_v12_ledger() -> None:

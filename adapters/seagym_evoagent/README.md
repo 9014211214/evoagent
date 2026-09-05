@@ -147,8 +147,13 @@ receipt whose ATIF bit disagrees with disk, malformed ATIF already on disk,
 path escape, symlink, or junction fails before the update-model call. When a
 classified MiMoCode failure still produced valid sanitized ATIF, the real ATIF
 remains usable and the accompanying `atif_present=true` receipt is independently
-validated. The pilot verifier requires every errored row's original score to
-already be zero, keeps it in the denominator, and labels any receipt-bearing result
+validated. Pinned Harbor may retain a raw verifier reward of one alongside an
+exception, and pinned SEAGym preserves that raw score while setting success
+false. Protocol v15 validates this source shape and raw aggregate/metric
+bindings without rewriting them. The learning summary and final scientific
+comparison independently count every errored trial as zero and keep it in the
+denominator; a positive raw reward is never promoted to effective success.
+The verifier labels any receipt-bearing result
 `completed_with_incomplete_training_evidence`. An unattested Harbor errored
 result is never assigned an unproved failure stage or treated as usable
 learning evidence; it additionally makes the pilot classification

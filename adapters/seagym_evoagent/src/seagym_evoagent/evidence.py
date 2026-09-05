@@ -347,8 +347,14 @@ def project_train_batch(
         )
         job_provenance_digests.append(sha256_json(job_provenance))
         successes += int(getattr(trajectory, "success", False) is True)
-        scores.append(_finite_number(getattr(trajectory, "score", None), "score", minimum=-1_000_000, maximum=1_000_000))
-        rewards.append(_finite_number(getattr(trajectory, "reward", None), "reward", minimum=-1_000_000, maximum=1_000_000))
+        # The source contract preserves verifier rewards even when Harbor also
+        # records an exception.  Bind those raw values above, then independently
+        # apply EvoAgent's error-zero rule to the learning summary only.
+        errored = result["exception_info"] is not None
+        raw_score = _finite_number(getattr(trajectory, "score", None), "score", minimum=0.0, maximum=1.0)
+        raw_reward = _finite_number(getattr(trajectory, "reward", None), "reward", minimum=0.0, maximum=1.0)
+        scores.append(0.0 if errored else raw_score)
+        rewards.append(0.0 if errored else raw_reward)
         runtime = getattr(trajectory, "runtime_seconds", None)
         if runtime is not None:
             runtimes.append(_finite_number(runtime, "runtime_seconds", minimum=0, maximum=7 * 24 * 3600))
@@ -805,8 +811,9 @@ def _validate_normalized_harbor_result(trajectory: Any, result: dict[str, Any]) 
     rewards = {"reward": reward}
     score = reward
     exception_info = result.get("exception_info")
-    if exception_info is not None and reward != 0.0:
-        raise ValueError("errored Harbor train result must have zero reward")
+    # Pinned Harbor can verify after a recorded agent exception.  SEAGym keeps
+    # that raw reward/score and separately marks success False.  Requiring the
+    # source reward to be zero would reject a legitimate upstream result.
     error = None if exception_info is None else str(exception_info)
     success = exception_info is None and reward >= 1.0
     for phase in ("environment_setup", "agent_setup", "agent_execution", "verifier"):
@@ -1220,9 +1227,9 @@ def _resolve_atif_path(trajectory: Any, root: Path) -> Path | None:
         return existing_derived[0]
     error = getattr(trajectory, "error", None)
     if getattr(trajectory, "success", None) is False and isinstance(error, str) and error:
-        # SEAGym creates zero-score results for errored/cancelled Harbor trials
-        # that never produced result.json or an agent directory. Preserve the
-        # observable failure count, but never invent an ATIF document or relax
+        # SEAGym marks errored/cancelled Harbor trials unsuccessful while their
+        # raw verifier reward may remain nonzero. Preserve the observable
+        # failure count, but never invent a missing ATIF document or relax
         # containment for a declared reference.
         return None
     raise ValueError("train trajectory does not reference a contained Harbor ATIF file")

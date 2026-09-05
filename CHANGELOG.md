@@ -4,6 +4,15 @@ Historical entries below describe research-framework milestones. They do not imp
 
 ## Unreleased
 
+- Amended the real pilot to protocol v15 after run `33942199178` completed
+  six task slots but stopped before its first update: the evidence projector
+  incorrectly required an errored Harbor child's original reward to be zero.
+  Pinned Harbor/SEAGym can retain raw reward one with success false. Raw source
+  rows and metrics now remain independently verifiable, while learning and
+  published comparisons enforce the existing effective error-score-zero rule.
+  Missing usage remains rejected, underlying exception causes remain unknown,
+  and no full comparison or project score exists.
+
 - Added one immutable `UnifiedAgentSnapshot` binding the frozen model, Skills,
   Router, bounded observable Memory, numeric Agent Policy and Runtime contracts.
 - Added a shared Tool-Agent runtime in which Skill, Router, Memory and Policy

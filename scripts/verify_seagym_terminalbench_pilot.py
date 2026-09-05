@@ -121,8 +121,68 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
 }
 EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v14"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-05T02:23:53Z",
+    "benchmark_effect_claimed": False,
+    "change": "bind_pinned_harbor_wall_clock_timestamps_without_inventing_timezone",
+    "diagnostic": {
+        "artifact_id": 9961079285,
+        "artifact_zip_sha256": "ee8f8b9471f9b11be0437fc934908c0b6e1d0d4d6a47c3f2d872c6068885e83a",
+        "completed_singleton_jobs": 0,
+        "controller_commit": "2967e437421e2e38e7a8357098f087993e44cfe6",
+        "evoagent_public_commit": "8bc85f91d80496b2b02e66862eb1cec2513a62bc",
+        "full_pilot_started": False,
+        "job_id": 101231659264,
+        "job_log_sha256": "aa612e2df86f92212eddcd6f7803181493784609cea3885908ed727cc904ecac",
+        "lifecycle_passed": False,
+        "model_call_steps_executed": 0,
+        "observed_key_usage_delta_usd": None,
+        "planned_singleton_jobs": 24,
+        "run_id": 33938703704,
+        "score_produced": False,
+        "status": "cancelled_during_install_after_offline_timestamp_contract_review",
+        "updates_completed": 0,
+        "usage_delta_unavailable_reason": "cancelled_before_pre_run_capture_only_post_run_read_only_usage_exists",
+    },
+    "evidence_contract_change": {
+        "aggregate_timestamp_basis_must_be_consistent": True,
+        "aggregate_timestamp_order_checked": True,
+        "atif_and_trial_timezone_requirements_preserved": True,
+        "exception_wall_clock_may_be_naive": True,
+        "final_verifier_uses_the_same_binding": True,
+        "missing_or_malformed_timestamps_rejected": True,
+        "naive_aggregate_wall_clock_allowed": True,
+        "timezone_invented": False,
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "planned_slot_replacement_allowed": False,
+        "task_attempts_changed": False,
+        "update_schedule_changed": False,
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "leaf_cause_status": {
+        "observed_in_paid_pilot": False,
+        "pinned_harbor_semantics_confirmed": True,
+        "source_confirmed_mechanism": "pinned_harbor_job_aggregate_and_exception_info_use_naive_datetime_now_while_v13_update_projection_required_timezone_aware_values",
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 20,
+    "prior_observed_usage_delta_usd": 1.404834753,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13",
+    "usage_ledger_note": "Cumulative observed deltas are unchanged; cancelled run 33938703704 has no before/after delta and executed no model-call step.",
+    "final_comparison_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V13 = {
     "amended_at": "2026-09-04T23:45:13Z",
     "benchmark_effect_claimed": False,
     "change": "bind_full_pinned_harbor_local_task_config_schema",
@@ -1130,6 +1190,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v13") != EXPECTED_PRIOR_AMENDMENT_V13:
+        raise VerificationError("preserved v13 protocol amendment drifted")
     if protocol.get("prior_amendment_v12") != EXPECTED_PRIOR_AMENDMENT_V12:
         raise VerificationError("preserved v12 protocol amendment drifted")
     if protocol.get("prior_amendment_v11") != EXPECTED_PRIOR_AMENDMENT_V11:
@@ -1979,9 +2041,11 @@ def _validate_harbor_timing(value: Any, label: str, *, required: bool) -> None:
         raise VerificationError(f"Harbor {label} timing schema drifted")
     started_at = value.get("started_at")
     finished_at = value.get("finished_at")
-    _validate_iso_timestamp(started_at, f"Harbor {label} started_at")
+    started = _validate_iso_timestamp(started_at, f"Harbor {label} started_at")
     if finished_at is not None:
-        _validate_iso_timestamp(finished_at, f"Harbor {label} finished_at")
+        finished = _validate_iso_timestamp(finished_at, f"Harbor {label} finished_at")
+        if finished < started:
+            raise VerificationError(f"Harbor {label} finished_at precedes started_at")
     if required and finished_at is None:
         raise VerificationError(f"completed Harbor trial lacks {label} finished_at")
 
@@ -2004,13 +2068,39 @@ def _validate_pinned_local_task_config(
         raise VerificationError("Harbor child local TaskConfig is not local-only")
 
 
-def _validate_iso_timestamp(value: Any, label: str) -> None:
+def _validate_iso_timestamp(
+    value: Any, label: str, *, allow_naive: bool = False
+) -> datetime:
     if not isinstance(value, str) or not value:
         raise VerificationError(f"{label} is missing")
+    if not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:[0-5]\d)?",
+        value,
+    ):
+        raise VerificationError(f"{label} is not an ISO-8601 timestamp")
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise VerificationError(f"{label} is not an ISO-8601 timestamp") from exc
+    if not allow_naive and (parsed.tzinfo is None or parsed.utcoffset() is None):
+        raise VerificationError(f"{label} must include a timezone")
+    return parsed
+
+
+def _validate_harbor_job_timestamps(aggregate: dict[str, Any]) -> None:
+    # Pinned Harbor Job uses datetime.now(), unlike its UTC-aware Trial.
+    # Preserve the local clock basis; do not invent a timezone or compare it
+    # with the independently timestamped child/ATIF evidence.
+    values = [
+        _validate_iso_timestamp(
+            aggregate.get(key), f"Harbor completed-job {key}", allow_naive=True
+        )
+        for key in ("started_at", "updated_at", "finished_at")
+    ]
+    if len({value.utcoffset() is None for value in values}) != 1:
+        raise VerificationError("Harbor completed-job timestamps mix timezone bases")
+    if not values[0] <= values[1] <= values[2]:
+        raise VerificationError("Harbor completed-job timestamps are out of order")
 
 
 def _validate_harbor_trial_result_shape(
@@ -2099,12 +2189,19 @@ def _validate_harbor_trial_result_shape(
                 raise VerificationError("Harbor child ExceptionInfo field is invalid")
         if not exception_info["exception_type"] or not exception_info["occurred_at"]:
             raise VerificationError("Harbor child ExceptionInfo identity is missing")
-        _validate_iso_timestamp(exception_info["occurred_at"], "Harbor child exception occurred_at")
+        # ExceptionInfo.from_exception uses the same naive local clock as Job.
+        _validate_iso_timestamp(
+            exception_info["occurred_at"],
+            "Harbor child exception occurred_at",
+            allow_naive=True,
+        )
     elif exception_info is not None:
         raise VerificationError("non-errored Harbor child contains ExceptionInfo")
 
-    for key in ("started_at", "finished_at"):
-        _validate_iso_timestamp(payload.get(key), f"Harbor child {key}")
+    started_at = _validate_iso_timestamp(payload.get("started_at"), "Harbor child started_at")
+    finished_at = _validate_iso_timestamp(payload.get("finished_at"), "Harbor child finished_at")
+    if finished_at < started_at:
+        raise VerificationError("Harbor child finished_at precedes started_at")
     for timing_key in ("environment_setup", "agent_setup", "agent_execution", "verifier"):
         _validate_harbor_timing(
             payload.get(timing_key),
@@ -3152,11 +3249,7 @@ def _validate_rows(
             maximum=1,
         ) != 1:
             raise VerificationError("Harbor job is not a one-task job")
-        for timestamp_key in ("started_at", "updated_at", "finished_at"):
-            _validate_iso_timestamp(
-                aggregate.get(timestamp_key),
-                f"Harbor completed-job {timestamp_key}",
-            )
+        _validate_harbor_job_timestamps(aggregate)
         stats = aggregate.get("stats") if isinstance(aggregate, dict) else None
         expected_stats_keys = {
             "cost_usd",

@@ -117,6 +117,13 @@ and `source`. The adapter requires `path` to equal the serialized `LocalTaskId`,
 extra fields and any drift are rejected before the update model can be called.
 The unattested-error path and final pilot verifier apply the same rule.
 
+Pinned Harbor writes job-aggregate and exception times as local wall-clock
+timestamps without offsets. Protocol v14 accepts those native values without
+inventing a timezone. Aggregate start, update, and finish must use one
+consistent naive/aware basis and stay in order. Trial, phase, ATIF, and runtime
+receipt timestamps keep their existing timezone requirements; malformed values
+and mixed aggregate bases fail before learning.
+
 An errored Harbor trial may lack ATIF only when its own contained, regular
 failure receipt is present, self-hashed, identity-bound, and declares
 `atif_present=false`. It contributes a real zero to the experiment and bounded

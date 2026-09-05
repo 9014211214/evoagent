@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 import os
@@ -72,6 +72,13 @@ try:
     from harbor.models.agent.context import AgentContext as HarborAgentContext
 except ImportError:  # Optional dependency is installed in the real workflow.
     HarborAgentContext = None
+
+try:
+    from harbor.models.job.result import JobResult as HarborJobResult
+    from harbor.models.trial.result import ExceptionInfo as HarborExceptionInfo
+    from harbor.models.trial.result import TrialResult as HarborTrialResult
+except ImportError:  # Exercise real pinned serializers when Harbor is installed.
+    HarborJobResult = HarborExceptionInfo = HarborTrialResult = None
 
 
 CANARY = "private-task-CANARY-77"
@@ -323,7 +330,8 @@ def _write_harbor_result_identity(
                 "exception_type": "HarborErroredResult",
                 "exception_message": "bounded_error",
                 "exception_traceback": "",
-                "occurred_at": "2026-09-01T00:00:00Z",
+                # Pinned Harbor ExceptionInfo.from_exception uses datetime.now().
+                "occurred_at": "2026-09-01T00:00:00",
             }
             if errored
             else None
@@ -403,10 +411,11 @@ def _write_harbor_aggregate(result_path: Path) -> None:
     atomic_write_json(
         job_dir / "result.json",
         {
-            "finished_at": "2026-09-01T00:00:04.500000Z",
+            # Pinned Harbor Job uses local naive datetime.now(); Trial uses UTC.
+            "finished_at": "2026-09-01T00:00:04.500000",
             "id": result["config"]["job_id"],
             "n_total_trials": 1,
-            "started_at": "2026-09-01T00:00:00Z",
+            "started_at": "2026-09-01T00:00:00",
             "stats": {
                 "cost_usd": agent_result["cost_usd"],
                 "evals": {
@@ -439,7 +448,7 @@ def _write_harbor_aggregate(result_path: Path) -> None:
                 "n_retries": 0,
                 "n_running_trials": 0,
             },
-            "updated_at": "2026-09-01T00:00:04.500000Z",
+            "updated_at": "2026-09-01T00:00:04.500000",
         },
     )
 
@@ -1049,6 +1058,165 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(client.calls, [])
                 self.assertEqual(baseline.update_index, 0)
                 self.assertEqual(list((case_root / "state" / "attempts").glob("*.json")), [])
+
+    def test_train_projection_preserves_harbor_aggregate_clock_basis(self) -> None:
+        for suffix in ("", "Z", "+08:00"):
+            with self.subTest(suffix=suffix):
+                case_root = self.root / f"aggregate-clock-{len(suffix)}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                aggregate_path = Path(batch.trajectories[0].refs["job_dir"]) / "result.json"
+                aggregate = read_json(aggregate_path)
+                for key in ("started_at", "updated_at", "finished_at"):
+                    aggregate[key] += suffix
+                atomic_write_json(aggregate_path, aggregate)
+                before = aggregate_path.read_bytes()
+
+                baseline.update(batch, state)
+
+                self.assertEqual(len(client.calls), 1)
+                self.assertEqual(aggregate_path.read_bytes(), before)
+
+    @unittest.skipIf(HarborJobResult is None, "pinned Harbor models are optional locally")
+    def test_train_projection_accepts_actual_harbor_model_serialization(self) -> None:
+        for errored in (False, True):
+            with self.subTest(errored=errored):
+                case_root = self.root / f"harbor-serialized-{errored}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if errored:
+                    result_path, _ = write_failure_receipt(case_root / "harbor")
+                else:
+                    batch = train_batch(case_root / "harbor")
+                    result_path = Path(batch.trajectories[0].refs["result_path"])
+                child = read_json(result_path)
+                if errored:
+                    # Use Harbor's real clock producer, retaining only its time.
+                    occurred_at = HarborExceptionInfo.from_exception(
+                        RuntimeError("bounded_test_error")
+                    ).occurred_at
+                    self.assertIsNone(occurred_at.utcoffset())
+                    child["exception_info"]["occurred_at"] = occurred_at.isoformat()
+                child = HarborTrialResult.model_validate(child).model_dump(mode="json")
+                atomic_write_json(result_path, child)
+                atomic_write_json(result_path.parent / "config.json", child["config"])
+                job_config_path = result_path.parent.parent / "config.json"
+                job_config = read_json(job_config_path)
+                job_config["agents"] = [child["config"]["agent"]]
+                atomic_write_json(job_config_path, job_config)
+                _write_harbor_aggregate(result_path)
+                aggregate_path = result_path.parent.parent / "result.json"
+                aggregate = HarborJobResult.model_validate(read_json(aggregate_path))
+                # Match pinned Job.run's datetime.now() and model_dump_json path.
+                aggregate.started_at = datetime.now()
+                aggregate.updated_at = aggregate.started_at + timedelta(seconds=5)
+                aggregate.finished_at = aggregate.updated_at
+                aggregate_path.write_text(
+                    aggregate.model_dump_json(exclude={"trial_results"}), encoding="utf-8"
+                )
+                for key in ("started_at", "updated_at", "finished_at"):
+                    parsed = datetime.fromisoformat(read_json(aggregate_path)[key])
+                    self.assertIsNone(parsed.utcoffset())
+                if errored:
+                    trajectory = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[trajectory], task_ids=[trajectory.task_id],
+                        view_name="train", mode="train", batch_index=0, epoch=0,
+                    )
+
+                baseline.update(batch, state)
+
+                self.assertEqual(len(client.calls), 0 if errored else 1)
+
+    def test_train_projection_rejects_invalid_aggregate_timestamps_before_call(self) -> None:
+        cases = (
+            ("missing", "started_at", None),
+            ("empty", "updated_at", ""),
+            ("malformed", "finished_at", "not-a-timestamp"),
+            ("date_only", "started_at", "2026-09-01"),
+            ("space_separator", "started_at", "2026-09-01 00:00:00"),
+            ("invalid_date", "started_at", "2026-02-30T00:00:00"),
+            ("invalid_offset", "started_at", "2026-09-01T00:00:00+25:00"),
+            ("invalid_offset_minutes", "started_at", "2026-09-01T00:00:00+00:99"),
+            ("mixed_start", "started_at", "2026-09-01T00:00:00Z"),
+            ("mixed_update", "updated_at", "2026-09-01T00:00:04.500000Z"),
+            ("mixed_finish", "finished_at", "2026-09-01T00:00:04.500000+08:00"),
+            ("update_before_start", "updated_at", "2026-08-31T23:59:59"),
+            ("update_after_finish", "updated_at", "2026-09-01T00:00:05"),
+            ("finish_before_start", "finished_at", "2026-08-31T23:59:59"),
+        )
+        for case, key, value in cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"aggregate-time-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(case_root / "harbor")
+                aggregate_path = Path(batch.trajectories[0].refs["job_dir"]) / "result.json"
+                aggregate = read_json(aggregate_path)
+                aggregate[key] = value
+                atomic_write_json(aggregate_path, aggregate)
+
+                self._assert_update_fails_closed(
+                    baseline=baseline, state=state, batch=batch,
+                    client=client, case_root=case_root,
+                )
+
+    def test_train_projection_rejects_invalid_exception_timestamps_before_call(self) -> None:
+        for attested in (False, True):
+            for value in (
+                None, "", "2026-09-01", "not-a-timestamp", "2026-02-30T00:00:00",
+                "2026-09-01T00:00:00+00:99",
+            ):
+                with self.subTest(attested=attested, value=value):
+                    case_root = self.root / f"exception-time-{attested}-{len(str(value))}"
+                    client = FakeClient(candidate_payload())
+                    baseline = EvoAgentSEAGymBaseline(
+                        baseline_id="evo",
+                        state_dir=case_root / "state",
+                        atif_root=case_root / "harbor",
+                        model_client=client,
+                        fail_on_update_error=True,
+                    )
+                    state = baseline.initialize(case_root / "run")
+                    if attested:
+                        result_path, _ = write_failure_receipt(case_root / "harbor")
+                    else:
+                        result_path = write_unattested_harbor_result(case_root / "harbor")
+                    payload = read_json(result_path)
+                    payload["exception_info"]["occurred_at"] = value
+                    atomic_write_json(result_path, payload)
+                    trajectory = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[trajectory], task_ids=[trajectory.task_id],
+                        view_name="train", mode="train", batch_index=0, epoch=0,
+                    )
+
+                    self._assert_update_fails_closed(
+                        baseline=baseline, state=state, batch=batch,
+                        client=client, case_root=case_root,
+                    )
 
     def test_train_projection_requires_binary_reward_and_zero_for_errors(self) -> None:
         for case in ("fractional", "errored_nonzero"):

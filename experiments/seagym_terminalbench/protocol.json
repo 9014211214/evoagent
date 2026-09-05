@@ -43,6 +43,66 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
+    "amended_at": "2026-09-05T02:23:53Z",
+    "benchmark_effect_claimed": false,
+    "change": "bind_pinned_harbor_wall_clock_timestamps_without_inventing_timezone",
+    "diagnostic": {
+      "artifact_id": 9961079285,
+      "artifact_zip_sha256": "ee8f8b9471f9b11be0437fc934908c0b6e1d0d4d6a47c3f2d872c6068885e83a",
+      "completed_singleton_jobs": 0,
+      "controller_commit": "2967e437421e2e38e7a8357098f087993e44cfe6",
+      "evoagent_public_commit": "8bc85f91d80496b2b02e66862eb1cec2513a62bc",
+      "full_pilot_started": false,
+      "job_id": 101231659264,
+      "job_log_sha256": "aa612e2df86f92212eddcd6f7803181493784609cea3885908ed727cc904ecac",
+      "lifecycle_passed": false,
+      "model_call_steps_executed": 0,
+      "observed_key_usage_delta_usd": null,
+      "planned_singleton_jobs": 24,
+      "run_id": 33938703704,
+      "score_produced": false,
+      "status": "cancelled_during_install_after_offline_timestamp_contract_review",
+      "updates_completed": 0,
+      "usage_delta_unavailable_reason": "cancelled_before_pre_run_capture_only_post_run_read_only_usage_exists"
+    },
+    "evidence_contract_change": {
+      "aggregate_timestamp_basis_must_be_consistent": true,
+      "aggregate_timestamp_order_checked": true,
+      "atif_and_trial_timezone_requirements_preserved": true,
+      "exception_wall_clock_may_be_naive": true,
+      "final_verifier_uses_the_same_binding": true,
+      "missing_or_malformed_timestamps_rejected": true,
+      "naive_aggregate_wall_clock_allowed": true,
+      "timezone_invented": false
+    },
+    "execution_change": {
+      "harbor_cli_retries_added": 0,
+      "planned_slot_replacement_allowed": false,
+      "task_attempts_changed": false,
+      "update_schedule_changed": false
+    },
+    "frozen_scientific_identity": {
+      "budgets_changed": false,
+      "metrics_changed": false,
+      "model_or_provider_changed": false,
+      "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+      "seed_or_order_changed": false,
+      "tasks_or_split_changed": false
+    },
+    "leaf_cause_status": {
+      "observed_in_paid_pilot": false,
+      "pinned_harbor_semantics_confirmed": true,
+      "source_confirmed_mechanism": "pinned_harbor_job_aggregate_and_exception_info_use_naive_datetime_now_while_v13_update_projection_required_timezone_aware_values"
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 20,
+    "prior_observed_usage_delta_usd": 1.404834753,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13",
+    "usage_ledger_note": "Cumulative observed deltas are unchanged; cancelled run 33938703704 has no before/after delta and executed no model-call step.",
+    "final_comparison_blind": true
+  },
+  "prior_amendment_v13": {
     "amended_at": "2026-09-04T23:45:13Z",
     "benchmark_effect_claimed": false,
     "change": "bind_full_pinned_harbor_local_task_config_schema",
@@ -205,7 +265,7 @@
     },
     "observed_diagnostic_aggregates": {
       "batch_1": {
-        "logged_mean_score": 1.0,
+        "logged_mean_score": 1,
         "logged_successes": 1
       },
       "effect_claimed_from_intermediate_values": false,
@@ -309,7 +369,7 @@
         "logged_successes": 1
       },
       "batch_2": {
-        "logged_mean_score": 0.0,
+        "logged_mean_score": 0,
         "logged_successes": 0
       },
       "effect_claimed_from_intermediate_values": false,
@@ -822,7 +882,7 @@
     "same_model_for_update_and_rollout": true,
     "update_model_seed_parameter_sent": false
   },
-  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13",
+  "protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v14",
   "resources": {
     "agent_timeout_seconds": 1800,
     "authorized_max_observed_key_usage_delta_usd": 1.2,
@@ -877,13 +937,13 @@
     "guard_proxy": {
       "health_schema_version": "openrouter-guard-proxy-health-v5",
       "limits": {
-        "client_timeout_seconds": 30.0,
+        "client_timeout_seconds": 30,
         "max_concurrency": 2,
         "max_output_tokens": 16000,
         "max_request_bytes": 2097152,
         "max_requests": 768,
         "max_response_bytes": 16777216,
-        "upstream_timeout_seconds": 300.0
+        "upstream_timeout_seconds": 300
       },
       "root_session_binding": {
         "enabled": true,
@@ -961,10 +1021,10 @@
     "openrouter_retry_policy": {
       "ambiguous_transport_failures_retried": false,
       "backoff_seconds": [
-        5.0,
-        10.0,
-        20.0,
-        40.0
+        5,
+        10,
+        20,
+        40
       ],
       "fallbacks_enabled": false,
       "max_retries_per_client_request": 4,

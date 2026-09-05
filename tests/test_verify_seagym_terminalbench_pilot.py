@@ -565,10 +565,10 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
     _write_json(
         job_dir / "result.json",
         {
-            "finished_at": "2026-08-29T00:00:01Z",
+            "finished_at": "2026-08-29T00:00:01",
             "id": job_id,
             "n_total_trials": 1,
-            "started_at": "2026-08-29T00:00:00Z",
+            "started_at": "2026-08-29T00:00:00",
             "stats": {
                 "cost_usd": 0.001,
                 "evals": {
@@ -591,7 +591,7 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
                 "n_retries": 0,
                 "n_running_trials": 0,
             },
-            "updated_at": "2026-08-29T00:00:01Z",
+            "updated_at": "2026-08-29T00:00:01",
         },
     )
     return trial / "result.json", checksum
@@ -652,7 +652,7 @@ def _replace_trial_with_receipted_runtime_failure(
         "exception_type": "RuntimeFailure",
         "exception_message": "classified_failure",
         "exception_traceback": "",
-        "occurred_at": "2026-08-29T00:00:01Z",
+        "occurred_at": "2026-08-29T00:00:01",
     }
     _write_json(result_path, payload)
     aggregate_path = result_path.parent.parent / "result.json"
@@ -718,7 +718,7 @@ def _add_atif_present_failure_receipt(run: Path, row_index: int) -> None:
         "exception_type": "RuntimeFailure",
         "exception_message": "classified_failure",
         "exception_traceback": "",
-        "occurred_at": "2026-08-29T00:00:01Z",
+        "occurred_at": "2026-08-29T00:00:01",
     }
     _write_json(result_path, payload)
     aggregate_path = result_path.parent.parent / "result.json"
@@ -758,7 +758,7 @@ def _replace_trial_with_unattested_harbor_failure(result_path: Path) -> None:
         "exception_type": "OuterHarborFailure",
         "exception_message": "unattested_outer_failure",
         "exception_traceback": "",
-        "occurred_at": "2026-08-29T00:00:01Z",
+        "occurred_at": "2026-08-29T00:00:01",
     }
     _write_json(result_path, payload)
     aggregate_path = result_path.parent.parent / "result.json"
@@ -783,7 +783,7 @@ def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
         "exception_type": "OuterHarborFailure",
         "exception_message": "unattested_after_atif",
         "exception_traceback": "",
-        "occurred_at": "2026-08-29T00:00:01Z",
+        "occurred_at": "2026-08-29T00:00:01",
     }
     _write_json(result_path, payload)
     aggregate_path = result_path.parent.parent / "result.json"
@@ -2410,6 +2410,83 @@ def test_rejects_non_iso_harbor_aggregate_timestamp(tmp_path: Path) -> None:
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
+@pytest.mark.parametrize("suffix", ["", "Z", "+00:00", "+08:00"])
+def test_accepts_consistent_harbor_job_clock_without_assigning_timezone(suffix: str) -> None:
+    aggregate = {
+        "started_at": f"2026-08-29T00:00:00.123456{suffix}",
+        "updated_at": f"2026-08-29T00:00:01{suffix}",
+        "finished_at": f"2026-08-29T00:00:01{suffix}",
+    }
+    original = dict(aggregate)
+    pilot_verifier._validate_harbor_job_timestamps(aggregate)
+    assert aggregate == original
+    parsed = pilot_verifier._validate_iso_timestamp(
+        aggregate["started_at"], "job started_at", allow_naive=True
+    )
+    assert (parsed.tzinfo is None) == (suffix == "")
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("updated_at", "2026-08-29T00:00:01Z", "mix timezone bases"),
+        ("started_at", "2026-08-29T00:00:02", "out of order"),
+        ("updated_at", "2026-08-28T23:59:59", "out of order"),
+        ("updated_at", "2026-08-29T00:00:02", "out of order"),
+        ("finished_at", "2026-08-29", "ISO-8601 timestamp"),
+        ("finished_at", "2026-08-29 00:00:01", "ISO-8601 timestamp"),
+        ("finished_at", "20260829T000001", "ISO-8601 timestamp"),
+        ("finished_at", "2026-02-30T00:00:01", "ISO-8601 timestamp"),
+        ("finished_at", "2026-08-29T00:00:01.1234567", "ISO-8601 timestamp"),
+        ("finished_at", "2026-08-29T00:00:01+25:00", "ISO-8601 timestamp"),
+        ("finished_at", "2026-08-29T00:00:01+00:99", "ISO-8601 timestamp"),
+        ("finished_at", None, "missing"),
+    ],
+)
+def test_rejects_invalid_harbor_job_clock(
+    tmp_path: Path, key: str, value: object, message: str
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    aggregate_path = run / "harbor" / "jobs" / "job-01" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    aggregate[key] = value
+    _write_json(aggregate_path, aggregate)
+    with pytest.raises(VerificationError, match=message):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("phase", [None, "environment_setup", "agent_setup", "agent_execution", "verifier"])
+@pytest.mark.parametrize("tamper", ["naive", "reversed"])
+def test_rejects_naive_or_reversed_harbor_trial_clock(
+    tmp_path: Path, phase: str | None, tamper: str
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    timing = child if phase is None else child[phase]
+    if tamper == "naive":
+        timing["started_at"] = "2026-08-29T00:00:00"
+        message = "must include a timezone"
+    else:
+        timing["finished_at"] = "2026-08-28T23:59:59Z"
+        message = "finished_at precedes started_at"
+    _write_json(child_path, child)
+    with pytest.raises(VerificationError, match=message):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("occurred_at", ["2026-08-29", "2026-13-29T00:00:01", None])
+def test_rejects_invalid_harbor_exception_timestamp(tmp_path: Path, occurred_at: object) -> None:
+    run, before, after = _fixture(tmp_path)
+    _add_atif_present_failure_receipt(run, 0)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    child["exception_info"]["occurred_at"] = occurred_at
+    _write_json(child_path, child)
+    with pytest.raises(VerificationError, match="ISO-8601 timestamp|ExceptionInfo field"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
 def test_rejects_unreferenced_complete_harbor_job(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path)
     source = run / "harbor" / "jobs" / "job-01"
@@ -2441,9 +2518,22 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-def test_v13_attempt_ledger_extends_the_preserved_v12_ledger() -> None:
+def test_v14_cancelled_attempt_preserves_unknown_usage_and_observed_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v13"]
+
+    assert amendment["diagnostic"]["run_id"] == 33938703704
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["diagnostic"]["model_call_steps_executed"] == 0
+    assert amendment["diagnostic"]["observed_key_usage_delta_usd"] is None
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == prior["prior_observed_usage_delta_usd"]
+
+
+def test_preserved_v13_ledger_extends_the_preserved_v12_ledger() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["prior_amendment_v13"]
     prior = protocol["prior_amendment_v12"]
 
     assert amendment["diagnostic"]["run_id"] == 33928934542
@@ -2454,6 +2544,18 @@ def test_v13_attempt_ledger_extends_the_preserved_v12_ledger() -> None:
         + amendment["diagnostic"]["observed_key_usage_delta_usd"],
         abs=1e-12,
     )
+
+
+def test_rejects_preserved_v13_amendment_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v13"]["diagnostic"]["score_produced"] = True
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v13 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
 
 
 def test_preserved_v12_ledger_extends_the_preserved_v11_ledger() -> None:

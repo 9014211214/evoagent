@@ -770,6 +770,7 @@ def _validated_harbor_result_identity(
         _parse_required_iso_timestamp(
             exception_info["occurred_at"],
             "Harbor train result exception occurred_at",
+            allow_naive=True,
         )
     if result.get("step_results") is not None:
         raise ValueError("Harbor train result contains unexpected step_results")
@@ -853,14 +854,21 @@ def _validate_normalized_harbor_result(trajectory: Any, result: dict[str, Any]) 
         )
 
 
-def _parse_required_iso_timestamp(value: Any, label: str) -> datetime:
+def _parse_required_iso_timestamp(
+    value: Any, label: str, *, allow_naive: bool = False
+) -> datetime:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{label} is missing")
+    if not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:[0-5]\d)?",
+        value,
+    ):
+        raise ValueError(f"{label} is not a canonical ISO-8601 timestamp")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"{label} is not an ISO-8601 timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    if not allow_naive and (parsed.tzinfo is None or parsed.utcoffset() is None):
         raise ValueError(f"{label} must include a timezone")
     return parsed
 
@@ -1024,15 +1032,24 @@ def _validate_harbor_job_provenance(
     aggregate_started = _parse_required_iso_timestamp(
         aggregate.get("started_at"),
         "Harbor aggregate started_at",
+        allow_naive=True,
     )
     aggregate_updated = _parse_required_iso_timestamp(
         aggregate.get("updated_at"),
         "Harbor aggregate updated_at",
+        allow_naive=True,
     )
     aggregate_finished = _parse_required_iso_timestamp(
         aggregate.get("finished_at"),
         "Harbor aggregate finished_at",
+        allow_naive=True,
     )
+    # Pinned Harbor Job uses local datetime.now(), while Trial uses UTC-aware
+    # timestamps. Keep the aggregate's own clock basis; never invent an offset
+    # or compare its naive local times with the aware child trial times.
+    aggregate_times = (aggregate_started, aggregate_updated, aggregate_finished)
+    if len({value.utcoffset() is None for value in aggregate_times}) != 1:
+        raise ValueError("Harbor aggregate timestamps mix timezone bases")
     if not aggregate_started <= aggregate_updated <= aggregate_finished:
         raise ValueError("Harbor aggregate timestamps are inconsistent")
 
@@ -1298,10 +1315,11 @@ def _unattested_harbor_result_digest(
             raise ValueError("unattested Harbor errored result has invalid ExceptionInfo")
     if not exception_info["exception_type"] or not exception_info["occurred_at"]:
         raise ValueError("unattested Harbor errored result lacks exception identity")
-    try:
-        datetime.fromisoformat(exception_info["occurred_at"].replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ValueError("unattested Harbor errored result has invalid exception time") from exc
+    _parse_required_iso_timestamp(
+        exception_info["occurred_at"],
+        "unattested Harbor exception occurred_at",
+        allow_naive=True,
+    )
     try:
         trial_id = str(UUID(str(result.get("id"))))
     except (TypeError, ValueError, AttributeError) as exc:

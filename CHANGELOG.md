@@ -86,6 +86,13 @@ Historical entries below describe research-framework milestones. They do not imp
   model, provider, Task, split, seed, schedule, metric, budget, or effect claim
   changed.
 
+- Amended the pilot to protocol v14 after source review found pinned Harbor's
+  timezone-naive aggregate and exception timestamps were rejected by the update
+  projector. Run `33938703704` was cancelled during installation before any
+  model-call step. Validation now preserves native wall-clock timestamps,
+  requires consistent aggregate clock bases and ordering, and keeps timezone
+  requirements for trial and runtime evidence. No complete comparison exists.
+
 ## 2.0.0 release candidate
 
 - Added a persistent outer-loop `EvolutionProgramPolicy` spanning already-governed release generations rather than adding another direct mutation path.

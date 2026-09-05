@@ -5,7 +5,7 @@
 This is a pre-registered, real external pilot for the EvoAgent learning loop.
 It is not a synthetic wiring test, a full SEAGym paper reproduction, a
 Terminal-Bench leaderboard submission, or evidence that any upstream project
-endorses EvoAgent. No complete result exists at the protocol-v13 freeze time.
+endorses EvoAgent. No complete result exists at the protocol-v14 freeze time.
 
 The pilot asks whether an EvoAgent-managed MiMoCode Agent can improve on three
 held-out Terminal-Bench 2.0 tasks after two bounded updates, while avoiding a
@@ -108,14 +108,44 @@ endpoint before inference. We claim bit-for-bit determinism for neither update
 nor rollout sampling. The exact model/provider route is frozen, and every
 observed output remains part of the evidence.
 
-This is protocol v13, a final-comparison-blind evidence-schema correction. Nineteen
+Protocol v14 corrects the timestamp contract after an offline source review.
+Pinned Harbor creates job-aggregate and exception timestamps with local
+`datetime.now()`, without an offset, while trial and runtime evidence use
+timezone-aware timestamps. The v13 update projector incorrectly required an
+offset on every aggregate and exception. The v14 checks preserve those distinct
+representations: aggregate times must share a consistent naive/aware basis and
+remain ordered, and no timezone is inferred or attached. Trial, phase, ATIF,
+and runtime-receipt timezone requirements remain in force.
+
+Run `33938703704` (job `101231659264`) was cancelled during installation after
+this source mismatch was found, before any model-call step, lifecycle check,
+or pilot trial executed. Its controller was
+`2967e437421e2e38e7a8357098f087993e44cfe6` and public source was
+`8bc85f91d80496b2b02e66862eb1cec2513a62bc`. There is no before/after usage delta:
+only the final read-only key-usage snapshot exists. Artifact `9961079285` has
+ZIP SHA-256 `ee8f8b9471f9b11be0437fc934908c0b6e1d0d4d6a47c3f2d872c6068885e83a`;
+the job log SHA-256 is
+`aa612e2df86f92212eddcd6f7803181493784609cea3885908ed727cc904ecac`.
+The ledger now contains 20 controller attempts, zero complete comparisons,
+and USD 1.404834753 in previously observed deltas. An unavailable delta is not
+recorded as a measured zero. The correction changes no experiment config,
+model, task, split, seed, budget, or update schedule.
+
+An early Harbor error with no AgentContext or VerifierResult is still outside
+the admissible evidence contract and stops validation. The neutral incomplete
+training classification described below applies only after child identity,
+measurement, and verifier contracts validate. Missing usage or rewards are not
+converted into measured zeros; supporting that early-null case requires a
+separate explicit unmeasured-evidence contract.
+
+The preceding protocol v13 was a final-comparison-blind evidence-schema correction. Nineteen
 controller attempts reached progressively deeper parts of the pinned external
 pipeline, but none completed the A_0/A_T comparison and none produced a score.
 Their cumulative observed key-usage delta was USD 1.404834753 across separately
 bounded observation windows. This is observed key-wide telemetry, not an exact
 invoice attribution.
 
-The latest incomplete run `33928934542`, against controller commit
+The preceding incomplete run `33928934542`, against controller commit
 `eb8a7fd20b5a09521852096e700c9fefdaac9c8f` and public EvoAgent commit
 `f2672b3399ef3b687984faf314a49c3f7410de94`, passed every source, route,
 official Harbor oracle, and real lifecycle gate. It started the full pilot and
@@ -615,7 +645,7 @@ and next-prompt calls and requires every rollout request in a complete scored
 comparison to be accounted for in ATIF. Concurrency changes wall-clock
 scheduling only; it must not change task
 membership, batch boundaries, seed, model route, or comparison identity.
-Protocol v9 through v13 isolate every planned slot into a unique Harbor
+Protocol v9 through v14 isolate every planned slot into a unique Harbor
 job; this changes process containment, not the frozen logical concurrency or
 batch schedule.
 

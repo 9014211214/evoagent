@@ -94,6 +94,23 @@ EXPECTED_TRIAL_CONFIG_KEYS = {
     "extra_instruction_paths",
     "job_id",
 }
+EXPECTED_LOCAL_TASK_CONFIG_KEYS = {
+    "path",
+    "git_url",
+    "git_commit_id",
+    "name",
+    "ref",
+    "overwrite",
+    "download_dir",
+    "source",
+}
+LOCAL_TASK_CONFIG_NULL_KEYS = {
+    "git_url",
+    "git_commit_id",
+    "name",
+    "ref",
+    "download_dir",
+}
 EXPECTED_AGENT_CONTEXT_KEYS = {
     "n_input_tokens",
     "n_cache_tokens",
@@ -104,8 +121,100 @@ EXPECTED_AGENT_CONTEXT_KEYS = {
 }
 EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
-EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12"
+EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v13"
 EXPECTED_AMENDMENT = {
+    "amended_at": "2026-09-04T23:45:13Z",
+    "benchmark_effect_claimed": False,
+    "change": "bind_full_pinned_harbor_local_task_config_schema",
+    "diagnostic": {
+        "artifact_id": 9958092092,
+        "artifact_zip_sha256": "e4b74311c6ccbe75234328d3c2d8891975c8dd0947204f1fe724efa8c03ef81b",
+        "completed_singleton_jobs": 6,
+        "controller_commit": "eb8a7fd20b5a09521852096e700c9fefdaac9c8f",
+        "evoagent_public_commit": "f2672b3399ef3b687984faf314a49c3f7410de94",
+        "full_pilot_started": True,
+        "job_id": 101203371254,
+        "job_log_sha256": "3df8c0a5241139f078e660d96fc6e9c014ea6b44172fa951e4f058a553e499b0",
+        "lifecycle_passed": True,
+        "observed_key_usage_delta_usd": 0.336810424,
+        "planned_singleton_jobs": 24,
+        "proxy": {
+            "completed_requests": 52,
+            "final_upstream_http_4xx_errors": 0,
+            "final_upstream_http_5xx_errors": 0,
+            "forwarded_requests": 52,
+            "rejected_requests": 0,
+            "root_sessions_observed": 6,
+            "tool_choice_none_normalizations": 2,
+            "upstream_attempts": 52,
+            "upstream_errors": 0,
+            "upstream_retries": 0,
+        },
+        "run_id": 33928934542,
+        "score_produced": False,
+        "status": "pinned_harbor_local_task_config_schema_rejected",
+        "triggering_train_batch": 1,
+        "updates_completed": 0,
+    },
+    "evidence_contract_change": {
+        "arbitrary_local_task_config_fields_rejected": True,
+        "exact_local_task_config_keys": [
+            "download_dir",
+            "git_commit_id",
+            "git_url",
+            "name",
+            "overwrite",
+            "path",
+            "ref",
+            "source",
+        ],
+        "final_verifier_uses_the_same_binding": True,
+        "non_local_source_fields_must_be_null": [
+            "download_dir",
+            "git_commit_id",
+            "git_url",
+            "name",
+            "ref",
+        ],
+        "overwrite_must_be_false": True,
+        "path_must_equal_serialized_local_task_id": True,
+        "source_must_equal_child_source_and_job_directory_name": True,
+        "task_identity_checks_relaxed": False,
+        "unattested_error_evidence_uses_the_same_binding": True,
+    },
+    "execution_change": {
+        "harbor_cli_retries_added": 0,
+        "planned_slot_replacement_allowed": False,
+        "task_attempts_changed": False,
+        "update_schedule_changed": False,
+    },
+    "frozen_scientific_identity": {
+        "budgets_changed": False,
+        "metrics_changed": False,
+        "model_or_provider_changed": False,
+        "new_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "prior_seagym_config_sha256": "d59f0f40f0d6d7f41606be77dba7cf10c91fde7cdd13683a8b3047cc7871ae87",
+        "seed_or_order_changed": False,
+        "tasks_or_split_changed": False,
+    },
+    "leaf_cause_status": {
+        "exact_exception_stage_or_type_confirmed": True,
+        "pinned_harbor_semantics_confirmed": True,
+        "source_confirmed_mechanism": "pinned_harbor_serializes_all_eight_local_task_config_fields_including_null_and_default_values_while_the_v12_projector_expected_only_path",
+        "triggering_exception": "Harbor train result has an invalid config binding",
+    },
+    "observed_diagnostic_aggregates": {
+        "batch_1": {"logged_mean_score": 0.333333, "logged_successes": 0},
+        "effect_claimed_from_intermediate_values": False,
+        "used_to_select_model_tasks_split_or_order": False,
+    },
+    "prior_complete_comparisons": 0,
+    "prior_controller_attempts_total": 19,
+    "prior_observed_usage_delta_usd": 1.404834753,
+    "prior_protocol_id": "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v12",
+    "final_comparison_blind": True,
+}
+EXPECTED_PRIOR_AMENDMENT_V12 = {
     "amended_at": "2026-09-04T16:51:00Z",
     "benchmark_effect_claimed": False,
     "change": "bind_canonical_harbor_task_names_to_local_task_path_leaves",
@@ -1021,6 +1130,8 @@ def _validate_protocol(protocol_path: Path) -> tuple[dict[str, Any], Path]:
         raise VerificationError("protocol identity is invalid")
     if protocol.get("protocol_id") != EXPECTED_PROTOCOL_ID or protocol.get("amendment") != EXPECTED_AMENDMENT:
         raise VerificationError("score-blind protocol amendment drifted")
+    if protocol.get("prior_amendment_v12") != EXPECTED_PRIOR_AMENDMENT_V12:
+        raise VerificationError("preserved v12 protocol amendment drifted")
     if protocol.get("prior_amendment_v11") != EXPECTED_PRIOR_AMENDMENT_V11:
         raise VerificationError("preserved v11 protocol amendment drifted")
     if protocol.get("prior_amendment_v10") != EXPECTED_PRIOR_AMENDMENT_V10:
@@ -1875,6 +1986,24 @@ def _validate_harbor_timing(value: Any, label: str, *, required: bool) -> None:
         raise VerificationError(f"completed Harbor trial lacks {label} finished_at")
 
 
+def _validate_pinned_local_task_config(
+    value: Any,
+    *,
+    task_path: str,
+    source: str,
+) -> None:
+    """Verify pinned Harbor's canonical local TaskConfig serialization."""
+
+    if not isinstance(value, dict) or set(value) != EXPECTED_LOCAL_TASK_CONFIG_KEYS:
+        raise VerificationError("Harbor child local TaskConfig schema drifted")
+    if value.get("path") != task_path or value.get("source") != source:
+        raise VerificationError("Harbor child local TaskConfig identity drifted")
+    if value.get("overwrite") is not False:
+        raise VerificationError("Harbor child local TaskConfig overwrite drifted")
+    if any(value.get(key) is not None for key in LOCAL_TASK_CONFIG_NULL_KEYS):
+        raise VerificationError("Harbor child local TaskConfig is not local-only")
+
+
 def _validate_iso_timestamp(value: Any, label: str) -> None:
     if not isinstance(value, str) or not value:
         raise VerificationError(f"{label} is missing")
@@ -1926,9 +2055,11 @@ def _validate_harbor_trial_result_shape(
         raise VerificationError("Harbor child TrialConfig schema drifted")
     if config.get("trial_name") != trial_name or config.get("install_only") is not False:
         raise VerificationError("Harbor child TrialConfig identity drifted")
-    config_task = config.get("task")
-    if not isinstance(config_task, dict) or config_task.get("path") != task_path:
-        raise VerificationError("Harbor child TrialConfig task identity drifted")
+    _validate_pinned_local_task_config(
+        config.get("task"),
+        task_path=task_path,
+        source=payload["source"],
+    )
     config_agent = config.get("agent")
     if (
         not isinstance(config_agent, dict)

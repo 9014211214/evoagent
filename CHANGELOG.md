@@ -79,6 +79,12 @@ Historical entries below describe research-framework milestones. They do not imp
   omits only that unsupported field while retaining the frozen host seed,
   Xiaomi-only required-parameter route, no fallback, and explicit update and
   rollout sampling non-determinism claims.
+- Recorded non-score run `33928934542` and amended the frozen pilot to protocol
+  v13 after pinned Harbor's canonical eight-field local `TaskConfig` exposed an
+  overly strict one-field test fixture and evidence check. The adapter and final
+  verifier now require the exact local path/source/default/null bindings; no
+  model, provider, Task, split, seed, schedule, metric, budget, or effect claim
+  changed.
 
 ## 2.0.0 release candidate
 

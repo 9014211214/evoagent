@@ -269,7 +269,16 @@ def _write_harbor_result_identity(
         "model_name": HARBOR_MODEL_ID,
     }
     config = {
-        "task": {"path": task_path},
+        "task": {
+            "path": task_path,
+            "git_url": None,
+            "git_commit_id": None,
+            "name": None,
+            "ref": None,
+            "overwrite": False,
+            "download_dir": None,
+            "source": job_dir.name,
+        },
         "trial_name": trial_name,
         "trials_dir": job_dir.resolve().as_posix(),
         "install_only": False,
@@ -809,6 +818,51 @@ class BaselineTests(unittest.TestCase):
 
         self.assertEqual(result.status, "updated")
         self.assertEqual(len(client.calls), 1)
+
+    def test_train_projection_requires_exact_pinned_local_task_config_before_call(self) -> None:
+        cases = (
+            ("missing_source", "missing", "source", None),
+            ("extra_field", "extra", "unexpected", "value"),
+            ("wrong_source", "set", "source", "another-job"),
+            ("null_source", "set", "source", None),
+            ("wrong_path", "set", "path", "/different/local-task"),
+            ("overwrite", "set", "overwrite", True),
+            ("git_url", "set", "git_url", "https://example.invalid/repo.git"),
+            ("git_commit_id", "set", "git_commit_id", "0" * 40),
+            ("name", "set", "name", "package-task"),
+            ("ref", "set", "ref", "main"),
+            ("download_dir", "set", "download_dir", "/tmp/download"),
+        )
+        for case, action, field, value in cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"local-task-config-{case}"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo",
+                    state_dir=case_root / "state",
+                    atif_root=case_root / "harbor",
+                    model_client=client,
+                    fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                batch = train_batch(
+                    case_root / "harbor",
+                    task_id="terminal-bench/fix-git",
+                )
+                result_path = Path(batch.trajectories[0].refs["result_path"])
+                payload = read_json(result_path)
+                task_config = payload["config"]["task"]
+                if action == "missing":
+                    task_config.pop(field)
+                else:
+                    task_config[field] = value
+                atomic_write_json(result_path, payload)
+
+                with self.assertRaisesRegex(ValueError, "config binding"):
+                    baseline.update(batch, state)
+
+                self.assertEqual(client.calls, [])
+                self.assertEqual(baseline.update_index, 0)
 
     def test_train_projection_rejects_leaf_alias_for_canonical_task_name(self) -> None:
         client = FakeClient(candidate_payload())
@@ -2122,6 +2176,39 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result.status, "unchanged")
         self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
         self.assertEqual(client.calls, [])
+
+    def test_unattested_failure_rejects_noncanonical_local_task_config_before_call(self) -> None:
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo",
+            state_dir=self.root / "state",
+            atif_root=self.root / "harbor",
+            model_client=client,
+            fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        result_path = write_unattested_harbor_result(
+            self.root / "harbor",
+            task_id="terminal-bench/vulnerable-secret",
+        )
+        payload = read_json(result_path)
+        payload["config"]["task"]["overwrite"] = True
+        atomic_write_json(result_path, payload)
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        batch = SimpleNamespace(
+            trajectories=[failed],
+            task_ids=[failed.task_id],
+            view_name="train",
+            mode="train",
+            batch_index=0,
+            epoch=0,
+        )
+
+        with self.assertRaisesRegex(ValueError, "config binding"):
+            baseline.update(batch, state)
+
+        self.assertEqual(client.calls, [])
+        self.assertEqual(baseline.update_index, 0)
 
     def test_incomplete_projection_hash_binds_verified_evidence_and_batch_identity(self) -> None:
         batch = train_batch(self.root / "harbor")

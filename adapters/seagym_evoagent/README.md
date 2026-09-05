@@ -109,6 +109,14 @@ and patched task directory must use the derived leaf (`fix-git`). These forms
 are checked separately. A namespace alias, wrong leaf, cross-task dataset, or
 substituted directory is rejected before the update model can be called.
 
+Pinned Harbor also serializes a local `TaskConfig` with exactly eight fields:
+`path`, `git_url`, `git_commit_id`, `name`, `ref`, `overwrite`, `download_dir`,
+and `source`. The adapter requires `path` to equal the serialized `LocalTaskId`,
+`source` to equal the child result source and unique job-directory name,
+`overwrite` to be false, and every remote/package field to be null. Missing or
+extra fields and any drift are rejected before the update model can be called.
+The unattested-error path and final pilot verifier apply the same rule.
+
 An errored Harbor trial may lack ATIF only when its own contained, regular
 failure receipt is present, self-hashed, identity-bound, and declares
 `atif_present=false`. It contributes a real zero to the experiment and bounded

@@ -460,7 +460,16 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
         "task_checksum": checksum,
         "source": source,
         "config": {
-            "task": {"path": task_path},
+            "task": {
+                "path": task_path,
+                "git_url": None,
+                "git_commit_id": None,
+                "name": None,
+                "ref": None,
+                "overwrite": False,
+                "download_dir": None,
+                "source": source,
+            },
             "trial_name": trial_name,
             "trials_dir": job_dir.resolve().as_posix(),
             "install_only": False,
@@ -2145,7 +2154,9 @@ def test_rejects_child_source_outside_its_patched_dataset(tmp_path: Path) -> Non
     child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
     child = json.loads(child_path.read_text(encoding="utf-8"))
     child["source"] = "local"
+    child["config"]["task"]["source"] = "local"
     _write_json(child_path, child)
+    _write_json(child_path.with_name("config.json"), child["config"])
 
     with pytest.raises(VerificationError, match="path/source is not bound"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
@@ -2164,6 +2175,56 @@ def test_rejects_child_path_outside_its_patched_dataset(tmp_path: Path) -> None:
 
     with pytest.raises(VerificationError, match="path/source is not bound"):
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing_source",
+        "extra_field",
+        "wrong_source",
+        "null_source",
+        "wrong_path",
+        "overwrite",
+        "git_url",
+        "git_commit_id",
+        "name",
+        "ref",
+        "download_dir",
+    ],
+)
+def test_rejects_noncanonical_pinned_local_task_config(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    child_path = run / "harbor" / "jobs" / "job-01" / "trial-01" / "result.json"
+    child = json.loads(child_path.read_text(encoding="utf-8"))
+    task_config = child["config"]["task"]
+    if case == "missing_source":
+        task_config.pop("source")
+    elif case == "extra_field":
+        task_config["unexpected"] = "value"
+    elif case == "wrong_source":
+        task_config["source"] = "another-job"
+    elif case == "null_source":
+        task_config["source"] = None
+    elif case == "wrong_path":
+        task_config["path"] = "/different/local-task"
+    elif case == "overwrite":
+        task_config["overwrite"] = True
+    else:
+        task_config[case] = "non-local-value"
+    _write_json(child_path, child)
+    _write_json(child_path.with_name("config.json"), child["config"])
+
+    with pytest.raises(VerificationError, match="local TaskConfig"):
+        verify_pilot(
+            run_dir=run,
+            protocol_path=PROTOCOL,
+            usage_before=before,
+            usage_after=after,
+        )
 
 
 def test_rejects_leaf_alias_instead_of_canonical_harbor_task_name(tmp_path: Path) -> None:
@@ -2380,9 +2441,24 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
         verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
 
 
-def test_v12_attempt_ledger_extends_the_preserved_v11_ledger() -> None:
+def test_v13_attempt_ledger_extends_the_preserved_v12_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v12"]
+
+    assert amendment["diagnostic"]["run_id"] == 33928934542
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_preserved_v12_ledger_extends_the_preserved_v11_ledger() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["prior_amendment_v12"]
     prior = protocol["prior_amendment_v11"]
 
     assert amendment["diagnostic"]["run_id"] == 33893733107

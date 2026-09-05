@@ -22,6 +22,9 @@ SPEC.loader.exec_module(sanitizer)
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
+MEASURED_USAGE_EVENT = {"usage": {
+    "input_tokens": 12, "output_tokens": 3, "cached_tokens": 2, "cost_usd": 0.001,
+}}
 METADATA = json.dumps(
     {
         "snapshot_hash": HASH_A,
@@ -172,7 +175,8 @@ class RuntimeSanitizerTests(unittest.TestCase):
                             "output": raw_output,
                         },
                     },
-                }
+                },
+                MEASURED_USAGE_EVENT,
             ]
         )
 
@@ -199,6 +203,46 @@ class RuntimeSanitizerTests(unittest.TestCase):
                 with self.assertRaises(sanitizer.SanitizationError):
                     self._sanitize(source)
                 self.assertFalse(source.exists())
+
+    def test_each_usage_event_requires_all_four_measured_fields(self) -> None:
+        complete = MEASURED_USAGE_EVENT["usage"]
+        for container in ("usage", "metrics", "token_usage", "response_usage"):
+            for missing in complete:
+                with self.subTest(container=container, missing=missing):
+                    usage = {key: value for key, value in complete.items() if key != missing}
+                    event = (
+                        {"response": {"usage": usage}}
+                        if container == "response_usage" else {container: usage}
+                    )
+                    # A preceding complete event must not conceal a partial one.
+                    source = self._write_input([MEASURED_USAGE_EVENT, event])
+                    with self.assertRaisesRegex(sanitizer.SanitizationError, "usage is incomplete"):
+                        self._sanitize(source)
+                    self.assertFalse(source.exists())
+                    self.assertFalse((self.root / "trajectory.json").exists())
+        for event in ({"usage": {}}, {"metrics": None}, {"tool_name": "bash"}, {"type": "session_start"}):
+            with self.subTest(empty_or_absent=event):
+                source = self._write_input([event])
+                with self.assertRaises(sanitizer.SanitizationError):
+                    self._sanitize(source)
+                self.assertFalse(source.exists())
+                self.assertFalse((self.root / "trajectory.json").exists())
+
+    def test_explicit_measured_zero_usage_is_preserved(self) -> None:
+        for event in (
+            {"usage": dict.fromkeys(MEASURED_USAGE_EVENT["usage"], 0)},
+            {"type": "step_finish", "part": {
+                "type": "step-finish", "cost": 0,
+                "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            }},
+        ):
+            with self.subTest(event_type=event.get("type", "generic")):
+                source = self._write_input([{"tool_name": "bash", "status": "success"}, event])
+                trajectory, _ = self._sanitize(source)
+                for key in ("total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd"):
+                    self.assertEqual(trajectory["final_metrics"][key], 0)
+                self.assertEqual(trajectory["steps"][2]["llm_call_count"], 1)
+                self.assertNotIn("metrics", trajectory["steps"][1])
 
     def test_exact_model_seed_and_bounded_metadata_are_enforced(self) -> None:
         cases = [
@@ -287,10 +331,11 @@ class RuntimeSanitizerTests(unittest.TestCase):
                 {"reasoning_details": {}},
                 {"reasoning": False},
                 {"reasoning": 0},
+                MEASURED_USAGE_EVENT,
             ]
         )
         trajectory, _ = self._sanitize(source)
-        self.assertEqual(len(trajectory["steps"]), 1)
+        self.assertEqual(len(trajectory["steps"]), 2)
 
     def test_mimocode_reasoning_token_telemetry_accepts_zero_to_one_without_content(self) -> None:
         trajectories: list[dict[str, object]] = []
@@ -363,11 +408,12 @@ class RuntimeSanitizerTests(unittest.TestCase):
                     self._sanitize(source)
                 self.assertFalse(source.exists())
 
-    def test_unrecognized_raw_event_still_produces_one_safe_system_step(self) -> None:
+    def test_unrecognized_raw_event_cannot_attest_zero_usage(self) -> None:
         source = self._write_input([{"task_id": "CANARY", "text": "SECRET"}])
-        trajectory, _ = self._sanitize(source)
-        self.assertEqual(len(trajectory["steps"]), 1)
-        self.assertEqual(trajectory["final_metrics"]["total_steps"], 1)
+        with self.assertRaisesRegex(sanitizer.SanitizationError, "no complete usage measurement"):
+            self._sanitize(source)
+        self.assertFalse(source.exists())
+        self.assertFalse((self.root / "trajectory.json").exists())
 
     def test_real_mimocode_json_events_preserve_only_safe_usage_and_tool_facts(self) -> None:
         source = self._write_input(
@@ -459,7 +505,8 @@ class RuntimeSanitizerTests(unittest.TestCase):
                             "output": "RAW-OUTPUT-MUST-BE-REMOVED",
                         },
                     },
-                }
+                },
+                MEASURED_USAGE_EVENT,
             ]
         )
 
@@ -592,7 +639,9 @@ class RuntimeSanitizerTests(unittest.TestCase):
         self.assertEqual(rejected["mimocode_exit_class"], "success")
         self.assertIs(rejected["atif_present"], False)
 
-        valid = self._write_input([{"type": "message", "content": "RAW-MUST-DROP"}])
+        valid = self._write_input([
+            {"type": "message", "content": "RAW-MUST-DROP"}, MEASURED_USAGE_EVENT,
+        ])
         accepted_output = self.root / "accepted-trajectory.json"
         process_receipt = self.root / "process-receipt.json"
         self.assertEqual(

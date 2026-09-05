@@ -23,6 +23,8 @@ from seagym_evoagent.evidence import (
     MAX_FAILURE_RECEIPT_BYTES,
     MAX_HARBOR_JSON_BYTES,
     NO_USABLE_ATIF_SKIP_CODE,
+    NoUsableHarborATIFEvidence,
+    _read_atif_structure,
     project_train_batch,
 )
 from seagym_evoagent._compat import NonZeroAgentExitCodeError
@@ -37,6 +39,7 @@ from seagym_evoagent.harbor_agent import (
     MIMOCODE_SANITIZATION_MARGIN_SECONDS,
     SANITIZER_REJECT_EXIT,
     EvoAgentMiMo,
+    _validate_sanitized_atif,
 )
 from seagym_evoagent.mimocode import (
     HARBOR_RUNTIME_COMMIT,
@@ -64,6 +67,7 @@ from seagym_evoagent.openrouter import (
 )
 from seagym_evoagent.routing import expected_route_contract
 from seagym_evoagent.runtime_sanitizer import (
+    main as runtime_sanitizer_main,
     sanitize_runtime_jsonl,
     write_runtime_failure_receipt,
 )
@@ -676,10 +680,10 @@ def write_failure_receipt(
         }
     else:
         result["agent_result"] = {
-            "n_input_tokens": 0,
-            "n_cache_tokens": 0,
-            "n_output_tokens": 0,
-            "cost_usd": 0.0,
+            "n_input_tokens": None,
+            "n_cache_tokens": None,
+            "n_output_tokens": None,
+            "cost_usd": None,
             "rollout_details": None,
             "metadata": {
                 "runtime_failure_receipt_sha256": receipt["receipt_sha256"],
@@ -1135,6 +1139,10 @@ class BaselineTests(unittest.TestCase):
                 aggregate.stats = HarborJobStats.from_trial_results(
                     [child_model], n_total_trials=1,
                 )
+                if errored:
+                    for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+                        self.assertIsNone(child["agent_result"][key])
+                        self.assertIsNone(getattr(aggregate.stats, key))
                 for stats in aggregate.stats.evals.values():
                     stats.metrics = [HarborMean().compute([child_model.verifier_result.rewards])]
                     self.assertEqual(stats.n_errors, int(errored))
@@ -1151,6 +1159,7 @@ class BaselineTests(unittest.TestCase):
                     self.assertIsNone(parsed.utcoffset())
                 if errored:
                     trajectory = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    self.assertEqual(trajectory.cost, {})
                     batch = SimpleNamespace(
                         trajectories=[trajectory], task_ids=[trajectory.task_id],
                         view_name="train", mode="train", batch_index=0, epoch=0,
@@ -1351,7 +1360,7 @@ class BaselineTests(unittest.TestCase):
             "normalized_score", "normalized_reward", "normalized_rewards", "false_success",
             "boolean_score", "boolean_reward",
             "aggregate_mean", "aggregate_reward", "aggregate_error", "receipt_hash",
-            "unknown_input_tokens", "unknown_output_tokens", "unknown_cache_tokens", "unknown_cost",
+            "partial_input_tokens", "partial_output_tokens", "partial_cache_tokens", "partial_cost",
         ):
             with self.subTest(case=case):
                 case_root = self.root / f"raw-one-tamper-{case}"
@@ -1366,14 +1375,14 @@ class BaselineTests(unittest.TestCase):
                 result_path, receipt_path = write_failure_receipt(harbor_root)
                 payload = read_json(result_path)
                 payload["verifier_result"]["rewards"]["reward"] = 1.0
-                unknown_usage_keys = {
-                    "unknown_input_tokens": "n_input_tokens",
-                    "unknown_output_tokens": "n_output_tokens",
-                    "unknown_cache_tokens": "n_cache_tokens",
-                    "unknown_cost": "cost_usd",
+                partial_usage_keys = {
+                    "partial_input_tokens": "n_input_tokens",
+                    "partial_output_tokens": "n_output_tokens",
+                    "partial_cache_tokens": "n_cache_tokens",
+                    "partial_cost": "cost_usd",
                 }
-                if case in unknown_usage_keys:
-                    payload["agent_result"][unknown_usage_keys[case]] = None
+                if case in partial_usage_keys:
+                    payload["agent_result"][partial_usage_keys[case]] = 0
                 atomic_write_json(result_path, payload)
                 _write_harbor_aggregate(result_path)
                 failed = failed_train_trajectory(refs={"result_path": str(result_path)})
@@ -2284,6 +2293,14 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(evidence["atif"]["missing_error_documents"], 1)
         self.assertEqual(evidence["atif"]["steps"], 2)
         self.assertEqual(evidence["runtime_failures"]["documents"], 1)
+        self.assertEqual(evidence["usage"], {
+            "input_tokens": None, "output_tokens": None, "cache_tokens": None, "cost_usd": None,
+        })
+        self.assertEqual(evidence["known_usage"], {
+            "input_tokens": 25, "output_tokens": 5, "cache_tokens": 0, "cost_usd": 0.0005,
+        })
+        self.assertEqual(evidence["unknown_trial_count"], 1)
+        self.assertFalse(evidence["usage_evidence_complete"])
         self.assertEqual(
             evidence["runtime_failures"]["failure_classes"],
             {"runtime_sanitization_failed": 1},
@@ -2320,6 +2337,12 @@ class BaselineTests(unittest.TestCase):
         evidence = client.calls[0]["evidence"]
         self.assertEqual(evidence["atif"]["documents"], 1)
         self.assertEqual(evidence["runtime_failures"]["documents"], 1)
+        self.assertEqual(evidence["usage"], {
+            "input_tokens": 25, "output_tokens": 5, "cache_tokens": 0, "cost_usd": 0.0005,
+        })
+        self.assertNotIn("known_usage", evidence)
+        self.assertNotIn("unknown_trial_count", evidence)
+        self.assertNotIn("usage_evidence_complete", evidence)
 
     def test_errored_trial_receipt_atif_bit_must_match_existing_atif(self) -> None:
         client = FakeClient(candidate_payload())
@@ -2340,6 +2363,162 @@ class BaselineTests(unittest.TestCase):
             baseline.update(batch, state)
 
         self.assertEqual(client.calls, [])
+
+    def test_unknown_usage_rejects_missing_fabricated_and_misaligned_evidence(self) -> None:
+        usage_keys = ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+        cases = (
+            *(f"missing_{key}" for key in usage_keys),
+            *(f"aggregate_zero_{key}" for key in usage_keys),
+            "normalized_zero", "normalized_null", "receipt_legacy_zero",
+            "atif_unknown", "successful_unknown", "context_missing", "verifier_missing",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                case_root = self.root / f"unknown-usage-{case}"
+                harbor_root = case_root / "harbor"
+                client = FakeClient(candidate_payload())
+                baseline = EvoAgentSEAGymBaseline(
+                    baseline_id="evo", state_dir=case_root / "state",
+                    atif_root=harbor_root, model_client=client, fail_on_update_error=True,
+                )
+                state = baseline.initialize(case_root / "run")
+                if case in ("atif_unknown", "successful_unknown"):
+                    result_path = write_raw_atif(harbor_root)
+                    if case == "atif_unknown":
+                        write_failure_receipt(harbor_root, trial_name="trial-a", atif_present=True)
+                else:
+                    result_path, _ = write_failure_receipt(harbor_root)
+                payload = read_json(result_path)
+                if case in ("atif_unknown", "successful_unknown"):
+                    payload["agent_result"].update(dict.fromkeys(usage_keys))
+                elif case == "receipt_legacy_zero":
+                    payload["agent_result"].update(dict.fromkeys(usage_keys, 0))
+                atomic_write_json(result_path, payload)
+                _write_harbor_aggregate(result_path)
+                if case == "successful_unknown":
+                    batch = train_batch_from_result(result_path)
+                    batch.trajectories[0].cost = {}
+                else:
+                    trajectory = failed_train_trajectory(refs={"result_path": str(result_path)})
+                    batch = SimpleNamespace(
+                        trajectories=[trajectory], task_ids=[trajectory.task_id],
+                        view_name="train", mode="train", batch_index=0, epoch=0,
+                    )
+                if case.startswith("missing_"):
+                    payload["agent_result"].pop(case.removeprefix("missing_"))
+                    atomic_write_json(result_path, payload)
+                elif case in ("context_missing", "verifier_missing"):
+                    payload["agent_result" if case == "context_missing" else "verifier_result"] = None
+                    atomic_write_json(result_path, payload)
+                elif case.startswith("aggregate_zero_"):
+                    aggregate_path = result_path.parent.parent / "result.json"
+                    aggregate = read_json(aggregate_path)
+                    aggregate["stats"][case.removeprefix("aggregate_zero_")] = 0
+                    atomic_write_json(aggregate_path, aggregate)
+                elif case in ("normalized_zero", "normalized_null"):
+                    batch.trajectories[0].cost = {
+                        "n_input_tokens": 0 if case == "normalized_zero" else None,
+                    }
+
+                self._assert_update_fails_closed(
+                    baseline=baseline, state=state, batch=batch, client=client, case_root=case_root,
+                )
+
+    def test_measured_zero_usage_is_not_unknown(self) -> None:
+        harbor_root = self.root / "harbor"
+        result_path = write_raw_atif(harbor_root)
+        atif_path = result_path.parent / "agent" / "trajectory.json"
+        atif = read_json(atif_path)
+        for key in ("prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"):
+            atif["steps"][1]["metrics"][key] = 0
+            atif["final_metrics"][f"total_{key}"] = 0
+        atomic_write_json(atif_path, atif)
+        attestation_path = atif_path.parent / ATTESTATION_FILENAME
+        attestation = read_json(attestation_path)
+        attestation["atif_sha256"] = sha256_file(atif_path)
+        attestation["usage"] = dict.fromkeys(attestation["usage"], 0)
+        attestation["attestation_sha256"] = sha256_json({
+            key: value for key, value in attestation.items() if key != "attestation_sha256"
+        })
+        atomic_write_json(attestation_path, attestation)
+        result = read_json(result_path)
+        usage_keys = ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+        result["agent_result"].update(dict.fromkeys(usage_keys, 0))
+        result["agent_result"]["metadata"].update({
+            "atif_sha256": attestation["atif_sha256"],
+            "attestation_sha256": attestation["attestation_sha256"],
+        })
+        atomic_write_json(result_path, result)
+        _write_harbor_aggregate(result_path)
+        batch = train_batch_from_result(result_path)
+        batch.trajectories[0].cost = dict.fromkeys(usage_keys, 0)
+        client = FakeClient(candidate_payload())
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo", state_dir=self.root / "state", atif_root=harbor_root,
+            model_client=client, fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+
+        baseline.update(batch, state)
+
+        evidence = client.calls[0]["evidence"]
+        self.assertEqual(evidence["usage"], {
+            "input_tokens": 0, "output_tokens": 0, "cache_tokens": 0, "cost_usd": 0.0,
+        })
+        self.assertNotIn("known_usage", evidence)
+        self.assertNotIn("unknown_trial_count", evidence)
+        self.assertNotIn("usage_evidence_complete", evidence)
+        usage = _validate_sanitized_atif(atif, default_a0(), 43)
+        self.assertEqual(usage, {
+            "prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0,
+            "cost_usd": 0.0, "reasoning_tokens": 0,
+        })
+
+    def test_atif_guards_reject_missing_measurements_without_zero_defaults(self) -> None:
+        required = ("prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd")
+        cases = (
+            *(f"missing_{key}" for key in required),
+            "null_metrics", "empty_metrics", "tool_only", "system_only", "mixed_partial",
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                result_path = write_raw_atif(self.root / case)
+                atif_path = result_path.parent / "agent" / "trajectory.json"
+                atif = read_json(atif_path)
+                if case.startswith("missing_"):
+                    key = case.removeprefix("missing_")
+                    atif["steps"][1]["metrics"].pop(key)
+                    atif["final_metrics"].pop(f"total_{key}")
+                elif case in ("null_metrics", "empty_metrics"):
+                    atif["steps"][1]["metrics"] = None if case == "null_metrics" else {}
+                    atif["final_metrics"] = {"total_steps": 2}
+                elif case == "tool_only":
+                    atif["steps"][1].pop("metrics")
+                    atif["steps"][1].pop("llm_call_count")
+                    atif["final_metrics"] = {"total_steps": 2}
+                elif case == "system_only":
+                    atif["steps"] = atif["steps"][:1]
+                    atif["final_metrics"] = {"total_steps": 1}
+                else:
+                    # Aggregate presence cannot repair a missing event field.
+                    atif["steps"].append({
+                        "step_id": 3, "source": "agent", "message": "",
+                        "model_name": HARBOR_MODEL_ID, "llm_call_count": 1,
+                        "metrics": {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0},
+                    })
+                    atif["final_metrics"]["total_steps"] = 3
+                atomic_write_json(atif_path, atif)
+
+                with self.assertRaisesRegex(ValueError, "metrics|usage measurement|usage is incomplete"):
+                    _validate_sanitized_atif(atif, default_a0(), 43)
+                with self.assertRaisesRegex(ValueError, "metrics|usage measurement"):
+                    _read_atif_structure(
+                        atif_path,
+                        expected_snapshot_sha256=default_a0().snapshot_sha256,
+                        expected_component_sha256=dict(default_a0().component_sha256),
+                        expected_route_contract_sha256=sha256_json(expected_route_contract()),
+                        expected_seed=43,
+                    )
 
     def test_all_missing_error_atif_batch_stops_before_model_call(self) -> None:
         client = FakeClient(candidate_payload())
@@ -2404,6 +2583,25 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(attempt["skip_code"], NO_USABLE_ATIF_SKIP_CODE)
         self.assertIsNone(attempt["response_sha256"])
         self.assertEqual(attempt["usage"]["total_tokens"], 0)
+
+        # A measured no-update-call zero is not zero rollout consumption.
+        with self.assertRaises(NoUsableHarborATIFEvidence) as raised:
+            project_train_batch(
+                batch, atif_root=self.root / "harbor",
+                expected_snapshot_sha256=default_a0().snapshot_sha256,
+                expected_component_sha256=dict(default_a0().component_sha256),
+                expected_route_contract_sha256=sha256_json(expected_route_contract()),
+                expected_seed=43,
+            )
+        evidence = raised.exception.projection.summary
+        self.assertEqual(evidence["usage"], {
+            "input_tokens": None, "output_tokens": None, "cache_tokens": None, "cost_usd": None,
+        })
+        self.assertEqual(evidence["known_usage"], {
+            "input_tokens": 0, "output_tokens": 0, "cache_tokens": 0, "cost_usd": 0.0,
+        })
+        self.assertEqual(evidence["unknown_trial_count"], 1)
+        self.assertFalse(evidence["usage_evidence_complete"])
 
         restored = EvoAgentSEAGymBaseline(
             baseline_id="evo",
@@ -2495,6 +2693,47 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result.status, "unchanged")
         self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
         self.assertEqual(client.calls, [])
+
+    def test_unattested_unknown_usage_skips_entire_batch_without_learning(self) -> None:
+        client = FakeClient(candidate_payload())
+        harbor_root = self.root / "harbor"
+        baseline = EvoAgentSEAGymBaseline(
+            baseline_id="evo", state_dir=self.root / "state", atif_root=harbor_root,
+            model_client=client, fail_on_update_error=True,
+        )
+        state = baseline.initialize(self.root / "run")
+        before = state.metadata["evaluation_candidate_sha256"]
+        batch = train_batch(harbor_root)
+        result_path = write_unattested_harbor_result(harbor_root)
+        payload = read_json(result_path)
+        payload["agent_result"].update(dict.fromkeys(
+            ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+        ))
+        atomic_write_json(result_path, payload)
+        _write_harbor_aggregate(result_path)
+        failed = failed_train_trajectory(refs={"result_path": str(result_path)})
+        self.assertEqual(failed.cost, {})
+        batch.trajectories.append(failed)
+        batch.task_ids.append(failed.task_id)
+
+        result = baseline.update(batch, state)
+
+        self.assertEqual(result.status, "unchanged")
+        self.assertEqual(result.logs["skip_code"], INCOMPLETE_HARBOR_EVIDENCE_SKIP_CODE)
+        self.assertFalse(result.logs["model_call_executed"])
+        self.assertEqual(client.calls, [])
+        self.assertEqual(state.metadata["evaluation_candidate_sha256"], before)
+        with self.assertRaises(IncompleteHarborTrainEvidence) as raised:
+            project_train_batch(
+                batch, atif_root=harbor_root,
+                expected_snapshot_sha256=default_a0().snapshot_sha256,
+                expected_component_sha256=dict(default_a0().component_sha256),
+                expected_route_contract_sha256=sha256_json(expected_route_contract()),
+                expected_seed=43,
+            )
+        self.assertFalse(raised.exception.projection.summary["eligible_for_update"])
+        self.assertNotIn("usage", raised.exception.projection.summary)
+        self.assertNotIn("known_usage", raised.exception.projection.summary)
 
     def test_unattested_failure_rejects_noncanonical_local_task_config_before_call(self) -> None:
         client = FakeClient(candidate_payload())
@@ -3602,7 +3841,9 @@ class HarborAgentTests(unittest.TestCase):
     def test_setup_and_run_use_pinned_asset_secret_free_command_and_exact_config(self) -> None:
         agent = self._agent(extra_env={"OPENROUTER_API_KEY": PROXY_TOKEN})
         environment = FakeEnvironment()
-        context = SimpleNamespace(metadata=None)
+        context = SimpleNamespace(
+            metadata=None, n_input_tokens=25, n_cache_tokens=0, n_output_tokens=5, cost_usd=0.0005,
+        )
         archive = self.root / "mimocode-linux-x64.tar.gz"
         archive.write_bytes(b"locked-test-archive")
         previous_archive = os.environ.get(MIMOCODE_ARCHIVE_ENV)
@@ -3875,9 +4116,20 @@ class HarborAgentTests(unittest.TestCase):
         agent.populate_context_post_run(context)
         self.assertEqual(context.metadata["runtime_failure_class"], "mimocode_and_sanitization_failed")
         self.assertEqual(context.metadata["runtime_failure_receipt_sha256"], receipt["receipt_sha256"])
-        self.assertEqual(context.n_input_tokens, 0)
-        self.assertEqual(context.n_output_tokens, 0)
-        self.assertEqual(context.cost_usd, 0.0)
+        self.assertIsNone(context.n_input_tokens)
+        self.assertIsNone(context.n_cache_tokens)
+        self.assertIsNone(context.n_output_tokens)
+        self.assertIsNone(context.cost_usd)
+        if HarborAgentContext is not None:
+            native_context = HarborAgentContext(
+                n_input_tokens=25, n_cache_tokens=0, n_output_tokens=5, cost_usd=0.0005,
+            )
+            agent.populate_context_post_run(native_context)
+            native_payload = native_context.model_dump(mode="json")
+            self.assertFalse(native_context.is_empty())
+            self.assertEqual(native_payload["metadata"], context.metadata)
+            for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+                self.assertIsNone(native_payload[key])
         self.assertFalse((logs / ATTESTATION_FILENAME).exists())
         rendered = json.dumps(context.metadata, sort_keys=True)
         self.assertNotIn(CANARY, rendered)
@@ -3967,6 +4219,47 @@ class HarborAgentTests(unittest.TestCase):
             context.metadata["runtime_failure_receipt_sha256"],
             receipt["receipt_sha256"],
         )
+
+    def test_incomplete_runtime_usage_creates_failure_receipt_not_zero_attestation(self) -> None:
+        complete = {"input_tokens": 12, "output_tokens": 3, "cached_tokens": 2, "cost_usd": 0.001}
+        cases = {f"missing_{key}": {"usage": {
+            name: value for name, value in complete.items() if name != key
+        }} for key in complete}
+        cases.update({"tool_only": {"tool_name": "bash"}, "system_only": {"type": "session_start"}})
+        for case, event in cases.items():
+            with self.subTest(case=case):
+                logs = self.root / case
+                logs.mkdir()
+                agent = self._agent(logs_dir=logs)
+                raw_path = self.root / f"{case}.jsonl"
+                raw_path.write_text(json.dumps({**event, "content": SECRET}) + "\n", encoding="utf-8")
+                metadata = {
+                    "snapshot_hash": agent.snapshot.snapshot_sha256,
+                    "component_hashes": dict(agent.snapshot.component_sha256),
+                    "runtime_identity": {"name": "mimocode", "version": MIMOCODE_VERSION},
+                    "route_contract_sha256": sha256_json(expected_route_contract()),
+                }
+                with self.assertRaisesRegex(SystemExit, "sanitization failed: SanitizationError"):
+                    runtime_sanitizer_main([
+                        "--input", str(raw_path), "--output", str(logs / "trajectory.json"),
+                        "--model", HARBOR_MODEL_ID, "--seed", "43",
+                        "--snapshot-metadata-json", json.dumps(metadata),
+                        "--mimocode-exit-code", "0",
+                        "--failure-receipt", str(logs / FAILURE_RECEIPT_FILENAME),
+                    ])
+                self.assertFalse(raw_path.exists())
+                self.assertFalse((logs / "trajectory.json").exists())
+                receipt = read_json(logs / FAILURE_RECEIPT_FILENAME)
+                self.assertEqual(receipt["failure_class"], "runtime_sanitization_failed")
+                self.assertFalse(receipt["atif_present"])
+
+                context = SimpleNamespace()
+                agent.populate_context_post_run(context)
+
+                for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+                    self.assertIsNone(getattr(context, key))
+                self.assertFalse((logs / ATTESTATION_FILENAME).exists())
+                self.assertNotIn(SECRET, json.dumps(receipt, sort_keys=True))
 
     def test_post_run_attestation_binds_snapshot_atif_model_seed_runtime_and_usage(self) -> None:
         agent = self._agent()

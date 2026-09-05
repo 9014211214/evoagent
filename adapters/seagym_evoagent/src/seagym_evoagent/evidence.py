@@ -280,6 +280,7 @@ def project_train_batch(
     runtimes: list[float] = []
     input_tokens = output_tokens = cache_tokens = 0
     cost_usd = 0.0
+    unknown_trial_count = 0
     error_count = 0
     atif_digests: list[str] = []
     missing_error_atif = 0
@@ -363,16 +364,12 @@ def project_train_batch(
         if isinstance(attempt_id, str) and attempt_id:
             fragments.add(attempt_id)
 
-        cost = getattr(trajectory, "cost", {})
-        if not isinstance(cost, dict):
-            raise ValueError("trajectory.cost must be an object")
-        input_tokens += _safe_int(cost.get("n_input_tokens", cost.get("prompt_tokens", 0)), "input tokens")
-        output_tokens += _safe_int(cost.get("n_output_tokens", cost.get("completion_tokens", 0)), "output tokens")
-        cache_tokens += _safe_int(cost.get("n_cache_tokens", cost.get("cached_tokens", 0)), "cache tokens")
-        cost_usd += _finite_number(cost.get("cost_usd", 0), "cost_usd", minimum=0, maximum=100_000)
-
         atif_path = _resolve_atif_path(trajectory, root)
         if atif_path is None:
+            # Source numeric fields, when present, are still bound to their
+            # child and aggregate above. Without ATIF they are not measured
+            # usage evidence, including a legacy numeric zero placeholder.
+            unknown_trial_count += 1
             receipt_path = _resolve_failure_receipt_path(
                 trajectory,
                 root,
@@ -477,6 +474,11 @@ def project_train_batch(
             expected_seed=expected_seed,
             failure_receipt_sha256=(receipt["receipt_sha256"] if receipt is not None else None),
         )
+        measured_usage = structural["usage"]
+        input_tokens += measured_usage["prompt_tokens"]
+        output_tokens += measured_usage["completion_tokens"]
+        cache_tokens += measured_usage["cached_tokens"]
+        cost_usd += measured_usage["cost_usd"]
         allowed_agent_evidence = {atif_path, attestation_path}
         if receipt_path is not None:
             allowed_agent_evidence.add(receipt_path)
@@ -584,6 +586,14 @@ def project_train_batch(
             "set_sha256": sha256_json(sorted(job_provenance_digests)),
         },
     }
+    if unknown_trial_count:
+        # Preserve the existing fully attested summary contract. In incomplete
+        # usage batches expose only a measured lower-bound subtotal separately;
+        # no aggregate total can be asserted when even one trial is unknown.
+        summary["known_usage"] = dict(summary["usage"])
+        summary["usage"] = {key: None for key in summary["usage"]}
+        summary["unknown_trial_count"] = unknown_trial_count
+        summary["usage_evidence_complete"] = False
     projection = EvidenceProjection(
         summary=summary,
         evidence_sha256=sha256_json(summary),
@@ -744,14 +754,24 @@ def _validated_harbor_result_identity(
         or not isinstance(agent_result.get("metadata"), dict)
     ):
         raise ValueError("Harbor train result AgentContext schema drifted")
+    usage_values = [
+        agent_result[key]
+        for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+    ]
+    if any(value is None for value in usage_values) and not all(
+        value is None for value in usage_values
+    ):
+        raise ValueError("Harbor train result has partial unknown usage")
     for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens"):
-        _strict_nonnegative_int(agent_result.get(key), f"Harbor child {key}")
-    _finite_number(
-        agent_result.get("cost_usd"),
-        "Harbor child cost_usd",
-        minimum=0.0,
-        maximum=100_000.0,
-    )
+        if agent_result[key] is not None or result.get("exception_info") is None:
+            _strict_nonnegative_int(agent_result[key], f"Harbor child {key}")
+    if agent_result["cost_usd"] is not None or result.get("exception_info") is None:
+        _finite_number(
+            agent_result["cost_usd"],
+            "Harbor child cost_usd",
+            minimum=0.0,
+            maximum=100_000.0,
+        )
     if "job_id" in refs and refs["job_id"] != job_id:
         raise ValueError("Harbor train result differs from its declared job id")
     if refs.get("task_checksum") != result.get("task_checksum"):
@@ -853,6 +873,13 @@ def _validate_normalized_harbor_result(trajectory: Any, result: dict[str, Any]) 
         "runtime_seconds": getattr(trajectory, "runtime_seconds", None),
         "error": getattr(trajectory, "error", None),
     }
+    if not isinstance(actual["cost"], dict) or set(actual["cost"]) != set(cost):
+        raise ValueError("train trajectory cost differs from pinned Harbor normalization")
+    for key, value in actual["cost"].items():
+        if key == "cost_usd":
+            _finite_number(value, "normalized cost_usd", minimum=0.0, maximum=100_000.0)
+        else:
+            _safe_int(value, "normalized token usage")
     if actual != expected:
         mismatched = sorted(key for key in expected if actual[key] != expected[key])
         raise ValueError(
@@ -1091,16 +1118,24 @@ def _validate_harbor_job_provenance(
     ):
         raise ValueError("Harbor aggregate completion counts differ from its child")
     for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens"):
-        if _strict_nonnegative_int(stats.get(key), f"Harbor aggregate {key}") != agent_context[key]:
+        child_value = agent_context[key]
+        if child_value is None:
+            if stats[key] is not None:
+                raise ValueError("Harbor aggregate token usage differs from its child")
+        elif _strict_nonnegative_int(stats[key], f"Harbor aggregate {key}") != child_value:
             raise ValueError("Harbor aggregate token usage differs from its child")
-    aggregate_cost = _finite_number(
-        stats.get("cost_usd"),
-        "Harbor aggregate cost_usd",
-        minimum=0.0,
-        maximum=100_000.0,
-    )
-    if not math.isclose(aggregate_cost, float(agent_context["cost_usd"]), abs_tol=1e-9):
-        raise ValueError("Harbor aggregate cost differs from its child")
+    if agent_context["cost_usd"] is None:
+        if stats["cost_usd"] is not None:
+            raise ValueError("Harbor aggregate cost differs from its child")
+    else:
+        aggregate_cost = _finite_number(
+            stats["cost_usd"],
+            "Harbor aggregate cost_usd",
+            minimum=0.0,
+            maximum=100_000.0,
+        )
+        if not math.isclose(aggregate_cost, float(agent_context["cost_usd"]), abs_tol=1e-9):
+            raise ValueError("Harbor aggregate cost differs from its child")
 
     evals = stats.get("evals")
     agent_info = result["agent_info"]
@@ -1605,7 +1640,7 @@ def _read_atif_structure(
             ):
                 raise ValueError("ATIF sanitized timestamp is invalid")
         metrics = step.get("metrics")
-        if metrics is not None:
+        if "metrics" in step:
             allowed_metric_keys = {
                 "prompt_tokens",
                 "completion_tokens",
@@ -1613,7 +1648,11 @@ def _read_atif_structure(
                 "cost_usd",
                 "extra",
             }
-            if not isinstance(metrics, dict) or not metrics or set(metrics) - allowed_metric_keys:
+            if (
+                not isinstance(metrics, dict)
+                or not (allowed_metric_keys - {"extra"}) <= set(metrics)
+                or set(metrics) - allowed_metric_keys
+            ):
                 raise ValueError("ATIF sanitized metrics are invalid")
             for key, value in metrics.items():
                 if key == "extra":
@@ -1635,7 +1674,7 @@ def _read_atif_structure(
                 else:
                     aggregate[key] += _safe_int(value, f"ATIF {key}")
                     seen_metrics.add(key)
-            if metrics.get("cached_tokens", 0) > metrics.get("prompt_tokens", 0):
+            if metrics["cached_tokens"] > metrics["prompt_tokens"]:
                 raise ValueError("ATIF cached tokens exceed prompt tokens")
             if step.get("llm_call_count") != 1:
                 raise ValueError("ATIF metric step must represent exactly one model call")
@@ -1679,6 +1718,8 @@ def _read_atif_structure(
             raise ValueError("ATIF observation metadata requires a tool call")
         if metrics is None and tool_calls is None:
             raise ValueError("ATIF agent step lacks structural evidence")
+    if not seen_metrics:
+        raise ValueError("ATIF has no complete usage measurement")
     final_metrics = data.get("final_metrics")
     expected_metric_keys = {"total_steps"} | {
         ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
@@ -1693,15 +1734,15 @@ def _read_atif_structure(
     ):
         raise ValueError("ATIF final metrics are invalid")
     usage = {
-        "prompt_tokens": _safe_int(final_metrics.get("total_prompt_tokens", 0), "ATIF prompt tokens"),
+        "prompt_tokens": _safe_int(final_metrics["total_prompt_tokens"], "ATIF prompt tokens"),
         "completion_tokens": _safe_int(
-            final_metrics.get("total_completion_tokens", 0),
+            final_metrics["total_completion_tokens"],
             "ATIF completion tokens",
         ),
-        "cached_tokens": _safe_int(final_metrics.get("total_cached_tokens", 0), "ATIF cached tokens"),
+        "cached_tokens": _safe_int(final_metrics["total_cached_tokens"], "ATIF cached tokens"),
         "reasoning_tokens": 0,
         "cost_usd": _finite_number(
-            final_metrics.get("total_cost_usd", 0.0),
+            final_metrics["total_cost_usd"],
             "ATIF total cost",
             minimum=0,
             maximum=1_000_000_000,
@@ -1922,10 +1963,10 @@ def _validate_failure_result_context(
         "privacy_projection": True,
     }
     if agent_result != {
-        "n_input_tokens": 0,
-        "n_cache_tokens": 0,
-        "n_output_tokens": 0,
-        "cost_usd": 0.0,
+        "n_input_tokens": None,
+        "n_cache_tokens": None,
+        "n_output_tokens": None,
+        "cost_usd": None,
         "rollout_details": None,
         "metadata": expected_metadata,
     }:

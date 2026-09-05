@@ -123,7 +123,7 @@ EXPECTED_TIMING_KEYS = {"started_at", "finished_at"}
 HARBOR_SUPPORT_DIR_NAMES = {"_patched_tasksets"}
 EXPECTED_PROTOCOL_ID = "evoagent-seagym-terminalbench2-mimo-v2.5-seed42-v15"
 EXPECTED_AMENDMENT = {
-    "amended_at": "2026-09-05T05:42:20Z",
+    "amended_at": "2026-09-05T06:09:30Z",
     "benchmark_effect_claimed": False,
     "change": "separate_raw_harbor_reward_from_effective_errored_trial_score",
     "diagnostic": {
@@ -160,6 +160,9 @@ EXPECTED_AMENDMENT = {
         "raw_child_and_aggregate_rewards_preserved": True,
         "raw_seagym_metrics_recomputed_separately": True,
         "source_success_requires_no_exception": True,
+        "unknown_trial_usage_preserved_as_null": True,
+        "partial_usage_not_presented_as_total": True,
+        "source_reported_usage_reconciled_separately": True,
         "unknown_usage_not_imputed_as_zero": True,
         "upstream_normalization_unmodified": True
     },
@@ -182,6 +185,12 @@ EXPECTED_AMENDMENT = {
         "pinned_harbor_semantics_confirmed": True,
         "source_confirmed_mechanism": "pinned_harbor_can_retain_verifier_reward_one_alongside_exception_info_and_seagym_preserves_raw_score_while_success_is_false",
         "triggering_harbor_exception_type_or_stage_confirmed": False
+    },
+    "premerge_usage_review": {
+        "confirmed_bug": "receipt_without_atif_producer_zero_placeholders_were_treated_as_complete_usage_in_mixed_learning_batches_and_final_totals",
+        "model_calls_performed": False,
+        "source_reported_totals_are_not_complete_usage_when_any_trial_is_unknown": True,
+        "whole_key_usage_delta_remains_separate_observation": True,
     },
     "prior_complete_comparisons": 0,
     "prior_controller_attempts_total": 21,
@@ -2234,9 +2243,14 @@ def _validate_harbor_trial_result_shape(
         raise VerificationError("Harbor child AgentContext schema drifted")
     if agent_result.get("rollout_details") is not None or not isinstance(agent_result.get("metadata"), dict):
         raise VerificationError("Harbor child AgentContext contains unapproved rollout detail")
+    usage_values = [agent_result[key] for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")]
+    if any(value is None for value in usage_values) and not all(value is None for value in usage_values):
+        raise VerificationError("Harbor child usage must be fully reported or fully unknown")
     for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens"):
-        _bounded_int(agent_result.get(key), f"Harbor child {key}")
-    _finite_number(agent_result.get("cost_usd"), "Harbor child cost_usd")
+        if agent_result[key] is not None or not error_present:
+            _bounded_int(agent_result[key], f"Harbor child {key}")
+    if agent_result["cost_usd"] is not None or not error_present:
+        _finite_number(agent_result["cost_usd"], "Harbor child cost_usd")
 
     verifier_result = payload.get("verifier_result")
     if not isinstance(verifier_result, dict) or set(verifier_result) != {"rewards"}:
@@ -2432,9 +2446,14 @@ def _validate_atif(
         ):
             raise VerificationError("sanitized ATIF timestamp is invalid")
         metrics = step.get("metrics")
-        if metrics is not None:
-            allowed_metric_keys = {"prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd", "extra"}
-            if not isinstance(metrics, dict) or not metrics or set(metrics) - allowed_metric_keys:
+        if "metrics" in step:
+            required_metric_keys = {"prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"}
+            allowed_metric_keys = required_metric_keys | {"extra"}
+            if (
+                not isinstance(metrics, dict)
+                or not required_metric_keys <= set(metrics)
+                or set(metrics) - allowed_metric_keys
+            ):
                 raise VerificationError("sanitized ATIF metrics shape is invalid")
             for key, value in metrics.items():
                 if key == "extra":
@@ -2452,7 +2471,7 @@ def _validate_atif(
                     parsed = _bounded_int(value, f"ATIF step {key}")
                 aggregate[key] += parsed
                 seen_metrics.add(key)
-            if metrics.get("cached_tokens", 0) > metrics.get("prompt_tokens", 0):
+            if metrics["cached_tokens"] > metrics["prompt_tokens"]:
                 raise VerificationError("ATIF step cached tokens exceed prompt tokens")
             if step.get("llm_call_count") != 1:
                 raise VerificationError("sanitized ATIF metric step must represent one model call")
@@ -2490,6 +2509,8 @@ def _validate_atif(
             raise VerificationError("sanitized ATIF observation metadata requires a tool call")
         if metrics is None and calls is None:
             raise VerificationError("sanitized ATIF agent step has no structural evidence")
+    if llm_call_count == 0:
+        raise VerificationError("sanitized ATIF lacks a complete metered event")
     final_metrics = atif.get("final_metrics")
     expected_metric_keys = {"total_steps"} | {
         ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
@@ -2795,13 +2816,13 @@ def _validate_agent_result_metadata(
         raise VerificationError("Harbor child AgentContext metadata drifted from production")
 
 
-def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str, int | float]:
+def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str, int | float | None]:
     agent_result = payload.get("agent_result")
     if agent_result is None:
         agent_result = {}
     if not isinstance(agent_result, dict):
         raise VerificationError("failed Harbor trial agent_result is invalid")
-    cost = row.get("cost") or {}
+    cost = row.get("cost")
     if not isinstance(cost, dict):
         raise VerificationError("failed normalized task cost is invalid")
     fields = {
@@ -2810,11 +2831,20 @@ def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str
         "completion_tokens": ("n_output_tokens", "n_output_tokens"),
         "cost_usd": ("cost_usd", "cost_usd"),
     }
-    usage: dict[str, int | float] = {}
+    usage: dict[str, int | float | None] = {}
+    expected_cost_keys = {
+        name for name in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+        if agent_result.get(name) is not None
+    }
+    if set(cost) != expected_cost_keys:
+        raise VerificationError("failed normalized usage inventory differs from Harbor")
     for output_name, (payload_name, row_name) in fields.items():
-        if payload_name not in agent_result or row_name not in cost:
+        if payload_name not in agent_result:
             raise VerificationError("failed Harbor usage evidence is missing")
         payload_value = agent_result[payload_name]
+        if payload_value is None:
+            usage[output_name] = None
+            continue
         row_value = cost[row_name]
         if output_name == "cost_usd":
             parsed_payload: int | float = _finite_number(payload_value, "failed Harbor cost")
@@ -2830,7 +2860,7 @@ def _failure_row_usage(payload: dict[str, Any], row: dict[str, Any]) -> dict[str
         if parsed_payload != parsed_row:
             raise VerificationError("failed Harbor usage differs from the normalized row")
         usage[output_name] = parsed_row
-    usage["reasoning_tokens"] = 0
+    usage["reasoning_tokens"] = None
     return usage
 
 
@@ -3179,7 +3209,12 @@ def _validate_rows(
     rollout_llm_call_count = 0
     for row in rows:
         _reject_nonempty_reasoning(row)
-        if {"raw_score", "raw_success", "effective_score", "effective_success"} & set(row):
+        if {
+            "raw_score", "raw_success", "effective_score", "effective_success",
+            "usage_evidence_complete", "source_reported_usage",
+            "input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens",
+            "cost_usd", "llm_call_count",
+        } & set(row):
             raise VerificationError("task row contains verifier-owned outcome fields")
         task_id = row.get("task_id")
         if task_id not in known_tasks:
@@ -3382,7 +3417,10 @@ def _validate_rows(
             ("n_cache_tokens", "n_cache_tokens"),
             ("n_output_tokens", "n_output_tokens"),
         ):
-            if _bounded_int(
+            if stats[aggregate_key] is None or agent_context[child_key] is None:
+                if stats[aggregate_key] is not agent_context[child_key]:
+                    raise VerificationError("Harbor aggregate token usage differs from its child")
+            elif _bounded_int(
                 stats.get(aggregate_key),
                 f"Harbor aggregate {aggregate_key}",
             ) != _bounded_int(
@@ -3390,7 +3428,10 @@ def _validate_rows(
                 f"Harbor child {child_key}",
             ):
                 raise VerificationError("Harbor aggregate token usage differs from its child")
-        if not math.isclose(
+        if stats["cost_usd"] is None or agent_context["cost_usd"] is None:
+            if stats["cost_usd"] is not agent_context["cost_usd"]:
+                raise VerificationError("Harbor aggregate cost differs from its child")
+        elif not math.isclose(
             _finite_number(stats.get("cost_usd"), "Harbor aggregate cost_usd"),
             _finite_number(agent_context.get("cost_usd"), "Harbor child cost_usd"),
             abs_tol=1e-9,
@@ -3503,7 +3544,7 @@ def _validate_rows(
             attestation_hashes.append(attestation_hash)
             rollout_llm_call_count += llm_call_count
             usage = attestation["usage"]
-            cost = row.get("cost") or {}
+            cost = row.get("cost")
             if not isinstance(cost, dict):
                 raise VerificationError("normalized task cost is invalid")
             expected_cost_map = {
@@ -3512,8 +3553,16 @@ def _validate_rows(
                 "n_output_tokens": usage["completion_tokens"],
                 "cost_usd": usage["cost_usd"],
             }
+            if set(cost) != set(expected_cost_map):
+                raise VerificationError("normalized task cost inventory differs from attestation")
             for key, value in expected_cost_map.items():
-                if key not in cost or not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
+                if agent_context[key] is None or not math.isclose(
+                    _finite_number(agent_context[key], f"Harbor child {key}"),
+                    float(value),
+                    abs_tol=1e-9,
+                ):
+                    raise VerificationError(f"Harbor child usage differs from attestation: {key}")
+                if not math.isclose(_finite_number(cost[key], f"row cost {key}"), float(value), abs_tol=1e-9):
                     raise VerificationError(f"normalized task cost differs from attestation: {key}")
             receipt_path = agent_dir / FAILURE_RECEIPT_FILENAME
             explicit_receipt_declared = (
@@ -3604,6 +3653,11 @@ def _validate_rows(
                 failure_receipt_paths.add(controlled_receipt_path)
                 failure_receipt_hashes.append(failure_receipt_hash)
                 missing_atif_receipt_count += 1
+                if any(
+                    agent_context[key] is not None
+                    for key in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd")
+                ):
+                    raise VerificationError("runtime failure without ATIF must preserve unknown usage")
                 failure_class = failure_receipt["failure_class"]
                 failure_stage = failure_receipt["failure_stage"]
                 mimocode_exit_class = failure_receipt["mimocode_exit_class"]
@@ -3628,6 +3682,7 @@ def _validate_rows(
             failure_receipt_hash=failure_receipt_hash,
         )
         unattested_error = error_present and failure_receipt_hash is None
+        usage_complete = attestation_hash is not None
         safe_rows.append(
             {
                 "task_id": task_id,
@@ -3645,12 +3700,19 @@ def _validate_rows(
                 "success": success,
                 "error_present": error_present,
                 "runtime_seconds": _optional_number(row.get("runtime_seconds")),
-                "input_tokens": usage["prompt_tokens"],
-                "output_tokens": usage["completion_tokens"],
-                "cached_tokens": usage["cached_tokens"],
-                "reasoning_tokens": usage["reasoning_tokens"],
-                "cost_usd": usage["cost_usd"],
-                "llm_call_count": llm_call_count,
+                "usage_evidence_complete": usage_complete,
+                "source_reported_usage": {
+                    "input_tokens": usage["prompt_tokens"],
+                    "output_tokens": usage["completion_tokens"],
+                    "cache_tokens": usage["cached_tokens"],
+                    "cost_usd": usage["cost_usd"],
+                },
+                "input_tokens": usage["prompt_tokens"] if usage_complete else None,
+                "output_tokens": usage["completion_tokens"] if usage_complete else None,
+                "cached_tokens": usage["cached_tokens"] if usage_complete else None,
+                "reasoning_tokens": usage["reasoning_tokens"] if usage_complete else None,
+                "cost_usd": usage["cost_usd"] if usage_complete else None,
+                "llm_call_count": llm_call_count if usage_complete else None,
                 "snapshot_sha256": expected_snapshot,
                 "attestation_sha256": attestation_hash,
                 "failure_receipt_sha256": failure_receipt_hash,
@@ -3836,6 +3898,18 @@ def _recompute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     at_mean = _mean(at)
     initial_val_mean = _mean(initial_val)
     final_val_mean = _mean(final_val)
+    measured_rows = [row for row in rows if row["usage_evidence_complete"]]
+    unknown_usage_trials = len(rows) - len(measured_rows)
+    partial_usage = {
+        "input_tokens": sum(int(row["input_tokens"]) for row in measured_rows),
+        "output_tokens": sum(int(row["output_tokens"]) for row in measured_rows),
+        "cache_tokens": sum(int(row["cached_tokens"]) for row in measured_rows),
+        "reasoning_tokens": sum(int(row["reasoning_tokens"]) for row in measured_rows),
+        "cost_usd": sum(float(row["cost_usd"]) for row in measured_rows),
+    }
+    partial_total_tokens = (
+        partial_usage["input_tokens"] + partial_usage["output_tokens"] + partial_usage["reasoning_tokens"]
+    )
     return {
         "held_out": {
             "n_tasks": 3,
@@ -3856,25 +3930,21 @@ def _recompute_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "train_mean_score": _mean(row for row in rows if row["mode"] == "train"),
         "replay_mean_score": _mean(row for row in rows if row["mode"] == "replay"),
         "errors": sum(1 for row in rows if row["error_present"]),
-        "rollout_input_tokens": sum(int(row["input_tokens"]) for row in rows),
-        "rollout_output_tokens": sum(int(row["output_tokens"]) for row in rows),
-        "rollout_cache_tokens": sum(int(row["cached_tokens"]) for row in rows),
-        "rollout_reasoning_tokens": sum(int(row["reasoning_tokens"]) for row in rows),
-        "rollout_attested_total_tokens": sum(
-            int(row["input_tokens"]) + int(row["output_tokens"]) + int(row["reasoning_tokens"])
-            for row in rows
-            if row["attestation_sha256"] is not None
-        ),
-        "rollout_records_with_tokens": sum(
-            int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
-            > 0
-            for row in rows
-        ),
-        "seagym_rollout_total_tokens": sum(
-            int(row["input_tokens"]) + int(row["cached_tokens"]) + int(row["output_tokens"])
-            for row in rows
-        ),
-        "rollout_cost_usd": sum(float(row["cost_usd"]) for row in rows),
+        "usage_evidence_complete": unknown_usage_trials == 0,
+        "unknown_usage_trial_count": unknown_usage_trials,
+        "rollout_input_tokens": partial_usage["input_tokens"] if not unknown_usage_trials else None,
+        "rollout_output_tokens": partial_usage["output_tokens"] if not unknown_usage_trials else None,
+        "rollout_cache_tokens": partial_usage["cache_tokens"] if not unknown_usage_trials else None,
+        "rollout_reasoning_tokens": partial_usage["reasoning_tokens"] if not unknown_usage_trials else None,
+        "rollout_total_tokens": partial_total_tokens if not unknown_usage_trials else None,
+        "rollout_cost_usd": partial_usage["cost_usd"] if not unknown_usage_trials else None,
+        "attested_rollout_usage": {
+            **partial_usage,
+            "total_tokens": partial_total_tokens,
+            "num_trials": len(measured_rows),
+            "partial": unknown_usage_trials != 0,
+        },
+        "rollout_attested_total_tokens": partial_total_tokens,
     }
 
 
@@ -3914,11 +3984,39 @@ def _source_outcome_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return outcomes
 
 
+def _source_reported_usage_metrics(rows: list[dict[str, Any]]) -> dict[str, int | float]:
+    """Reproduce SEAGym's numeric-only source ledger, not measured total usage."""
+
+    # Pinned SEAGym ignores cost-only rows in its token ledger: a row must
+    # contain a nonzero token part before any of its token/cost fields count.
+    values = [
+        row["source_reported_usage"] for row in rows
+        if any(
+            row["source_reported_usage"][key] not in (None, 0)
+            for key in ("input_tokens", "cache_tokens", "output_tokens")
+        )
+    ]
+    totals = {
+        key: sum(float(usage[key]) for usage in values if usage[key] is not None)
+        for key in ("input_tokens", "cache_tokens", "output_tokens", "cost_usd")
+    }
+    return {
+        **totals,
+        "num_records": len(rows),
+        "num_records_with_tokens": sum(
+            sum(float(usage[key]) for key in ("input_tokens", "cache_tokens", "output_tokens") if usage[key] is not None) > 0
+            for usage in values
+        ),
+        "total_tokens": sum(totals[key] for key in ("input_tokens", "cache_tokens", "output_tokens")),
+    }
+
+
 def _validate_metrics(
     run_dir: Path,
     summary: dict[str, Any],
     updates: list[dict[str, Any]],
     source_outcomes: dict[str, Any],
+    source_usage: dict[str, int | float],
 ) -> dict[str, Any]:
     metrics = _load_json(run_dir / "metrics.json", root=run_dir)
     if not isinstance(metrics, dict):
@@ -4009,21 +4107,21 @@ def _validate_metrics(
             raise VerificationError("SEAGym token group total is internally inconsistent")
     if not math.isclose(
         _finite_number(rollout.get("total_tokens"), "rollout total tokens"),
-        summary["seagym_rollout_total_tokens"],
+        source_usage["total_tokens"],
         abs_tol=1e-6,
     ):
-        raise VerificationError("SEAGym rollout token total differs from trial attestations")
+        raise VerificationError("SEAGym rollout token total differs from source-reported trial usage")
     token_field_expectations = {
-        "input_tokens": summary["rollout_input_tokens"],
-        "cache_tokens": summary["rollout_cache_tokens"],
-        "output_tokens": summary["rollout_output_tokens"],
+        "input_tokens": source_usage["input_tokens"],
+        "cache_tokens": source_usage["cache_tokens"],
+        "output_tokens": source_usage["output_tokens"],
     }
     for field, expected_total in token_field_expectations.items():
         if not math.isclose(_finite_number(rollout.get(field), f"rollout {field}"), expected_total, abs_tol=1e-6):
             raise VerificationError(f"SEAGym rollout {field} differs from trial attestations")
-    if not math.isclose(_finite_number(rollout.get("cost_usd"), "rollout cost"), summary["rollout_cost_usd"], abs_tol=1e-8):
+    if not math.isclose(_finite_number(rollout.get("cost_usd"), "rollout cost"), source_usage["cost_usd"], abs_tol=1e-8):
         raise VerificationError("SEAGym rollout cost differs from trial attestations")
-    if rollout["num_records_with_tokens"] != summary["rollout_records_with_tokens"]:
+    if rollout["num_records_with_tokens"] != source_usage["num_records_with_tokens"]:
         raise VerificationError("SEAGym rollout nonempty record count differs from trials")
 
     expected_update = {
@@ -4064,15 +4162,25 @@ def _validate_metrics(
         ):
             raise VerificationError(f"SEAGym overall {field} is not rollout plus update")
     return {
+        "usage_evidence_complete": summary["usage_evidence_complete"],
+        "unknown_usage_trial_count": summary["unknown_usage_trial_count"],
+        "attested_rollout_usage": summary["attested_rollout_usage"],
         "rollout_attested_total_tokens": summary["rollout_attested_total_tokens"],
-        "seagym_rollout_total_tokens": rollout["total_tokens"],
-        "seagym_update_total_tokens": update.get("total_tokens", 0),
-        "seagym_overall_total_tokens": overall["total_tokens"],
+        "rollout_total_tokens": summary["rollout_total_tokens"],
+        "update_total_tokens": update["total_tokens"],
+        "overall_total_tokens": (
+            summary["rollout_total_tokens"] + update["total_tokens"]
+            if summary["usage_evidence_complete"] else None
+        ),
         "rollout_reasoning_tokens": summary["rollout_reasoning_tokens"],
-        "token_accounting_note": "Attested totals include only trials with validated ATIF and bounded provider-reported reasoning-token usage. SEAGym total_tokens retains every normalized trial, separately adds cache_tokens to cache-inclusive Harbor input_tokens, and excludes reasoning telemetry; any unattested outer-Harbor failure is reported as incomplete evidence.",
-        "rollout_cost_usd": rollout["cost_usd"],
-        "update_cost_usd": update.get("cost_usd", 0),
-        "overall_cost_usd": overall["cost_usd"],
+        "token_accounting_note": "Measured rollout/overall totals are null if any trial lacks validated ATIF usage, even when its source ledger reports zero. Attested subtotals cover only measured trials; input_tokens already includes cache, and total_tokens additionally includes bounded reasoning-token telemetry. source_reported is separately reconciled SEAGym bookkeeping, which omits null measurements, adds cache_tokens again, and excludes reasoning telemetry; it is not measured total usage.",
+        "rollout_cost_usd": summary["rollout_cost_usd"],
+        "update_cost_usd": update["cost_usd"],
+        "overall_cost_usd": (
+            summary["rollout_cost_usd"] + update["cost_usd"]
+            if summary["usage_evidence_complete"] else None
+        ),
+        "source_reported": {"rollout": rollout, "update": update, "overall": overall},
     }
 
 
@@ -4448,7 +4556,8 @@ def verify_pilot(
         ):
             raise VerificationError("train evidence skip differs from the exact adapter projection")
     source_outcomes = _source_outcome_metrics(safe_rows)
-    metric_usage = _validate_metrics(run_dir, summary, updates, source_outcomes)
+    source_usage = _source_reported_usage_metrics(safe_rows)
+    metric_usage = _validate_metrics(run_dir, summary, updates, source_outcomes, source_usage)
     _validate_evaluation_points(run_dir, source_outcomes)
     update_llm_call_count = sum(update["model_call_executed"] is True for update in updates)
     skipped_update_count = sum(update["model_call_executed"] is False for update in updates)

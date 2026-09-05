@@ -153,6 +153,15 @@ false. Protocol v15 validates this source shape and raw aggregate/metric
 bindings without rewriting them. The learning summary and final scientific
 comparison independently count every errored trial as zero and keep it in the
 denominator; a positive raw reward is never promoted to effective success.
+Missing no-ATIF token/cost telemetry remains null, including inside mixed
+learning-batch summaries and final reports. Known subtotals are not complete
+usage totals, and raw SEAGym accounting is not a substitute for missing
+measurements. The independent OpenRouter whole-key delta retains its separate
+scope; an observed zero is never confused with unknown usage.
+An ATIF document is measurable only when it contains at least one complete
+usage event; every such event must carry all four core token/cache/cost fields.
+Missing fields or an entirely absent usage stream cannot create a zero-usage
+attestation merely because a structural trajectory file exists.
 The verifier labels any receipt-bearing result
 `completed_with_incomplete_training_evidence`. An unattested Harbor errored
 result is never assigned an unproved failure stage or treated as usable

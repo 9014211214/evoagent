@@ -127,6 +127,21 @@ from success-based metrics. Published gains and the pilot classification use
 effective scores. Unknown usage is not imputed as zero, and unattested train
 errors still skip the entire update batch rather than become learning evidence.
 
+The same pre-merge review found a separate accounting defect: a classified
+runtime failure with no ATIF used zero token/cost placeholders, which could
+enter a mixed learning batch or final usage total as if measured. V15 preserves
+those missing measurements as null and labels incomplete usage explicitly.
+Known subtotals are separate from complete totals; source-reported SEAGym
+accounting is independently reconciled but is not an exact total when any
+trial's telemetry is unknown. OpenRouter's before/after usage remains a separate
+whole-key observation, not per-trial attribution. A valid measured zero remains
+zero. An ATIF file alone does not prove complete usage: at least one complete
+usage event is required, every usage event must contain the four core fields,
+and child context, ATIF attestation, normalized row, and aggregate must agree.
+Missing fields or a stream with no usage events must not become a zero-use
+attestation. This does not relax the separate, unsupported early-failure contract
+where the entire Harbor agent or verifier result is absent.
+
 The specific stage/type behind run 121's Harbor exceptions was not retained
 and remains unknown. Accepting the valid reward/exception combination does not
 repair or explain those underlying exceptions. The run's observed whole-key

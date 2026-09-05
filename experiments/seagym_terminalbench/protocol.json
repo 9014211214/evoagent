@@ -43,7 +43,7 @@
     "third_party_lock_sha256": "0fae2820ba1056f4812a25a085162fdb7b3c75a9351f2a03e1886a06887ce849"
   },
   "amendment": {
-    "amended_at": "2026-09-05T05:42:20Z",
+    "amended_at": "2026-09-05T06:09:30Z",
     "benchmark_effect_claimed": false,
     "change": "separate_raw_harbor_reward_from_effective_errored_trial_score",
     "diagnostic": {
@@ -80,6 +80,9 @@
       "raw_child_and_aggregate_rewards_preserved": true,
       "raw_seagym_metrics_recomputed_separately": true,
       "source_success_requires_no_exception": true,
+      "unknown_trial_usage_preserved_as_null": true,
+      "partial_usage_not_presented_as_total": true,
+      "source_reported_usage_reconciled_separately": true,
       "unknown_usage_not_imputed_as_zero": true,
       "upstream_normalization_unmodified": true
     },
@@ -102,6 +105,12 @@
       "pinned_harbor_semantics_confirmed": true,
       "source_confirmed_mechanism": "pinned_harbor_can_retain_verifier_reward_one_alongside_exception_info_and_seagym_preserves_raw_score_while_success_is_false",
       "triggering_harbor_exception_type_or_stage_confirmed": false
+    },
+    "premerge_usage_review": {
+      "confirmed_bug": "receipt_without_atif_producer_zero_placeholders_were_treated_as_complete_usage_in_mixed_learning_batches_and_final_totals",
+      "model_calls_performed": false,
+      "source_reported_totals_are_not_complete_usage_when_any_trial_is_unknown": true,
+      "whole_key_usage_delta_remains_separate_observation": true
     },
     "prior_complete_comparisons": 0,
     "prior_controller_attempts_total": 21,

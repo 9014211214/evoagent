@@ -180,6 +180,8 @@ def _checkpoint(
     update_index: int,
     *,
     intermediate: dict[str, object] | None = None,
+    first_skip_code: str | None = None,
+    first_evidence_sha256: str | None = None,
     second_skip_code: str | None = None,
     second_evidence_sha256: str | None = None,
     first_request_sha256: str | None = None,
@@ -197,8 +199,9 @@ def _checkpoint(
                 1,
                 a0,
                 first_candidate,
-                evidence_sha256=str(first_candidate["evidence_sha256"]),
+                evidence_sha256=first_evidence_sha256 or str(first_candidate["evidence_sha256"]),
                 request_sha256=first_request_sha256,
+                skip_code=first_skip_code,
             )
         )
     if update_index >= 2:
@@ -600,6 +603,8 @@ def _trial(run: Path, index: int, task_id: str, score: int, snapshot: dict[str, 
 def _replace_trial_with_receipted_runtime_failure(
     result_path: Path,
     snapshot: dict[str, object],
+    *,
+    raw_reward: float = 0.0,
 ) -> None:
     agent_dir = result_path.parent / "agent"
     (agent_dir / "trajectory.json").unlink()
@@ -630,10 +635,10 @@ def _replace_trial_with_receipted_runtime_failure(
     )
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     payload["agent_result"] = {
-        "n_input_tokens": 0,
-        "n_cache_tokens": 0,
-        "n_output_tokens": 0,
-        "cost_usd": 0.0,
+        "n_input_tokens": None,
+        "n_cache_tokens": None,
+        "n_output_tokens": None,
+        "cost_usd": None,
         "rollout_details": None,
         "metadata": {
             "runtime_failure_receipt_sha256": receipt_hash,
@@ -647,7 +652,7 @@ def _replace_trial_with_receipted_runtime_failure(
             "privacy_projection": True,
         },
     }
-    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["verifier_result"] = {"rewards": {"reward": raw_reward}}
     payload["exception_info"] = {
         "exception_type": "RuntimeFailure",
         "exception_message": "classified_failure",
@@ -658,14 +663,14 @@ def _replace_trial_with_receipted_runtime_failure(
     aggregate_path = result_path.parent.parent / "result.json"
     aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
     aggregate["stats"]["n_errored_trials"] = 1
-    aggregate["stats"]["n_input_tokens"] = 0
-    aggregate["stats"]["n_cache_tokens"] = 0
-    aggregate["stats"]["n_output_tokens"] = 0
-    aggregate["stats"]["cost_usd"] = 0.0
+    aggregate["stats"]["n_input_tokens"] = None
+    aggregate["stats"]["n_cache_tokens"] = None
+    aggregate["stats"]["n_output_tokens"] = None
+    aggregate["stats"]["cost_usd"] = None
     eval_stats = next(iter(aggregate["stats"]["evals"].values()))
     eval_stats["n_errors"] = 1
-    eval_stats["metrics"] = [{"mean": 0.0}]
-    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["metrics"] = [{"mean": raw_reward}]
+    eval_stats["reward_stats"] = {"reward": {str(raw_reward): [payload["trial_name"]]}}
     eval_stats["exception_stats"] = {"RuntimeFailure": [payload["trial_name"]]}
     _write_json(aggregate_path, aggregate)
 
@@ -776,9 +781,13 @@ def _replace_trial_with_unattested_harbor_failure(result_path: Path) -> None:
     _write_json(aggregate_path, aggregate)
 
 
-def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
+def _mark_atif_present_unreceipted_failure(
+    result_path: Path,
+    *,
+    raw_reward: float = 0.0,
+) -> None:
     payload = json.loads(result_path.read_text(encoding="utf-8"))
-    payload["verifier_result"] = {"rewards": {"reward": 0.0}}
+    payload["verifier_result"] = {"rewards": {"reward": raw_reward}}
     payload["exception_info"] = {
         "exception_type": "OuterHarborFailure",
         "exception_message": "unattested_after_atif",
@@ -791,8 +800,8 @@ def _mark_atif_present_unreceipted_failure(result_path: Path) -> None:
     aggregate["stats"]["n_errored_trials"] = 1
     eval_stats = next(iter(aggregate["stats"]["evals"].values()))
     eval_stats["n_errors"] = 1
-    eval_stats["metrics"] = [{"mean": 0.0}]
-    eval_stats["reward_stats"] = {"reward": {"0.0": [payload["trial_name"]]}}
+    eval_stats["metrics"] = [{"mean": raw_reward}]
+    eval_stats["reward_stats"] = {"reward": {str(raw_reward): [payload["trial_name"]]}}
     eval_stats["exception_stats"] = {"OuterHarborFailure": [payload["trial_name"]]}
     _write_json(aggregate_path, aggregate)
 
@@ -890,6 +899,10 @@ def _fixture(
     skip_second_update: bool = False,
     unattested_second_update: bool = False,
     unattested_atif_second_update: bool = False,
+    unattested_atif_first_update: bool = False,
+    single_receipted_second_update: bool = False,
+    receipted_failure_slots: tuple[int, ...] = (),
+    raw_reward_error_slots: tuple[int, ...] = (),
 ) -> tuple[Path, Path, Path]:
     run = tmp_path / "run"
     shutil.copyfile(CONFIG, run / "inputs" / "experiment_config.json") if (run / "inputs").mkdir(parents=True, exist_ok=True) is None else None
@@ -923,8 +936,16 @@ def _fixture(
         nonlocal trial_index
         for task_id, score in zip(task_ids, scores, strict=True):
             trial_index += 1
+            raw_positive_error = trial_index in raw_reward_error_slots
+            if raw_positive_error:
+                score = 1
             result_path, checksum = _trial(run, trial_index, task_id, score, snapshot)
-            runtime_failure = skip_second_update and mode == "train" and batch == 2
+            runtime_failure = trial_index in receipted_failure_slots or (
+                mode == "train" and batch == 2 and (
+                    skip_second_update
+                    or single_receipted_second_update and task_id == split["train"][3]
+                )
+            )
             unattested_failure = (
                 unattested_second_update
                 and mode == "train"
@@ -932,17 +953,27 @@ def _fixture(
                 and task_id == split["train"][3]
             )
             unattested_atif_failure = (
-                unattested_atif_second_update
-                and mode == "train"
-                and batch == 2
-                and task_id == split["train"][3]
+                mode == "train"
+                and (
+                    unattested_atif_second_update and batch == 2 and task_id == split["train"][3]
+                    or unattested_atif_first_update and batch == 1 and task_id == split["train"][0]
+                )
             )
             if runtime_failure:
-                _replace_trial_with_receipted_runtime_failure(result_path, snapshot)
+                if not raw_positive_error:
+                    score = 0
+                _replace_trial_with_receipted_runtime_failure(
+                    result_path,
+                    snapshot,
+                    raw_reward=float(score) if raw_positive_error else 0.0,
+                )
             elif unattested_failure:
                 _replace_trial_with_unattested_harbor_failure(result_path)
-            elif unattested_atif_failure:
-                _mark_atif_present_unreceipted_failure(result_path)
+            elif unattested_atif_failure or raw_positive_error:
+                _mark_atif_present_unreceipted_failure(
+                    result_path,
+                    raw_reward=1.0 if raw_positive_error else 0.0,
+                )
             result_payload = json.loads(result_path.read_text(encoding="utf-8"))
             normalized_error = (
                 None
@@ -1002,7 +1033,7 @@ def _fixture(
                     "runtime_seconds": 1.0,
                     "score": float(score),
                     "split_id": plan["split_id"],
-                    "success": bool(score),
+                    "success": normalized_error is None and bool(score),
                     "task_id": task_id,
                     "train_batch_index": batch,
                     "update_repeat_index": 1 if mode == "train" else None,
@@ -1024,16 +1055,24 @@ def _fixture(
         expected_snapshot=str(a0["snapshot_sha256"]),
         expected_component_hashes=dict(a0["component_sha256"]),
     )
-    assert first_skip is None
-    first_request_sha256 = pilot_verifier._adapter_update_request_sha256(
-        evidence_summary=first_projection.summary,
-        current_components=dict(a0["components"]),
+    assert first_skip == (
+        "incomplete_unattested_harbor_evidence" if unattested_atif_first_update else None
     )
-    e1 = _snapshot(
-        1,
-        str(a0["snapshot_sha256"]),
-        "e1",
-        evidence_sha256=first_projection.evidence_sha256,
+    first_request_sha256 = (
+        None if first_skip is not None
+        else pilot_verifier._adapter_update_request_sha256(
+            evidence_summary=first_projection.summary,
+            current_components=dict(a0["components"]),
+        )
+    )
+    e1 = (
+        a0 if first_skip is not None
+        else _snapshot(
+            1,
+            str(a0["snapshot_sha256"]),
+            "e1",
+            evidence_sha256=first_projection.evidence_sha256,
+        )
     )
 
     append_phase("replay", "replay", None, 1, plan["views"]["replay"], [1, 1, 1], e1)
@@ -1076,7 +1115,7 @@ def _fixture(
         e1
         if no_call_second_update
         else _snapshot(
-            2,
+            int(e1["generation"]) + 1,
             str(e1["snapshot_sha256"]),
             "at",
             evidence_sha256=second_projection.evidence_sha256,
@@ -1095,6 +1134,8 @@ def _fixture(
         a0,
         e1,
         1,
+        first_skip_code=first_skip,
+        first_evidence_sha256=first_projection.evidence_sha256,
         first_request_sha256=first_request_sha256,
     )
     _checkpoint(
@@ -1104,13 +1145,15 @@ def _fixture(
         final_candidate,
         2,
         intermediate=e1,
+        first_skip_code=first_skip,
+        first_evidence_sha256=first_projection.evidence_sha256,
         second_skip_code=second_skip_code,
         second_evidence_sha256=second_projection.evidence_sha256,
         first_request_sha256=first_request_sha256,
         second_request_sha256=second_request_sha256,
     )
     updates = [
-        (1, e1, first_projection.evidence_sha256, None, first_request_sha256),
+        (1, e1, first_projection.evidence_sha256, first_skip, first_request_sha256),
         (
             2,
             final_candidate,
@@ -1180,15 +1223,30 @@ def _fixture(
         > 0
         for row in persisted_rows
     )
-    update_input = 5.0 if no_call_second_update else 10.0
-    update_output = 1.0 if no_call_second_update else 2.0
-    update_cost = 0.001 if no_call_second_update else 0.002
-    update_with_tokens = 1 if no_call_second_update else 2
+    update_with_tokens = int(first_skip is None) + int(not no_call_second_update)
+    update_input = 5.0 * update_with_tokens
+    update_output = 1.0 * update_with_tokens
+    update_cost = 0.001 * update_with_tokens
+    source_means = {}
+    source_success = {}
+    source_domain_macro = {}
+    for role in ("A_0", "A_T"):
+        phase = [row for row in persisted_rows if row["baseline_role"] == role]
+        key = f"id_test.{role}"
+        source_means[key] = sum(row["score"] for row in phase) / len(phase)
+        source_success[key] = sum(row["success"] for row in phase) / len(phase)
+        domains = {row["attributes"]["domain"] for row in phase}
+        domain_values = []
+        for domain in domains:
+            members = [row for row in phase if row["attributes"]["domain"] == domain]
+            domain_values.append(sum(row["success"] for row in members) / len(members))
+        source_domain_macro[key] = sum(domain_values) / len(domain_values)
+    source_gain = source_means["id_test.A_T"] - source_means["id_test.A_0"]
     metrics = {
-        "success_rate": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
-        "mean_score": {"id_test.A_0": 1 / 3, "id_test.A_T": 2 / 3},
-        "domain_macro_success_rate": {"id_test.A_0": 0.25, "id_test.A_T": 0.75},
-        "final_gain": {"id_test": 1 / 3},
+        "success_rate": source_success,
+        "mean_score": source_means,
+        "domain_macro_success_rate": source_domain_macro,
+        "final_gain": {"id_test": source_gain},
         "tokens": {
             "rollout": {
                 "num_records": 24,
@@ -1238,9 +1296,9 @@ def _fixture(
                     "baseline_checkpoint_id": "A_0",
                     "num_tasks": 3,
                     "num_baseline_tasks": 3,
-                    "score": 2 / 3,
-                    "baseline_score": 1 / 3,
-                    "gain_vs_A_0": 1 / 3,
+                    "score": source_means["id_test.A_T"],
+                    "baseline_score": source_means["id_test.A_0"],
+                    "gain_vs_A_0": source_gain,
                 }
             },
         },
@@ -1539,7 +1597,7 @@ def test_rejects_noncanonical_explicit_or_ambiguous_atif_reference(
         )
 
 
-def test_rejects_errored_row_with_nonzero_raw_score(tmp_path: Path) -> None:
+def test_rejects_errored_row_claiming_raw_success(tmp_path: Path) -> None:
     run, before, after = _fixture(tmp_path, unattested_atif_second_update=True)
     rows_path = run / "records" / "task_results.jsonl"
     rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
@@ -1552,13 +1610,463 @@ def test_rejects_errored_row_with_nonzero_raw_score(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(VerificationError, match="raw zero score"):
+    with pytest.raises(VerificationError, match="raw score/error state"):
         verify_pilot(
             run_dir=run,
             protocol_path=PROTOCOL,
             usage_before=before,
             usage_after=after,
         )
+
+
+def test_raw_positive_error_preserves_source_outcomes_but_receives_no_scientific_credit(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(7, 13, 19))
+    source_rows = (run / "records" / "task_results.jsonl").read_bytes()
+    source_metrics = (run / "metrics.json").read_bytes()
+    source_points = (run / "records" / "evaluation_points.jsonl").read_bytes()
+
+    result, rows, _updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    failed = [row for row in rows if row["error_present"]]
+    assert len(failed) == 3
+    assert all(row["raw_score"] == 1.0 and row["raw_success"] is False for row in failed)
+    assert all(row["score"] == 0.0 and row["success"] is False for row in failed)
+    assert result["comparison"]["held_out"]["gain_vs_A_0"] == 0.0
+    assert result["comparison"]["held_out"]["A_T_mean_score"] == pytest.approx(1 / 3)
+    assert result["comparison"]["frozen_validation"]["delta"] == pytest.approx(-1 / 3)
+    assert result["comparison"]["replay_mean_score"] == pytest.approx(5 / 6)
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+    assert (run / "records" / "task_results.jsonl").read_bytes() == source_rows
+    assert (run / "metrics.json").read_bytes() == source_metrics
+    assert (run / "records" / "evaluation_points.jsonl").read_bytes() == source_points
+    upstream_metrics = json.loads(source_metrics)
+    assert upstream_metrics["mean_score"]["id_test.A_T"] == pytest.approx(2 / 3)
+    assert upstream_metrics["success_rate"]["id_test.A_T"] == pytest.approx(1 / 3)
+    assert upstream_metrics["final_gain"]["id_test"] == pytest.approx(1 / 3)
+
+
+def test_raw_positive_training_error_is_bound_to_whole_batch_skip_and_checkpoint(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        unattested_atif_second_update=True,
+        raw_reward_error_slots=(10,),
+    )
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    failed = next(row for row in rows if row["error_present"])
+    assert failed["raw_score"] == 1.0 and failed["score"] == 0.0
+    assert failed["training_evidence_complete"] is False
+    assert updates[1]["model_call_executed"] is False
+    assert updates[1]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    assert result["snapshots"]["E1"] == result["snapshots"]["AT"]
+    assert result["comparison"]["train_mean_score"] == pytest.approx(4 / 6)
+
+
+@pytest.mark.parametrize("skip_second", [False, True])
+def test_raw_positive_first_train_error_preserves_a0_and_valid_checkpoint_progress(
+    tmp_path: Path, skip_second: bool,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        unattested_atif_first_update=True,
+        unattested_atif_second_update=skip_second,
+        raw_reward_error_slots=(4, 10) if skip_second else (4,),
+    )
+
+    result, rows, updates = verify_pilot(
+        run_dir=run,
+        protocol_path=PROTOCOL,
+        usage_before=before,
+        usage_after=after,
+    )
+
+    assert result["snapshots"]["A0"] == result["snapshots"]["E1"]
+    assert (result["snapshots"]["AT"] == result["snapshots"]["A0"]) is skip_second
+    assert updates[0]["model_call_executed"] is False
+    assert updates[0]["skip_code"] == "incomplete_unattested_harbor_evidence"
+    assert updates[1]["model_call_executed"] is (not skip_second)
+    assert result["evidence"]["verified_update_model_calls"] == int(not skip_second)
+    failed = [row for row in rows if row["error_present"]]
+    assert len(failed) == 1 + int(skip_second)
+    assert all(row["raw_score"] == 1.0 and row["score"] == 0.0 for row in failed)
+    assert result["classification"] == "inconclusive_incomplete_training_evidence"
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "tampered"),
+    [
+        ("mean_score", "id_test.A_T", 1 / 3),
+        ("success_rate", "id_test.A_T", 2 / 3),
+        ("domain_macro_success_rate", "id_test.A_T", 0.75),
+        ("final_gain", "id_test", 0.0),
+    ],
+)
+def test_rejects_source_metrics_rewritten_to_wrong_raw_or_effective_semantics(
+    tmp_path: Path, section: str, key: str, tampered: float,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    metrics_path = run / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert metrics[section][key] != tampered
+    metrics[section][key] = tampered
+    _write_json(metrics_path, metrics)
+
+    with pytest.raises(VerificationError, match="differs from trial evidence"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_rejects_source_evaluation_point_rewritten_to_effective_score(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    points_path = run / "records" / "evaluation_points.jsonl"
+    points = [json.loads(line) for line in points_path.read_text(encoding="utf-8").splitlines()]
+    points[-1]["evaluations"]["id_test"]["score"] = 1 / 3
+    points_path.write_text("\n".join(json.dumps(point) for point in points) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="final evaluation point differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["score", "rewards", "success", "effective_score", "effective_success"])
+def test_rejects_tampered_raw_positive_error_or_injected_effective_credit(
+    tmp_path: Path, field: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row["error"] is not None)
+    failed[field] = (
+        {"reward": 0.0} if field == "rewards"
+        else 0.0 if field == "score"
+        else 1.0 if field == "effective_score"
+        else True
+    )
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="reward|raw score/error|verifier-owned outcome"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("section", ["metrics", "reward_stats"])
+def test_rejects_harbor_raw_reward_statistics_rewritten_as_error_zero(
+    tmp_path: Path, section: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(19,))
+    aggregate_path = run / "harbor" / "jobs" / "job-19" / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    evaluation = next(iter(aggregate["stats"]["evals"].values()))
+    evaluation[section] = (
+        [{"mean": 0.0}] if section == "metrics"
+        else {"reward": {"0.0": ["trial-19"]}}
+    )
+    _write_json(aggregate_path, aggregate)
+
+    with pytest.raises(VerificationError, match="Harbor aggregate .*differ"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"])
+def test_rejects_missing_error_usage_instead_of_imputing_zero(tmp_path: Path, field: str) -> None:
+    run, before, after = _fixture(tmp_path, unattested_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row["error"] is not None)
+    assert failed["cost"].pop(field) == 0
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="usage inventory differs"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("receipt", [False, True])
+def test_unattested_usage_is_unknown_even_if_source_ledger_reports_zero(
+    tmp_path: Path, receipt: bool,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        skip_second_update=receipt,
+        unattested_second_update=not receipt,
+    )
+    result, rows, _updates = verify_pilot(
+        run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after,
+    )
+    unknown = [row for row in rows if not row["usage_evidence_complete"]]
+    expected_unknown = 3 if receipt else 1
+    assert len(unknown) == expected_unknown
+    for row in unknown:
+        for field in ("input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens", "cost_usd", "llm_call_count"):
+            assert row[field] is None
+        assert set(row["source_reported_usage"].values()) == ({None} if receipt else {0})
+    comparison = result["comparison"]
+    usage = result["usage"]
+    assert comparison["usage_evidence_complete"] is False
+    assert usage["usage_evidence_complete"] is False
+    assert usage["unknown_usage_trial_count"] == expected_unknown
+    for field in ("rollout_input_tokens", "rollout_output_tokens", "rollout_cache_tokens", "rollout_reasoning_tokens", "rollout_total_tokens", "rollout_cost_usd"):
+        assert comparison[field] is None
+    for field in ("rollout_total_tokens", "overall_total_tokens", "rollout_cost_usd", "overall_cost_usd"):
+        assert usage[field] is None
+    assert usage["update_total_tokens"] == 6
+    assert usage["update_cost_usd"] == pytest.approx(0.001)
+    assert usage["attested_rollout_usage"]["num_trials"] == 24 - expected_unknown
+    assert usage["attested_rollout_usage"]["partial"] is True
+    assert usage["attested_rollout_usage"]["cost_usd"] == pytest.approx((24 - expected_unknown) * 0.001)
+    assert usage["source_reported"]["rollout"]["cost_usd"] == pytest.approx((24 - expected_unknown) * 0.001)
+    assert isinstance(usage["observed_key_usage_delta_usd"], float)
+    output = tmp_path / "verified"
+    write_bundle(output, result, rows, _updates)
+    persisted = json.loads((output / "comparison.json").read_text(encoding="utf-8"))
+    assert persisted["usage"]["overall_cost_usd"] is None
+    assert (output / "SHA256SUMS").is_file()
+
+
+def test_verified_atif_error_retains_measured_usage_despite_incomplete_learning(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, unattested_atif_second_update=True)
+    result, rows, _updates = verify_pilot(
+        run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after,
+    )
+    failed = next(row for row in rows if row["error_present"])
+    assert failed["training_evidence_complete"] is False
+    assert failed["usage_evidence_complete"] is True
+    assert failed["cost_usd"] == 0.001
+    assert result["usage"]["unknown_usage_trial_count"] == 0
+    assert result["usage"]["rollout_cost_usd"] == pytest.approx(0.024)
+    assert result["usage"]["overall_cost_usd"] == pytest.approx(0.025)
+
+
+def test_mixed_receipt_unknown_and_measured_train_batch_keeps_usage_partial(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(tmp_path, single_receipted_second_update=True)
+    result, rows, updates = verify_pilot(
+        run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after,
+    )
+    assert all(update["model_call_executed"] for update in updates)
+    assert result["evidence"]["verified_update_model_calls"] == 2
+    assert result["usage"]["unknown_usage_trial_count"] == 1
+    assert result["usage"]["rollout_cost_usd"] is None
+    assert result["usage"]["overall_total_tokens"] is None
+    assert result["usage"]["overall_cost_usd"] is None
+    assert result["usage"]["update_cost_usd"] == pytest.approx(0.002)
+    assert result["usage"]["attested_rollout_usage"]["cost_usd"] == pytest.approx(0.023)
+    assert result["usage"]["source_reported"]["overall"]["cost_usd"] == pytest.approx(0.025)
+    assert result["results_status"] == "completed_with_incomplete_training_evidence"
+    failed = next(row for row in rows if row["error_present"])
+    assert failed["cost_usd"] is None
+    assert failed["source_reported_usage"]["cost_usd"] is None
+
+
+def test_verified_measured_zero_remains_zero_not_unknown(tmp_path: Path) -> None:
+    run, before, after = _fixture(tmp_path)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    result_path = Path(rows[0]["refs"]["result_path"])
+    child = json.loads(result_path.read_text(encoding="utf-8"))
+    trajectory_path = result_path.parent / "agent" / "trajectory.json"
+    attestation_path = result_path.parent / "agent" / "evoagent-attestation.json"
+    trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    for field in trajectory["steps"][1]["metrics"]:
+        trajectory["steps"][1]["metrics"][field] = 0
+    for field in trajectory["final_metrics"]:
+        if field != "total_steps":
+            trajectory["final_metrics"][field] = 0
+    for field in attestation["usage"]:
+        attestation["usage"][field] = 0
+    _rewrite_self_consistent_evidence(trajectory_path, trajectory, attestation_path, attestation)
+    for field in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+        child["agent_result"][field] = 0
+        rows[0]["cost"][field] = 0
+    for field in ("atif_sha256", "attestation_sha256"):
+        child["agent_result"]["metadata"][field] = attestation[field]
+    _write_json(result_path, child)
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    for field in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+        aggregate["stats"][field] = 0
+    _write_json(aggregate_path, aggregate)
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    metrics_path = run / "metrics.json"
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    for group in ("rollout", "overall"):
+        for field, decrement in {"input_tokens": 10, "cache_tokens": 1, "output_tokens": 2, "total_tokens": 13, "cost_usd": 0.001, "num_records_with_tokens": 1}.items():
+            metrics["tokens"][group][field] -= decrement
+    _write_json(metrics_path, metrics)
+
+    verified, safe_rows, _updates = verify_pilot(
+        run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after,
+    )
+    assert safe_rows[0]["usage_evidence_complete"] is True
+    assert safe_rows[0]["input_tokens"] == 0
+    assert safe_rows[0]["cost_usd"] == 0
+    assert verified["usage"]["unknown_usage_trial_count"] == 0
+    assert verified["usage"]["overall_cost_usd"] == pytest.approx(0.025)
+
+
+@pytest.mark.parametrize("tamper", ["legacy_zero", "partial_null", "aggregate_zero", "normalized_zero", "normalized_null", "missing_child"])
+def test_rejects_unknown_usage_disguised_as_reported_or_observed_zero(
+    tmp_path: Path, tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    rows_path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines()]
+    failed = next(row for row in rows if row["error"] is not None)
+    result_path = Path(failed["refs"]["result_path"])
+    child = json.loads(result_path.read_text(encoding="utf-8"))
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    if tamper == "legacy_zero":
+        for field in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+            child["agent_result"][field] = 0
+            aggregate["stats"][field] = 0
+            failed["cost"][field] = 0
+    elif tamper == "partial_null":
+        child["agent_result"]["n_input_tokens"] = 0
+    elif tamper == "aggregate_zero":
+        aggregate["stats"]["n_input_tokens"] = 0
+    elif tamper.startswith("normalized_"):
+        failed["cost"]["n_input_tokens"] = 0 if tamper == "normalized_zero" else None
+    else:
+        child["agent_result"].pop("n_input_tokens")
+    _write_json(result_path, child)
+    _write_json(aggregate_path, aggregate)
+    rows_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="usage|AgentContext"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("field", ["usage_evidence_complete", "source_reported_usage", "input_tokens", "cost_usd"])
+def test_rejects_source_record_forging_verifier_usage_fields(tmp_path: Path, field: str) -> None:
+    run, before, after = _fixture(tmp_path, skip_second_update=True)
+    path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[9][field] = True if field == "usage_evidence_complete" else {} if field == "source_reported_usage" else 0
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    with pytest.raises(VerificationError, match="verifier-owned outcome"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize("slot", [1, 7, 13, 19])
+@pytest.mark.parametrize("tamper", ["null", "numeric", "extra_normalized"])
+def test_nontrain_atif_usage_is_bound_to_child_aggregate_and_exact_normalized_cost(
+    tmp_path: Path, slot: int, tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path, raw_reward_error_slots=(slot,))
+    path = run / "records" / "task_results.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    row = rows[slot - 1]
+    assert row["mode"] != "train"
+    result_path = Path(row["refs"]["result_path"])
+    child = json.loads(result_path.read_text(encoding="utf-8"))
+    aggregate_path = result_path.parent.parent / "result.json"
+    aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
+    if tamper == "extra_normalized":
+        row["cost"]["total_tokens"] = 13
+    else:
+        for field in ("n_input_tokens", "n_cache_tokens", "n_output_tokens", "cost_usd"):
+            value = None if tamper == "null" else child["agent_result"][field] + 1
+            child["agent_result"][field] = value
+            aggregate["stats"][field] = value
+    _write_json(result_path, child)
+    _write_json(aggregate_path, aggregate)
+    path.write_text("\n".join(json.dumps(item) for item in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(VerificationError, match="usage differs from attestation|cost inventory"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd", "null", "empty", "system_only", "tool_only", "later_partial"],
+)
+def test_rehashed_atif_cannot_turn_missing_metering_into_measured_zero(
+    tmp_path: Path, tamper: str,
+) -> None:
+    run, before, after = _fixture(tmp_path)
+    result_path = run / "harbor" / "jobs" / "job-19" / "trial-19" / "result.json"
+    trajectory_path = result_path.parent / "agent" / "trajectory.json"
+    attestation_path = result_path.parent / "agent" / "evoagent-attestation.json"
+    trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+    step = trajectory["steps"][1]
+    if tamper in {"prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"}:
+        step["metrics"].pop(tamper)
+        total_field = "total_cost_usd" if tamper == "cost_usd" else f"total_{tamper}"
+        trajectory["final_metrics"].pop(total_field)
+        attestation["usage"][tamper] = 0
+    elif tamper == "later_partial":
+        later = json.loads(json.dumps(step))
+        later["step_id"] = 3
+        later["metrics"].pop("cost_usd")
+        later["tool_calls"][0]["tool_call_id"] = "tool-000002"
+        later["observation"]["results"][0]["source_call_id"] = "tool-000002"
+        trajectory["steps"].append(later)
+        trajectory["final_metrics"]["total_steps"] = 3
+        for field in ("prompt_tokens", "completion_tokens", "cached_tokens"):
+            trajectory["final_metrics"][f"total_{field}"] *= 2
+            attestation["usage"][field] *= 2
+    else:
+        if tamper == "system_only":
+            trajectory["steps"] = trajectory["steps"][:1]
+        else:
+            step.pop("llm_call_count")
+            if tamper == "tool_only":
+                step.pop("metrics")
+            else:
+                step["metrics"] = None if tamper == "null" else {}
+        trajectory["final_metrics"] = {"total_steps": len(trajectory["steps"])}
+        attestation["usage"] = {field: 0 for field in attestation["usage"]}
+    _rewrite_self_consistent_evidence(trajectory_path, trajectory, attestation_path, attestation)
+    child = json.loads(result_path.read_text(encoding="utf-8"))
+    for field in ("atif_sha256", "attestation_sha256"):
+        child["agent_result"]["metadata"][field] = attestation[field]
+    _write_json(result_path, child)
+
+    with pytest.raises(VerificationError, match="ATIF metrics shape|complete metered event"):
+        verify_pilot(run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after)
+
+
+def test_raw_positive_receipted_unknown_usage_gets_zero_credit_in_train_and_final(
+    tmp_path: Path,
+) -> None:
+    run, before, after = _fixture(
+        tmp_path,
+        single_receipted_second_update=True,
+        receipted_failure_slots=(19,),
+        raw_reward_error_slots=(10, 19),
+    )
+    result, rows, updates = verify_pilot(
+        run_dir=run, protocol_path=PROTOCOL, usage_before=before, usage_after=after,
+    )
+    failed = [row for row in rows if row["error_present"]]
+    assert {row["mode"] for row in failed} == {"train", "final"}
+    assert len(failed) == 2
+    assert all(row["raw_score"] == 1.0 and row["score"] == 0.0 for row in failed)
+    assert all(row["failure_receipt_sha256"] and row["attestation_sha256"] is None for row in failed)
+    assert all(row["usage_evidence_complete"] is False and row["cost_usd"] is None for row in failed)
+    assert all(row["source_reported_usage"]["cost_usd"] is None for row in failed)
+    assert all(update["model_call_executed"] for update in updates)
+    assert result["comparison"]["held_out"]["gain_vs_A_0"] == 0.0
+    assert result["comparison"]["train_mean_score"] == pytest.approx(4 / 6)
+    assert result["usage"]["unknown_usage_trial_count"] == 2
+    assert result["usage"]["overall_cost_usd"] is None
 
 
 def test_rejects_agent_result_metadata_raw_field_injection(tmp_path: Path) -> None:
@@ -2520,7 +3028,7 @@ def test_rejects_observed_usage_above_authorized_maximum(tmp_path: Path) -> None
 
 def test_v14_cancelled_attempt_preserves_unknown_usage_and_observed_ledger() -> None:
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-    amendment = protocol["amendment"]
+    amendment = protocol["prior_amendment_v14"]
     prior = protocol["prior_amendment_v13"]
 
     assert amendment["diagnostic"]["run_id"] == 33938703704
@@ -2529,6 +3037,36 @@ def test_v14_cancelled_attempt_preserves_unknown_usage_and_observed_ledger() -> 
     assert amendment["diagnostic"]["observed_key_usage_delta_usd"] is None
     assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
     assert amendment["prior_observed_usage_delta_usd"] == prior["prior_observed_usage_delta_usd"]
+
+
+def test_v15_ledger_preserves_raw_error_diagnostic_without_claiming_a_score() -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    amendment = protocol["amendment"]
+    prior = protocol["prior_amendment_v14"]
+
+    assert amendment["diagnostic"]["run_id"] == 33942199178
+    assert amendment["diagnostic"]["score_produced"] is False
+    assert amendment["diagnostic"]["updates_completed"] == 0
+    assert amendment["diagnostic"]["completed_singleton_jobs"] == 6
+    assert amendment["diagnostic"]["trials_with_exception"] == 5
+    assert amendment["prior_controller_attempts_total"] == prior["prior_controller_attempts_total"] + 1
+    assert amendment["prior_observed_usage_delta_usd"] == pytest.approx(
+        prior["prior_observed_usage_delta_usd"]
+        + amendment["diagnostic"]["observed_key_usage_delta_usd"],
+        abs=1e-12,
+    )
+
+
+def test_rejects_preserved_v14_amendment_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
+    protocol["prior_amendment_v14"]["diagnostic"]["observed_key_usage_delta_usd"] = 0.0
+    path = tmp_path / "protocol.json"
+    _write_json(path, protocol)
+    monkeypatch.setattr(pilot_verifier, "_repo_root", lambda _path: REPO_ROOT)
+    with pytest.raises(VerificationError, match="preserved v14 protocol amendment drifted"):
+        pilot_verifier._validate_protocol(path)
 
 
 def test_preserved_v13_ledger_extends_the_preserved_v12_ledger() -> None:

@@ -424,6 +424,12 @@ def _event_metrics(event: dict[str, Any]) -> dict[str, Any]:
             if previous is not None and previous != parsed:
                 raise SanitizationError(f"conflicting values for {safe_name}")
             result[safe_name] = parsed
+    # Tool-only events may omit telemetry. A telemetry-bearing event may not
+    # omit a field and later acquire a fabricated zero from aggregate defaults.
+    if (result or len(containers) > 1) and set(result) != {
+        "prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd",
+    }:
+        raise SanitizationError("model-call usage is incomplete")
     cached = result.get("cached_tokens")
     prompt = result.get("prompt_tokens")
     if cached is not None and prompt is not None and cached > prompt:
@@ -541,6 +547,8 @@ def _build_trajectory(
             step["extra"] = {"status": status}
         steps.append(step)
 
+    if not seen_metrics:
+        raise SanitizationError("runtime has no complete usage measurement")
     final_metrics: dict[str, int | float] = {"total_steps": len(steps)}
     for name in sorted(seen_metrics):
         final_name = "total_cost_usd" if name == "cost_usd" else f"total_{name}"

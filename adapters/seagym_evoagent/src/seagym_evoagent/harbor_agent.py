@@ -419,10 +419,12 @@ def _validate_failure_receipt(
 
 
 def _populate_failure_context(context: Any, receipt: dict[str, Any]) -> None:
-    context.n_input_tokens = 0
-    context.n_cache_tokens = 0
-    context.n_output_tokens = 0
-    context.cost_usd = 0.0
+    # A failure receipt classifies execution; it contains no usage telemetry.
+    # MiMo may already have made billable requests before ATIF was lost.
+    context.n_input_tokens = None
+    context.n_cache_tokens = None
+    context.n_output_tokens = None
+    context.cost_usd = None
     context.rollout_details = None
     context.metadata = {
         "runtime_failure_receipt_sha256": receipt["receipt_sha256"],
@@ -591,7 +593,7 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
         ):
             raise ValueError("ATIF timestamp is invalid")
         step_metrics = step.get("metrics")
-        if step_metrics is not None:
+        if "metrics" in step:
             if not isinstance(step_metrics, dict) or set(step_metrics) - {
                 "prompt_tokens",
                 "completion_tokens",
@@ -642,6 +644,8 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
             expected_status = result["content"].split(":", 1)[1]
             if step.get("extra") != {"status": expected_status}:
                 raise ValueError("ATIF tool status metadata is inconsistent")
+    if not seen_metrics:
+        raise ValueError("ATIF has no complete usage measurement")
     metrics = raw.get("final_metrics")
     expected_metric_keys = {"total_steps"} | {
         ("total_cost_usd" if name == "cost_usd" else f"total_{name}")
@@ -654,11 +658,11 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
     if metrics.get("total_steps") != len(steps):
         raise ValueError("ATIF total_steps is inconsistent")
     usage = {
-        "prompt_tokens": _metric_int(metrics.get("total_prompt_tokens", 0), "prompt tokens"),
-        "completion_tokens": _metric_int(metrics.get("total_completion_tokens", 0), "completion tokens"),
-        "cached_tokens": _metric_int(metrics.get("total_cached_tokens", 0), "cached tokens"),
+        "prompt_tokens": _metric_int(metrics["total_prompt_tokens"], "prompt tokens"),
+        "completion_tokens": _metric_int(metrics["total_completion_tokens"], "completion tokens"),
+        "cached_tokens": _metric_int(metrics["total_cached_tokens"], "cached tokens"),
         "reasoning_tokens": 0,
-        "cost_usd": _metric_cost(metrics.get("total_cost_usd", 0.0)),
+        "cost_usd": _metric_cost(metrics["total_cost_usd"]),
     }
     if saw_reasoning_telemetry:
         final_extra = metrics.get("extra")
@@ -683,28 +687,19 @@ def _validate_sanitized_atif(raw: Any, snapshot: HarnessSnapshot, seed: int) -> 
 
 
 def _validated_metric_dict(metrics: dict[str, Any]) -> None:
-    if "prompt_tokens" in metrics:
-        _metric_int(metrics["prompt_tokens"], "prompt tokens")
-    if "completion_tokens" in metrics:
-        _metric_int(metrics["completion_tokens"], "completion tokens")
-    if "cached_tokens" in metrics:
-        _metric_int(metrics["cached_tokens"], "cached tokens")
-    if "cost_usd" in metrics:
-        _metric_cost(metrics["cost_usd"])
+    required = {"prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"}
+    if not required <= set(metrics) or set(metrics) - required - {"extra"}:
+        raise ValueError("ATIF step usage is incomplete")
+    _metric_int(metrics["prompt_tokens"], "prompt tokens")
+    _metric_int(metrics["completion_tokens"], "completion tokens")
+    _metric_int(metrics["cached_tokens"], "cached tokens")
+    _metric_cost(metrics["cost_usd"])
     if "extra" in metrics:
-        if set(metrics) != {
-            "prompt_tokens",
-            "completion_tokens",
-            "cached_tokens",
-            "cost_usd",
-            "extra",
-        }:
-            raise ValueError("ATIF MiMo step usage is incomplete")
         extra = metrics["extra"]
         if not isinstance(extra, dict) or set(extra) != {"reasoning_tokens"}:
             raise ValueError("ATIF step reasoning telemetry is invalid")
         _metric_int(extra["reasoning_tokens"], "reasoning tokens")
-    if metrics.get("cached_tokens", 0) > metrics.get("prompt_tokens", 0):
+    if metrics["cached_tokens"] > metrics["prompt_tokens"]:
         raise ValueError("ATIF step cached tokens exceed prompt tokens")
 
 
